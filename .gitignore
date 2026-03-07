@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 *.mid
 .venv/
+.drumgen_config.json
+output/

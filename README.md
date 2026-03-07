@@ -1,6 +1,6 @@
 # drumgen
 
-Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python CLI that outputs .mid files from hand-coded rhythmic cells with humanization.
+Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python that outputs .mid files from hand-coded rhythmic cells with humanization. CLI and Streamlit GUI.
 
 Built for Ableton Live + Ugritone drums. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, euro-screamo, and experimental black metal.
 
@@ -12,7 +12,17 @@ source .venv/bin/activate  # or .venv/bin/activate.fish
 pip install -r requirements.txt
 ```
 
-## Usage
+## GUI
+
+```bash
+streamlit run app.py
+```
+
+The Streamlit GUI provides the same features as the CLI: style/cell selection, arrangement mode, humanization controls, and kit mapping. All sidebar widgets have tooltip help — hover the (?) icon for guidance on values and ranges. After generation, the pattern preview shows a grid key (`X` = accent, `x` = normal, `o` = ghost, `.` = silent) and the selected cell's tags.
+
+Requires: `pip install streamlit` (included in requirements.txt).
+
+## CLI Usage
 
 ```bash
 # Generate a pattern
@@ -45,7 +55,7 @@ python drumgen.py --list-cells
 python drumgen.py --test-mapping ugritone
 ```
 
-## Options
+## CLI Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -139,6 +149,8 @@ Each style maps to a pool of cells. In arrangement mode, the best cell is select
 ## Architecture
 
 ```
+app.py              Streamlit GUI
+preview.py          FluidSynth audio preview (WAV rendering)
 drumgen.py          CLI entry point
 assembler.py        Cell selection, bar layout, arrangement mode, humanization
 cell_library.py     Cell data, style pools, section preferences, lookup functions
