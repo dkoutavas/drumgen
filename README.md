@@ -2,7 +2,7 @@
 
 Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python CLI that outputs .mid files from hand-coded rhythmic cells with humanization.
 
-Built for Ableton Live + Ugritone drums. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, and experimental black metal.
+Built for Ableton Live + Ugritone drums. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, euro-screamo, and experimental black metal.
 
 ## Install
 
@@ -18,13 +18,27 @@ pip install -r requirements.txt
 # Generate a pattern
 python drumgen.py --style shellac --tempo 130 --bars 8 -o verse.mid
 
-# All options
-python drumgen.py --style blast --tempo 180 --bars 4 --humanize 0.9 --swing 0.0 --seed 42
+# Screamo (now maps to emoviolence_blast_crash, not just blast)
+python drumgen.py --style screamo --tempo 180 --bars 4
+
+# Euro-screamo
+python drumgen.py --style euro_screamo --tempo 140 --bars 8
+
+# Black metal
+python drumgen.py --style black_metal --tempo 130 --bars 4
+
+# Arrangement mode — multi-section songs
+python drumgen.py --style screamo -a "4:blast 1:silence 4:breakdown" --tempo 180
+python drumgen.py --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
+python drumgen.py --style black_metal -a "4:atmospheric 4:build 4:blast" --tempo 130
 
 # Insert a fill every 4 bars
 python drumgen.py --style raein --tempo 135 --bars 8 --fill-every 4
 
-# List available cells and style shortcuts
+# Use a specific cell directly
+python drumgen.py --cell liturgy_burst_beat --tempo 106 --bars 4
+
+# List available cells and style pools
 python drumgen.py --list-cells
 
 # Test a kit mapping (generates one hit per instrument)
@@ -35,34 +49,99 @@ python drumgen.py --test-mapping ugritone
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--style` / `-s` | required | Style tag: blast, dbeat, shellac, fugazi, faraquet, raein, posthardcore, noise_rock, screamo, math, euro_screamo |
+| `--style` / `-s` | required | Style: blast, dbeat, shellac, fugazi, faraquet, raein, posthardcore, noise_rock, screamo, emoviolence, math, euro_screamo, daitro, liturgy, black_metal, deafheaven |
 | `--cell` | | Exact cell name (overrides --style) |
+| `--arrangement` / `-a` | | Arrangement string, e.g. `"4:build 8:drive 2:blast 1:silence 4:breakdown"` |
 | `--tempo` / `-t` | 120 | BPM |
-| `--bars` / `-b` | 4 | Number of bars |
+| `--bars` / `-b` | 4 | Number of bars (ignored in arrangement mode) |
 | `--time-sig` / `-ts` | 4/4 | Time signature |
 | `--humanize` | per-cell | Humanization amount 0.0-1.0 |
 | `--swing` | 0.0 | Swing amount 0.0-1.0 |
+| `--vary` / `-v` | 0.0 | Variation amount 0.0-1.0 — mutates repeated bars (ghost adds, kick shifts, HH swaps) |
 | `--fill-every` | 0 | Insert fill every N bars (0 = none) |
 | `--seed` | random | Seed for reproducibility |
 | `--kit` | ugritone | Kit mapping name or path |
 | `--output` / `-o` | auto | Output .mid path |
 
-## Cells (Phase 1)
+## Arrangement Mode
 
-- **blast_traditional** — K/S alternating every 16th, ride every 16th
-- **dbeat_standard** — X.XX kick pattern, snare backbeat, HH eighths
-- **shellac_floor_tom_drive** — Floor tom 1/3, snare 2/4, ride quarters. No ghost notes.
-- **fugazi_driving_chorus** — Syncopated kick, snare 2/4, ride eighths
-- **faraquet_displaced_4_4** — 2-bar cell, displaced backbeat, ghost snares, ride eighths
-- **raein_melodic_drive** — Dynamic HH (accent/ghost alternating), ghost snares
-- **fill_linear_1bar** — Single-stroke roll descending through kit, velocity crescendo
+Build multi-section drum tracks with `--arrangement` / `-a`. Each token is `bars:section_type`:
+
+```bash
+python drumgen.py --style screamo -a "4:blast 1:silence 4:breakdown"
+```
+
+Section types: `intro`, `build`, `verse`, `chorus`, `drive`, `blast`, `breakdown`, `atmospheric`, `silence`, `fill`, `outro`
+
+The system automatically selects the best cell from the style pool for each section based on tag matching. Silence sections produce empty bars. Intense sections (chorus, blast, breakdown, drive) get a crash+kick on beat 1.
+
+## Cells (21)
+
+### Groove Cells
+
+| Cell | Bars | Description |
+|------|------|-------------|
+| blast_traditional | 1 | K/S alternating every 16th, ride every 16th |
+| dbeat_standard | 1 | X.XX kick pattern, snare backbeat, HH eighths |
+| shellac_floor_tom_drive | 1 | Floor tom 1/3, snare 2/4, ride quarters |
+| fugazi_driving_chorus | 1 | Syncopated kick (1, 2+, 3), snare 2/4, ride eighths |
+| faraquet_displaced_4_4 | 2 | Displaced backbeat, ghost snares, ride eighths |
+| raein_melodic_drive | 1 | Dynamic HH accent/ghost, ghost snares |
+| emoviolence_angular_breakdown | 1 | Half-time. K 1/3/3.5, snare 3, floor tom 4.5 |
+| emoviolence_blast_crash | 2 | Blast + crash on every quarter note |
+| daitro_quiet_build | 8 | Ride bell → ride + kick → snare → full. Crescendo humanize. |
+| daitro_tremolo_drive | 1 | Fast kick doubles, snare 2/4, ride eighths |
+| daitro_blast_release | 4 | Bars 1-3 full blast, bar 4 half-blast (receding) |
+| liturgy_burst_beat | 1 | K/S near-simultaneous (flammed) every 16th. 3-over-4 accent. |
+| blackmetal_atmospheric | 1 | Sparse: kick 1, ride bell pings, snare 3, HH pedal |
+| deafheaven_build_to_blast | 8 | Kick quarters → eighths → sixteenths → full blast |
+
+### Fill Cells
+
+| Cell | Description |
+|------|-------------|
+| fill_linear_1bar | Single-stroke roll descending through kit, velocity crescendo |
+| emoviolence_chaotic_fill | Beats 1-2 silence, 3-4 sixteenths across kit |
+| fill_floor_tom_sparse | 3 floor tom hits only. Massive, sparse. |
+
+### Transition Cells
+
+| Cell | Bars | Description |
+|------|------|-------------|
+| transition_crash_silence | 1 | Crash + kick on beat 1, rest silence |
+| transition_half_time_shift | 2 | Half-time feel, kick syncopation, ride eighths |
+| transition_snare_roll_to_crash | 1 | Beats 1-2 silence, 3-4 snare roll crescendo |
+| transition_cymbal_swell | 2 | Ride bell swell ghost→accent, kick joins bar 2 |
+
+## Style Pools
+
+Each style maps to a pool of cells. In arrangement mode, the best cell is selected per section.
+
+| Style | Pool |
+|-------|------|
+| blast | blast_traditional, emoviolence_blast_crash |
+| dbeat | dbeat_standard |
+| shellac | shellac_floor_tom_drive |
+| fugazi | fugazi_driving_chorus |
+| faraquet | faraquet_displaced_4_4 |
+| raein | raein_melodic_drive |
+| posthardcore | fugazi_driving_chorus, faraquet_displaced_4_4, raein_melodic_drive |
+| noise_rock | shellac_floor_tom_drive |
+| screamo | emoviolence_blast_crash, emoviolence_angular_breakdown, blast_traditional |
+| emoviolence | emoviolence_blast_crash, emoviolence_angular_breakdown, blast_traditional |
+| math | faraquet_displaced_4_4 |
+| euro_screamo | daitro_tremolo_drive, daitro_quiet_build, daitro_blast_release, raein_melodic_drive |
+| daitro | daitro_quiet_build, daitro_tremolo_drive, daitro_blast_release |
+| liturgy | liturgy_burst_beat |
+| black_metal | liturgy_burst_beat, blackmetal_atmospheric, deafheaven_build_to_blast |
+| deafheaven | deafheaven_build_to_blast, blackmetal_atmospheric |
 
 ## Architecture
 
 ```
 drumgen.py          CLI entry point
-assembler.py        Cell selection, bar layout, humanization
-cell_library.py     Cell data + lookup functions
+assembler.py        Cell selection, bar layout, arrangement mode, humanization
+cell_library.py     Cell data, style pools, section preferences, lookup functions
 humanizer.py        Seeded RNG, per-instrument velocity/timing tables
 midi_engine.py      Position math, MIDI file writing
 kit_mappings/       JSON instrument-to-note mappings

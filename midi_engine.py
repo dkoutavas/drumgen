@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import sys
 
@@ -73,11 +72,10 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
     current_tick = 0
     for ts_entry in time_signatures:
         num, den = ts_entry["numerator"], ts_entry["denominator"]
-        den_power = int(math.log2(den))
         ts_bar = ts_entry.get("bar_start", 1)
         ts_abs_tick = calculate_bar_start_ticks(ts_bar, time_signatures, ppq)
         delta = max(0, ts_abs_tick - current_tick)
-        track.append(mido.MetaMessage("time_signature", numerator=num, denominator=den_power,
+        track.append(mido.MetaMessage("time_signature", numerator=num, denominator=den,
                                       clocks_per_click=24, notated_32nd_notes_per_beat=8, time=delta))
         current_tick = ts_abs_tick
 
@@ -109,7 +107,7 @@ def generate_test_mapping(mapping_name, output_path=None, ppq=DEFAULT_PPQ):
     mid.tracks.append(track)
 
     track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(120), time=0))
-    track.append(mido.MetaMessage("time_signature", numerator=4, denominator=2,
+    track.append(mido.MetaMessage("time_signature", numerator=4, denominator=4,
                                   clocks_per_click=24, notated_32nd_notes_per_beat=8, time=0))
 
     beat_ticks = ppq

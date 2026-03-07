@@ -10,23 +10,23 @@ class Humanizer:
     }
 
     INSTRUMENT_VARIANCE = {
-        "hihat_closed": 20,
-        "hihat_open": 15,
-        "ride": 18,
-        "ride_bell": 15,
-        "snare": 12,
-        "snare_ghost": 15,
-        "snare_rim": 10,
-        "kick": 10,
-        "crash_1": 8,
-        "crash_2": 8,
-        "china": 10,
-        "splash": 10,
-        "tom_high": 14,
-        "tom_mid": 14,
-        "tom_low": 14,
-        "tom_floor": 14,
-        "hihat_pedal": 12,
+        "hihat_closed": 25,
+        "hihat_open": 20,
+        "ride": 22,
+        "ride_bell": 20,
+        "snare": 18,
+        "snare_ghost": 20,
+        "snare_rim": 15,
+        "kick": 16,
+        "crash_1": 14,
+        "crash_2": 14,
+        "china": 16,
+        "splash": 14,
+        "tom_high": 18,
+        "tom_mid": 18,
+        "tom_low": 18,
+        "tom_floor": 18,
+        "hihat_pedal": 15,
     }
 
     TIMING_TENDENCIES = {
@@ -60,7 +60,7 @@ class Humanizer:
         low, high = self.VELOCITY_RANGES[level]
         center = (low + high) // 2
         variance = self.INSTRUMENT_VARIANCE.get(instrument, 12)
-        scaled_variance = int(variance * self.humanize_amount)
+        scaled_variance = max(3, int(variance * self.humanize_amount))
         if scaled_variance <= 0:
             return max(1, min(127, center))
         vel = self.rng.randint(center - scaled_variance, center + scaled_variance)
@@ -70,7 +70,7 @@ class Humanizer:
         ms_per_tick = (60000.0 / tempo_bpm) / ppq
         tendency_ms = self.TIMING_TENDENCIES.get(instrument, 0)
         tendency_ticks = int(tendency_ms * self.humanize_amount / ms_per_tick)
-        jitter_ms = self.rng.gauss(0, 3 * self.humanize_amount)
+        jitter_ms = self.rng.gauss(0, 6 * self.humanize_amount)
         jitter_ticks = int(jitter_ms / ms_per_tick)
         return max(0, abs_tick + tendency_ticks + jitter_ticks)
 
