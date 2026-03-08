@@ -252,10 +252,9 @@ def _clip_to_midi(clip_info, tempo, time_sig_num, time_sig_den, ppq=480):
     mid.tracks.append(track)
 
     track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(tempo), time=0))
-    # mido time_signature denominator is power of 2
-    den_power = {1: 0, 2: 1, 4: 2, 8: 3, 16: 4, 32: 5}.get(time_sig_den, 2)
+    # mido expects actual denominator (must be power of 2); it converts to log2 internally
     track.append(mido.MetaMessage(
-        "time_signature", numerator=time_sig_num, denominator=den_power,
+        "time_signature", numerator=time_sig_num, denominator=time_sig_den,
         clocks_per_click=24, notated_32nd_notes_per_beat=8, time=0,
     ))
 
