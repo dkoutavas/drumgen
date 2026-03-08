@@ -149,20 +149,46 @@ Each style maps to a pool of cells. In arrangement mode, the best cell is select
 ## Architecture
 
 ```
-app.py              Streamlit GUI
+app.py              Streamlit GUI (generation + MIDI import with preview/validation)
 preview.py          FluidSynth audio preview (WAV rendering)
 drumgen.py          CLI entry point
 assembler.py        Cell selection, bar layout, arrangement mode, humanization
-cell_library.py     Cell data, style pools, section preferences, lookup functions
+cell_library.py     Cell data, style pools, section preferences, auto-pool integration
 humanizer.py        Seeded RNG, per-instrument velocity/timing tables
-midi_engine.py      Position math, MIDI file writing
-kit_mappings/       JSON instrument-to-note mappings
+midi_engine.py      Position math, MIDI file writing, note overlap prevention
+midi_reader.py      MIDI import, auto-tagging, validation, dedup, content hashing
+als_extractor.py    Ableton .als extraction, non-drum track filtering
+kit_mappings/       JSON instrument-to-note mappings (ugritone, addictive_drums, GM)
+user_cells/         Imported cell JSON files (gitignored, auto-loaded)
 styles/             Style DNA reference (build-time only)
 ```
+
+## MIDI Import
+
+Import your own MIDI drum patterns as cells. Extracted from Ableton projects or uploaded directly.
+
+```bash
+# Extract MIDI clips from Ableton .als projects
+python als_extractor.py /path/to/projects/ --recursive --drums-only -o /tmp/extract/
+
+# Import with auto-tagging (use addictive_drums kit for AD sources)
+python midi_reader.py /tmp/extract/ --auto-tag --kit addictive_drums
+
+# Maintenance
+python midi_reader.py --validate --kit addictive_drums
+python midi_reader.py --stats
+python midi_reader.py --retag
+python midi_reader.py --dedup --confirm
+```
+
+Import features: content-based auto-tagging (blast, halftime, backbeat, fill, density, odd meter detection), content hashing for dedup, hit deduplication, trailing bar trim, non-drum track filtering, and validation. Imported cells auto-integrate into style pools based on their tags.
+
+The GUI also supports MIDI import via the sidebar expander with preview, auto-tagging, and validation.
 
 ## Kit Mappings
 
 - `ugritone` — Ugritone drum plugin (default)
+- `addictive_drums` — Addictive Drums (note 48 = snare, alias 38 = snare)
 - `general_midi` — Standard GM drums
 
-Custom mappings: create a JSON file in `kit_mappings/` or pass a path with `--kit`.
+Custom mappings: create a JSON file in `kit_mappings/` or pass a path with `--kit`. Kit files support an `aliases` field for additional note-to-instrument mappings (useful when a source kit maps multiple notes to the same instrument).
