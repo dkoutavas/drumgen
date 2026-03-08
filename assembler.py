@@ -1,6 +1,8 @@
 import random
 
-from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP
+import sys
+
+from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS
 from humanizer import Humanizer
 from midi_engine import position_to_ticks, DEFAULT_PPQ
 
@@ -24,11 +26,13 @@ def _drift_offset(bar_index, total_bars, direction):
     return 0
 
 
-def vary_hits(hits, cell_bar, vary_amount, rng):
+def vary_hits(hits, cell_bar, vary_amount, rng, time_sig=(4, 4)):
     """Mutate a copy of normalized 5-tuple hits for a given cell_bar."""
     mutated = list(hits)
     bar_hits = [(i, h) for i, h in enumerate(mutated) if h[0] == cell_bar]
     occupied = {(h[1], h[2], h[3]) for _, h in bar_hits}  # (beat, sub, instrument)
+
+    max_beats = time_sig[0]
 
     # Ghost note add (p = vary * 0.5)
     for idx, h in bar_hits:
@@ -50,7 +54,7 @@ def vary_hits(hits, cell_bar, vary_amount, rng):
             elif new_sub < 0.0:
                 new_sub += 1.0
                 new_beat -= 1
-            if 1 <= new_beat <= 4 and (new_beat, new_sub, "kick") not in occupied:
+            if 1 <= new_beat <= max_beats and (new_beat, new_sub, "kick") not in occupied:
                 occupied.discard((h[1], h[2], "kick"))
                 mutated[idx] = (h[0], new_beat, new_sub, "kick", h[4])
                 occupied.add((new_beat, new_sub, "kick"))
@@ -131,21 +135,39 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
+    num, den = [int(x) for x in time_sig.split("/")]
+    requested_ts = (num, den)
+
     # Resolve cell
     if cell_name:
         cell = get_cell(cell_name)
+        cell_ts = tuple(cell.get("time_sig", (4, 4)))
+        if cell_ts != requested_ts:
+            print(f"Warning: cell '{cell['name']}' is {cell_ts[0]}/{cell_ts[1]} "
+                  f"but requested {num}/{den} — no matching cell available",
+                  file=sys.stderr)
     elif style:
         style_lower = style.lower()
-        if style_lower in STYLE_MAP:
+        if style_lower in STYLE_POOLS:
+            pool = get_pool(style_lower)
+            ts_match = [c for c in pool if tuple(c["time_sig"]) == requested_ts]
+            if ts_match:
+                cell = ts_match[0]
+            else:
+                cell = pool[0]
+                cell_ts = tuple(cell.get("time_sig", (4, 4)))
+                if cell_ts != requested_ts:
+                    print(f"Warning: no {num}/{den} cell for style '{style}' — "
+                          f"using {cell_ts[0]}/{cell_ts[1]} cell '{cell['name']}'",
+                          file=sys.stderr)
+        elif style_lower in STYLE_MAP:
             cell = get_cell(STYLE_MAP[style_lower])
         else:
             raise ValueError(
-                f"Unknown style: '{style}'. Available: {', '.join(sorted(STYLE_MAP.keys()))}"
+                f"Unknown style: '{style}'. Available: {', '.join(sorted(STYLE_POOLS.keys()))}"
             )
     else:
         raise ValueError("Must provide --style or --cell")
-
-    num, den = [int(x) for x in time_sig.split("/")]
     time_signatures = [{"bar_start": 1, "bar_end": bars + 10, "numerator": num, "denominator": den}]
 
     humanize_amount = humanize if humanize is not None else cell["humanize"]
@@ -183,7 +205,7 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
 
         # Apply vary mutations on repeated cell_bars
         if vary > 0 and cell_bar in seen_cell_bars:
-            active_hits = vary_hits(active_hits, cell_bar, vary, rng)
+            active_hits = vary_hits(active_hits, cell_bar, vary, rng, time_sig=(num, den))
         seen_cell_bars.add(cell_bar)
 
         bar_events = _process_bar(
@@ -258,12 +280,16 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     bar_cursor = 0  # 0-indexed global bar counter
 
     for section_bars, section_type in sections:
-        cell = get_cell_for_section(pool, section_type)
+        cell = get_cell_for_section(pool, section_type, requested_time_sig=(num, den))
 
         if cell is None:
             # Silence section — advance bar counter, emit nothing
             bar_cursor += section_bars
             continue
+
+        if tuple(cell.get("time_sig", (4, 4))) != (num, den):
+            print(f"Warning: section '{section_type}' using {cell['time_sig'][0]}/{cell['time_sig'][1]} "
+                  f"cell '{cell['name']}' for {num}/{den} — no matching cell", file=sys.stderr)
 
         cell_hits = _normalize_hits(cell)
         cell_humanize = humanize if humanize is not None else cell["humanize"]
@@ -294,7 +320,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
 
             current_hits = cell_hits
             if vary > 0 and cell_bar in seen_cell_bars:
-                current_hits = vary_hits(cell_hits, cell_bar, vary, rng)
+                current_hits = vary_hits(cell_hits, cell_bar, vary, rng, time_sig=(num, den))
             seen_cell_bars.add(cell_bar)
 
             bar_events = _process_bar(
@@ -309,7 +335,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     events.sort(key=lambda e: (e[0], e[1]))
 
     section_summary = " → ".join(
-        f"{count}×{stype}" + (f"({get_cell_for_section(pool, stype)['name']})" if get_cell_for_section(pool, stype) else "(silence)")
+        f"{count}×{stype}" + (f"({get_cell_for_section(pool, stype, requested_time_sig=(num, den))['name']})" if get_cell_for_section(pool, stype, requested_time_sig=(num, den)) else "(silence)")
         for count, stype in sections
     )
 

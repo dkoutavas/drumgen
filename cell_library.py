@@ -676,6 +676,406 @@ def _fill_floor_tom_sparse():
     }
 
 
+# ── Odd meter cells ───────────────────────────────────────────────────────────
+
+# -- 7/8 cells --
+
+def _faraquet_7_8():
+    """Faraquet displaced backbeat in 7/8. 2+2+3 grouping, ghost snares, ride on every beat."""
+    hits = [
+        # Bar 1
+        (1, 1, 0.0, "kick", "accent"),
+        (1, 3, 0.0, "kick", "normal"),
+        (1, 5, 0.0, "kick", "normal"),
+        (1, 4, 0.0, "snare", "accent"),
+        (1, 7, 0.0, "snare", "accent"),
+        (1, 2, 0.0, "snare_ghost", "ghost"),
+        (1, 6, 0.0, "snare_ghost", "ghost"),
+    ]
+    for beat in range(1, 8):
+        hits.append((1, beat, 0.0, "ride", "normal"))
+    hits.extend([
+        # Bar 2 (displaced)
+        (2, 2, 0.0, "kick", "normal"),
+        (2, 4, 0.0, "kick", "accent"),
+        (2, 7, 0.0, "kick", "normal"),
+        (2, 3, 0.0, "snare", "accent"),
+        (2, 6, 0.0, "snare", "accent"),
+        (2, 1, 0.0, "snare_ghost", "ghost"),
+        (2, 5, 0.0, "snare_ghost", "ghost"),
+    ])
+    for beat in range(1, 8):
+        hits.append((2, beat, 0.0, "ride", "normal"))
+    return {
+        "name": "faraquet_7_8",
+        "tags": ["faraquet", "angular", "math", "posthardcore", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 2,
+        "humanize": 0.65,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _shellac_7_8():
+    """Shellac 7/8: floor tom on 1, snare on 4, ride on every beat. 3+4 grouping."""
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (4, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 8):
+        hits.append((beat, 0.0, "ride", "normal"))
+    return {
+        "name": "shellac_7_8",
+        "tags": ["shellac", "noise_rock", "sparse", "precise", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.2,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _blast_7_8():
+    """Traditional blast in 7/8: K/S alternating every sixteenth, ride on every position."""
+    hits = []
+    for beat in range(1, 8):
+        hits.append((beat, 0.0, "kick", "accent"))
+        hits.append((beat, 0.5, "snare", "accent"))
+        hits.append((beat, 0.0, "ride", "accent"))
+        hits.append((beat, 0.5, "ride", "normal"))
+    return {
+        "name": "blast_7_8",
+        "tags": ["blast", "extreme", "screamo", "metal", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.8,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _dbeat_7_8():
+    """D-beat in 7/8: X.XX kick pattern adapted to 2+2+3 grouping. HH on every beat."""
+    hits = [
+        # Group 1 (1-2): K on 1, S upbeat, K doubles on 2
+        (1, 0.0, "kick", "accent"),
+        (1, 0.5, "snare", "accent"),
+        (2, 0.0, "kick", "normal"),
+        (2, 0.5, "kick", "normal"),
+        # Group 2 (3-4): K on 3, S upbeat, K doubles on 4
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "snare", "accent"),
+        (4, 0.0, "kick", "normal"),
+        (4, 0.5, "kick", "normal"),
+        # Group 3 (5-6-7): K on 5, S upbeat, K on 6-7
+        (5, 0.0, "kick", "accent"),
+        (5, 0.5, "snare", "accent"),
+        (6, 0.0, "kick", "normal"),
+        (7, 0.0, "kick", "normal"),
+    ]
+    for beat in range(1, 8):
+        hits.append((beat, 0.0, "hihat_closed", "normal"))
+    return {
+        "name": "dbeat_7_8",
+        "tags": ["dbeat", "punk", "hardcore", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _driving_7_8():
+    """Driving 7/8: syncopated kick, snare backbeat, ride on every beat. 2+2+3."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (3, 0.0, "kick", "accent"),
+        (5, 0.0, "kick", "accent"),
+        (6, 0.5, "kick", "normal"),
+        (4, 0.0, "snare", "accent"),
+        (7, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 8):
+        hits.append((beat, 0.0, "ride", "normal"))
+    return {
+        "name": "driving_7_8",
+        "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _atmospheric_7_8():
+    """Atmospheric black metal 7/8: sparse kick, ride bell pings, 3+4 grouping."""
+    hits = [
+        (1, 0.0, "kick", "normal"),
+        (4, 0.0, "snare", "normal"),
+        (3, 0.0, "ride_bell", "soft"),
+        (6, 0.0, "ride_bell", "soft"),
+        (1, 0.0, "hihat_pedal", "ghost"),
+        (2, 0.0, "hihat_pedal", "ghost"),
+        (4, 0.0, "hihat_pedal", "ghost"),
+        (5, 0.0, "hihat_pedal", "ghost"),
+    ]
+    return {
+        "name": "atmospheric_7_8",
+        "tags": ["black_metal", "atmospheric", "sparse", "odd_meter"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.8,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+# -- 5/4 cells --
+
+def _faraquet_5_4():
+    """Faraquet displaced backbeat in 5/4. Ghost snares, ride eighths."""
+    hits = [
+        # Bar 1
+        (1, 1, 0.0, "kick", "accent"),
+        (1, 3, 0.0, "kick", "normal"),
+        (1, 4, 0.5, "kick", "normal"),
+        (1, 2, 0.5, "snare", "accent"),
+        (1, 5, 0.0, "snare", "accent"),
+        (1, 1, 0.5, "snare_ghost", "ghost"),
+        (1, 4, 0.0, "snare_ghost", "ghost"),
+    ]
+    for beat in range(1, 6):
+        hits.append((1, beat, 0.0, "ride", "normal"))
+        hits.append((1, beat, 0.5, "ride", "normal"))
+    hits.extend([
+        # Bar 2 (displaced)
+        (2, 2, 0.0, "kick", "normal"),
+        (2, 4, 0.5, "kick", "accent"),
+        (2, 3, 0.0, "snare", "accent"),
+        (2, 5, 0.0, "snare", "accent"),
+        (2, 1, 0.0, "snare_ghost", "ghost"),
+        (2, 3, 0.5, "snare_ghost", "ghost"),
+    ])
+    for beat in range(1, 6):
+        hits.append((2, beat, 0.0, "ride", "normal"))
+        hits.append((2, beat, 0.5, "ride", "normal"))
+    return {
+        "name": "faraquet_5_4",
+        "tags": ["faraquet", "angular", "math", "posthardcore", "odd_meter"],
+        "time_sig": (5, 4),
+        "num_bars": 2,
+        "humanize": 0.65,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _shellac_5_4():
+    """Shellac 5/4: floor tom on 1, snare on 4, ride quarters."""
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (4, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 6):
+        hits.append((beat, 0.0, "ride", "normal"))
+    return {
+        "name": "shellac_5_4",
+        "tags": ["shellac", "noise_rock", "sparse", "precise", "odd_meter"],
+        "time_sig": (5, 4),
+        "num_bars": 1,
+        "humanize": 0.2,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _driving_5_4():
+    """Driving 5/4: syncopated kick, snare backbeat, ride eighths."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (3, 0.0, "kick", "accent"),
+        (4, 0.5, "kick", "normal"),
+        (2, 0.0, "snare", "accent"),
+        (5, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 6):
+        hits.append((beat, 0.0, "ride", "normal"))
+        hits.append((beat, 0.5, "ride", "normal"))
+    return {
+        "name": "driving_5_4",
+        "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
+        "time_sig": (5, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _blast_5_4():
+    """Traditional blast in 5/4: K/S alternating sixteenths, ride sixteenths."""
+    hits = []
+    for beat in range(1, 6):
+        hits.append((beat, 0.0, "kick", "accent"))
+        hits.append((beat, 0.5, "kick", "accent"))
+        hits.append((beat, 0.25, "snare", "accent"))
+        hits.append((beat, 0.75, "snare", "accent"))
+        hits.append((beat, 0.0, "ride", "accent"))
+        hits.append((beat, 0.25, "ride", "normal"))
+        hits.append((beat, 0.5, "ride", "accent"))
+        hits.append((beat, 0.75, "ride", "normal"))
+    return {
+        "name": "blast_5_4",
+        "tags": ["blast", "extreme", "odd_meter"],
+        "time_sig": (5, 4),
+        "num_bars": 1,
+        "humanize": 0.8,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+# -- 3/4 cells --
+
+def _waltz_punk():
+    """Punk waltz: kick on 1, snare on 2, HH eighths. Angular 3/4."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "kick", "normal"),
+        (2, 0.0, "snare", "accent"),
+        (3, 0.0, "snare", "normal"),
+        (1, 0.0, "hihat_closed", "accent"),
+        (1, 0.5, "hihat_closed", "normal"),
+        (2, 0.0, "hihat_closed", "accent"),
+        (2, 0.5, "hihat_closed", "normal"),
+        (3, 0.0, "hihat_closed", "accent"),
+        (3, 0.5, "hihat_closed", "normal"),
+    ]
+    return {
+        "name": "waltz_punk",
+        "tags": ["posthardcore", "punk", "odd_meter", "angular"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _shellac_3_4():
+    """Shellac 3/4: floor tom on 1, snare on 3, ride quarters."""
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (1, 0.0, "ride", "normal"),
+        (2, 0.0, "ride", "normal"),
+        (3, 0.0, "ride", "normal"),
+    ]
+    return {
+        "name": "shellac_3_4",
+        "tags": ["shellac", "noise_rock", "sparse", "precise", "odd_meter"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.2,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _driving_3_4():
+    """Driving 3/4: syncopated kick, snare on 3, ride eighths."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "kick", "normal"),
+        (3, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 4):
+        hits.append((beat, 0.0, "ride", "normal"))
+        hits.append((beat, 0.5, "ride", "normal"))
+    return {
+        "name": "driving_3_4",
+        "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _blast_3_4():
+    """Traditional blast in 3/4: K/S alternating sixteenths, ride sixteenths."""
+    hits = []
+    for beat in range(1, 4):
+        hits.append((beat, 0.0, "kick", "accent"))
+        hits.append((beat, 0.5, "kick", "accent"))
+        hits.append((beat, 0.25, "snare", "accent"))
+        hits.append((beat, 0.75, "snare", "accent"))
+        hits.append((beat, 0.0, "ride", "accent"))
+        hits.append((beat, 0.25, "ride", "normal"))
+        hits.append((beat, 0.5, "ride", "accent"))
+        hits.append((beat, 0.75, "ride", "normal"))
+    return {
+        "name": "blast_3_4",
+        "tags": ["blast", "extreme", "odd_meter"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.8,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+# -- 6/8 cells --
+
+def _driving_6_8():
+    """Driving 6/8: compound duple feel (3+3), kick on 1/4, snare on 4, HH every beat, ghost snares."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (4, 0.0, "kick", "accent"),
+        (4, 0.0, "snare", "accent"),
+        (3, 0.0, "snare_ghost", "ghost"),
+        (6, 0.0, "snare_ghost", "ghost"),
+        (1, 0.0, "hihat_closed", "accent"),
+        (2, 0.0, "hihat_closed", "normal"),
+        (3, 0.0, "hihat_closed", "normal"),
+        (4, 0.0, "hihat_closed", "accent"),
+        (5, 0.0, "hihat_closed", "normal"),
+        (6, 0.0, "hihat_closed", "normal"),
+    ]
+    return {
+        "name": "driving_6_8",
+        "tags": ["posthardcore", "driving", "odd_meter"],
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _shellac_6_8():
+    """Shellac 6/8: floor tom on 1, snare on 4, ride on every beat."""
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (4, 0.0, "snare", "accent"),
+    ]
+    for beat in range(1, 7):
+        hits.append((beat, 0.0, "ride", "normal"))
+    return {
+        "name": "shellac_6_8",
+        "tags": ["shellac", "noise_rock", "sparse", "precise", "odd_meter"],
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.2,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 CELLS = {cell["name"]: cell for cell in [
@@ -704,6 +1104,23 @@ CELLS = {cell["name"]: cell for cell in [
     _transition_half_time_shift(),
     _transition_snare_roll_to_crash(),
     _transition_cymbal_swell(),
+    # Odd meter cells
+    _faraquet_7_8(),
+    _shellac_7_8(),
+    _blast_7_8(),
+    _dbeat_7_8(),
+    _driving_7_8(),
+    _atmospheric_7_8(),
+    _faraquet_5_4(),
+    _shellac_5_4(),
+    _driving_5_4(),
+    _blast_5_4(),
+    _waltz_punk(),
+    _shellac_3_4(),
+    _driving_3_4(),
+    _blast_3_4(),
+    _driving_6_8(),
+    _shellac_6_8(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -752,24 +1169,26 @@ TAG_TO_POOLS = {
     "intense": ["screamo", "black_metal"],
     "heavy": ["screamo", "emoviolence", "noise_rock"],
     "fill": [],  # fills are found by role, not pool
+    "odd_meter": ["posthardcore", "math", "noise_rock"],
 }
 
 STYLE_POOLS = {
-    "blast": ["blast_traditional", "emoviolence_blast_crash"],
-    "dbeat": ["dbeat_standard"],
-    "shellac": ["shellac_floor_tom_drive"],
-    "fugazi": ["fugazi_driving_chorus"],
-    "faraquet": ["faraquet_displaced_4_4"],
+    "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4"],
+    "dbeat": ["dbeat_standard", "dbeat_7_8"],
+    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
+    "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8"],
+    "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4"],
     "raein": ["raein_melodic_drive"],
-    "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive"],
-    "noise_rock": ["shellac_floor_tom_drive"],
+    "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
+                     "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "faraquet_7_8", "faraquet_5_4", "waltz_punk"],
+    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
     "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional"],
     "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional"],
-    "math": ["faraquet_displaced_4_4"],
+    "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4"],
     "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive"],
     "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release"],
     "liturgy": ["liturgy_burst_beat"],
-    "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast"],
+    "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast", "atmospheric_7_8"],
     "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric"],
 }
 
@@ -822,15 +1241,23 @@ def get_pool(style):
     return [CELLS[name] for name in STYLE_POOLS[style_lower]]
 
 
-def get_cell_for_section(pool_cells, section_type):
+def get_cell_for_section(pool_cells, section_type, requested_time_sig=None):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
     Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
+    If requested_time_sig is given, prefer cells matching that time signature.
     """
     section_lower = section_type.lower()
     if section_lower == "silence":
         return None
+
+    # Filter by time signature if requested
+    if requested_time_sig:
+        ts_match = [c for c in pool_cells if tuple(c["time_sig"]) == tuple(requested_time_sig)]
+        if ts_match:
+            pool_cells = ts_match
+
     prefs = SECTION_PREFERENCES.get(section_lower, [])
     if prefs and pool_cells:
         n = len(prefs)
