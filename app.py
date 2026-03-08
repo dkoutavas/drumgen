@@ -6,7 +6,7 @@ from pathlib import Path
 from datetime import datetime
 
 from cell_library import CELLS, STYLE_POOLS, STYLE_MAP, SECTION_PREFERENCES, list_cells
-from assembler import assemble, assemble_arrangement
+from assembler import assemble, assemble_arrangement, assemble_layered
 from midi_engine import write_midi, DEFAULT_PPQ
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
 from midi_reader import midi_to_cell, save_cell, auto_tag_cell, validate_cell
@@ -176,8 +176,23 @@ with st.sidebar:
     time_sig = st.selectbox("Time Signature", ["4/4", "3/4", "6/8", "7/8", "5/4"], help="Most cells are written for 4/4. Odd meter support is limited.")
     humanize = st.slider("Humanize", 0.0, 1.0, 0.7, step=0.05, help="How human the drummer sounds. 0.0 = robotic. 0.2 = tight (Shellac). 0.7 = natural. 0.9+ = barely holding it together.")
     vary = st.slider("Vary", 0.0, 1.0, 0.0, step=0.05, help="How much the pattern mutates on repeats. 0.0 = exact loop. 0.3 = occasional ghost note or kick shift. Keeps longer sections from sounding mechanical.")
+    generative = st.checkbox("Generative mode", value=False,
+        help="Probability-based generation. Same style, different each time.")
+    num_variations = 1
+    if generative:
+        num_variations = st.number_input("Variations", min_value=1, max_value=20, value=1)
     swing = st.slider("Swing", 0.0, 1.0, 0.0, step=0.05, help="Delays upbeat notes. 0.0 = straight. 0.5 = moderate swing. Most underground genres use 0.0.")
     fill_every = st.selectbox("Fill Every N Bars", [0, 2, 4, 8], help="Insert a drum fill every N bars. 0 = no fills. 4 = fill every 4-bar phrase.")
+
+    with st.expander("Layer Mode (mix cells)"):
+        st.caption("Pick cells per instrument group. Overrides Style/Cell.")
+        sorted_cell_names = sorted(CELLS.keys())
+        layer_kick = st.selectbox("Kick", ["none"] + sorted_cell_names, key="layer_kick")
+        layer_snare = st.selectbox("Snare", ["none"] + sorted_cell_names, key="layer_snare")
+        layer_cymbal = st.selectbox("Cymbal", ["none"] + sorted_cell_names, key="layer_cymbal")
+        layer_toms = st.selectbox("Toms", ["none"] + sorted_cell_names, key="layer_toms")
+
+    layer_active = any(v != "none" for v in [layer_kick, layer_snare, layer_cymbal, layer_toms])
 
     st.divider()
 
@@ -189,6 +204,7 @@ with st.sidebar:
             value=st.session_state.arrangement_text,
             placeholder="e.g. 4:build 8:drive 2:blast",
         )
+        st.caption("Tip: add @N/M per section, e.g. '4:verse@7/8 2:fill@4/4'")
 
         st.caption("Quick-add sections:")
         quick_sections = {
@@ -302,7 +318,30 @@ st.header("drumgen")
 
 if generate:
     try:
-        if use_arrangement:
+        if layer_active:
+            # Layer mode
+            layers = {}
+            if layer_kick != "none":
+                layers["kick"] = layer_kick
+            if layer_snare != "none":
+                layers["snare"] = layer_snare
+            if layer_cymbal != "none":
+                layers["cymbal"] = layer_cymbal
+            if layer_toms != "none":
+                layers["toms"] = layer_toms
+            result = assemble_layered(
+                layers=layers,
+                bars=bars,
+                tempo=tempo,
+                time_sig=time_sig,
+                humanize=humanize,
+                swing=swing,
+                vary=vary,
+                seed=seed,
+            )
+            total_bars = bars
+            result["actual_cell"] = "layered: " + ", ".join(f"{k}={v}" for k, v in layers.items())
+        elif use_arrangement:
             arr_text = st.session_state.arrangement_text.strip()
             if not arr_text:
                 st.error("Arrangement text is empty. Add sections or type an arrangement string.")
@@ -316,6 +355,7 @@ if generate:
                 swing=swing,
                 seed=seed,
                 vary=vary,
+                generative=generative,
             )
             total_bars = result["total_bars"]
         else:
@@ -331,6 +371,7 @@ if generate:
                 fill_every=fill_every,
                 seed=seed,
                 vary=vary,
+                generative=generative,
             )
             total_bars = bars
             # Track which cell was actually used
@@ -340,14 +381,60 @@ if generate:
                 actual_cell = STYLE_MAP.get(style.lower(), "?")
             result["actual_cell"] = actual_cell
 
+        # Handle variations
+        if generative and num_variations > 1 and not layer_active:
+            import random as _rand
+            base_seed = result["seed"]
+            variation_results = [result]
+            for vi in range(1, num_variations):
+                var_seed = base_seed + vi
+                if use_arrangement:
+                    vr = assemble_arrangement(
+                        style=style, arrangement_str=st.session_state.arrangement_text.strip(),
+                        tempo=tempo, time_sig=time_sig, humanize=humanize,
+                        swing=swing, seed=var_seed, vary=vary, generative=True,
+                    )
+                else:
+                    vr = assemble(
+                        style=style, cell_name=resolved_cell if not layer_active else None,
+                        bars=bars, tempo=tempo, time_sig=time_sig, humanize=humanize,
+                        swing=swing, fill_every=fill_every, seed=var_seed, vary=vary,
+                        generative=True,
+                    )
+                variation_results.append(vr)
+
+            # Write all variations
+            base_name, ext = os.path.splitext(filename)
+            for vi, vr in enumerate(variation_results, 1):
+                var_filename = f"{base_name}_v{vi}{ext}"
+                var_path = os.path.join(output_folder, var_filename)
+                write_midi(
+                    events=vr["events"], tempo=vr["tempo"],
+                    time_signatures=vr["time_signatures"],
+                    kit_mapping_path=kit, output_path=var_path,
+                )
+                with open(var_path, "rb") as f:
+                    var_bytes = f.read()
+                st.success(f"Variation {vi}: **{var_filename}** (seed {vr['seed']})")
+                st.download_button(
+                    label=f"Download v{vi}",
+                    data=var_bytes,
+                    file_name=var_filename,
+                    mime="audio/midi",
+                    key=f"dl_var_{vi}",
+                )
+            # Use first variation as the main result for preview
+            result = variation_results[0]
+
         output_path = os.path.join(output_folder, filename)
-        write_midi(
-            events=result["events"],
-            tempo=result["tempo"],
-            time_signatures=result["time_signatures"],
-            kit_mapping_path=kit,
-            output_path=output_path,
-        )
+        if not (generative and num_variations > 1 and not layer_active):
+            write_midi(
+                events=result["events"],
+                tempo=result["tempo"],
+                time_signatures=result["time_signatures"],
+                kit_mapping_path=kit,
+                output_path=output_path,
+            )
 
         # Read file bytes for download
         with open(output_path, "rb") as f:

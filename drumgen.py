@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import random
 import sys
 
-from assembler import assemble, assemble_arrangement
+from assembler import assemble, assemble_arrangement, assemble_layered
 from cell_library import list_cells, STYLE_POOLS, CELLS, SECTION_PREFERENCES
 from midi_engine import write_midi, generate_test_mapping
 
@@ -88,7 +89,15 @@ def main():
     parser.add_argument("--kit", type=str, default="ugritone", help="Kit mapping name or path (default: ugritone)")
     parser.add_argument("--output", "-o", type=str, default=None, help="Output .mid path")
     parser.add_argument("--arrangement", "-a", type=str, default=None,
-                        help='Arrangement string, e.g. "4:build 8:drive 2:blast 1:silence 4:breakdown"')
+                        help='Arrangement: "4:build 8:drive@7/8 2:blast". Use @N/M for per-section time sig.')
+    parser.add_argument("--generative", "-g", action="store_true",
+                        help="Use probability grids for generative patterns")
+    parser.add_argument("--variations", "-n", type=int, default=1,
+                        help="Generate N variations (each with different seed)")
+    parser.add_argument("--kick", type=str, default=None, help="Layer mode: cell for kick layer")
+    parser.add_argument("--snare", type=str, default=None, help="Layer mode: cell for snare layer")
+    parser.add_argument("--cymbal", type=str, default=None, help="Layer mode: cell for cymbal layer")
+    parser.add_argument("--toms", type=str, default=None, help="Layer mode: cell for toms layer")
     parser.add_argument("--list-cells", action="store_true", help="List available cells")
     parser.add_argument("--test-mapping", type=str, metavar="MAPPING", help="Generate test MIDI for a kit mapping")
 
@@ -106,6 +115,45 @@ def main():
         generate_test_mapping(args.test_mapping, output)
         return
 
+    # Layer mode
+    layer_args = {k: v for k, v in [("kick", args.kick), ("snare", args.snare),
+                                     ("cymbal", args.cymbal), ("toms", args.toms)] if v}
+    if layer_args:
+        if args.arrangement:
+            parser.error("--kick/--snare/--cymbal/--toms cannot be used with --arrangement")
+        if args.style or args.cell:
+            print("Warning: --style/--cell ignored in layer mode", file=sys.stderr)
+
+        result = assemble_layered(
+            layers=layer_args,
+            bars=args.bars,
+            tempo=args.tempo,
+            time_sig=args.time_sig,
+            humanize=args.humanize,
+            swing=args.swing,
+            vary=args.vary,
+            seed=args.seed,
+        )
+
+        if args.output:
+            output_path = args.output
+        else:
+            layer_label = "+".join(sorted(layer_args.keys()))
+            output_path = f"output/layered_{layer_label}_{args.tempo}bpm.mid"
+
+        write_midi(
+            events=result["events"],
+            tempo=result["tempo"],
+            time_signatures=result["time_signatures"],
+            kit_mapping_path=args.kit,
+            output_path=output_path,
+        )
+
+        print(f"Layers: {', '.join(f'{k}={v}' for k, v in layer_args.items())}")
+        print(f"Seed: {result['seed']} (use --seed {result['seed']} to reproduce)")
+        print(f"Events: {len(result['events'])}")
+        return
+
     # Arrangement mode
     if args.arrangement:
         if not args.style:
@@ -120,6 +168,7 @@ def main():
             swing=args.swing,
             seed=args.seed,
             vary=args.vary,
+            generative=args.generative,
         )
 
         if args.output:
@@ -145,6 +194,45 @@ def main():
     if not args.style and not args.cell:
         parser.error("--style or --cell is required for generation (or use --list-cells / --test-mapping)")
 
+    # Handle variations
+    num_variations = max(1, args.variations)
+    if num_variations > 1:
+        if args.seed is not None:
+            seeds = [args.seed + i for i in range(num_variations)]
+        else:
+            base_rng = random.Random()
+            seeds = [base_rng.randint(0, 2**31 - 1) for _ in range(num_variations)]
+
+        base_output = args.output or f"output/{args.cell or args.style}_{args.tempo}bpm_{args.bars}bars.mid"
+        base, ext = os.path.splitext(base_output)
+
+        for vi, var_seed in enumerate(seeds, 1):
+            result = assemble(
+                style=args.style,
+                cell_name=args.cell,
+                bars=args.bars,
+                tempo=args.tempo,
+                time_sig=args.time_sig,
+                humanize=args.humanize,
+                swing=args.swing,
+                fill_every=args.fill_every,
+                seed=var_seed,
+                vary=args.vary,
+                generative=args.generative,
+            )
+            output_path = f"{base}_v{vi}{ext}"
+            write_midi(
+                events=result["events"],
+                tempo=result["tempo"],
+                time_signatures=result["time_signatures"],
+                kit_mapping_path=args.kit,
+                output_path=output_path,
+            )
+            print(f"  v{vi}: seed={result['seed']}, events={len(result['events'])}")
+
+        print(f"\nGenerated {num_variations} variations")
+        return
+
     result = assemble(
         style=args.style,
         cell_name=args.cell,
@@ -156,6 +244,7 @@ def main():
         fill_every=args.fill_every,
         seed=args.seed,
         vary=args.vary,
+        generative=args.generative,
     )
 
     if args.output:

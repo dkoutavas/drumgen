@@ -19,15 +19,26 @@ python drumgen.py --style screamo --tempo 180 --bars 4
 python drumgen.py --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
 python drumgen.py --list-cells
 
+# Generative mode (probability grids — different output each seed)
+python drumgen.py --style faraquet --generative --tempo 140 --bars 8
+python drumgen.py --style faraquet --generative --variations 3 --tempo 140 --bars 8
+
+# Layer mode (mix instrument layers from different cells)
+python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
+
+# Mixed meters in arrangement mode
+python drumgen.py --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+
 # Run GUI
 ./run-drumgen              # auto-activates venv
 # or manually: streamlit run app.py
 
 # Test a kit mapping (one hit per instrument)
 python drumgen.py --test-mapping ugritone
-```
 
-There are no automated tests, no linter config, and no build step.
+# Run tests
+python -m pytest test_drumgen.py -v
+```
 
 ### MIDI Import & ALS Extraction
 
@@ -69,17 +80,19 @@ python drumgen.py --cell my_imported_cell --bars 4 --tempo 120
 
 The pipeline flows: **CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI Engine -> .mid file**
 
-- `drumgen.py` — CLI entry point (argparse). Parses args, delegates to `assemble()` or `assemble_arrangement()`, then `write_midi()`.
-- `app.py` — Streamlit GUI. Same generation pipeline as CLI. Includes pattern preview grid rendering, optional FluidSynth audio preview, and MIDI import via sidebar expander (with auto-tagging, preview, validation, and dedup).
-- `assembler.py` — Core orchestrator. Two main functions:
-  - `assemble()` — Single-cell mode: repeats a cell for N bars, inserting fills if requested.
-  - `assemble_arrangement()` — Multi-section mode: parses arrangement strings like `"4:build 8:drive 2:blast"`, picks best cell per section via tag scoring against `SECTION_PREFERENCES`.
-  - Also handles: hit normalization (4-tuple to 5-tuple), variation mutations (`vary_hits`), velocity drift per section, per-bar humanize overrides.
-- `cell_library.py` — All rhythmic cells defined as Python functions returning dicts. Contains `CELLS` registry, `STYLE_POOLS` (style -> list of cell names), `SECTION_PREFERENCES` (section type -> preferred tags), and lookup functions (`get_cell`, `get_pool`, `get_cell_for_section`). Loads user-imported cells from `user_cells/` via `load_user_cells()` and auto-integrates them into `STYLE_POOLS` via `TAG_TO_POOLS` tag-to-pool mapping.
+- `drumgen.py` — CLI entry point (argparse). Parses args, delegates to `assemble()`, `assemble_arrangement()`, or `assemble_layered()`, then `write_midi()`. Supports `--generative`, `--variations`, and layer mode (`--kick/--snare/--cymbal/--toms`).
+- `app.py` — Streamlit GUI. Same generation pipeline as CLI. Includes pattern preview grid rendering, optional FluidSynth audio preview, MIDI import via sidebar expander, generative mode checkbox with variations, and Layer Mode expander for mixing cells per instrument group.
+- `assembler.py` — Core orchestrator. Four main functions:
+  - `assemble()` — Single-cell mode: repeats a cell for N bars, inserting fills if requested. Supports `generative=True` to prefer probability grid cells.
+  - `assemble_arrangement()` — Multi-section mode: parses arrangement strings like `"4:build 8:drive@7/8 2:blast"`, picks best cell per section via tag scoring. Supports per-section time signatures via `@N/M` suffix and `generative=True`.
+  - `assemble_layered()` — Layer mode: mixes instrument layers (kick/snare/cymbal/toms) from different cells into one pattern, with conflict resolution.
+  - Also handles: hit normalization (4-tuple to 5-tuple), probability grid realization (`realize_probability_grid`), physical constraint validation, layer extraction/conflict resolution, variation mutations (`vary_hits`), velocity drift per section, per-bar humanize overrides.
+- `cell_library.py` — All rhythmic cells defined as Python functions returning dicts. Includes both fixed cells (with `hits`) and probability grid cells (with `type: "probability"` and `grid`). Contains `CELLS` registry, `STYLE_POOLS` (style -> list of cell names), `SECTION_PREFERENCES` (section type -> preferred tags), and lookup functions (`get_cell`, `get_pool`, `get_cell_for_section`). Loads user-imported cells from `user_cells/` via `load_user_cells()` and auto-integrates them into `STYLE_POOLS` via `TAG_TO_POOLS` tag-to-pool mapping.
+- `test_drumgen.py` — Comprehensive test suite (pytest, 125 tests). Covers cell integrity, time signatures, style pools, assembler, humanizer, MIDI engine, end-to-end generation, probability grids, layer mode, mixed meters (including note position verification), and variations.
 - `midi_reader.py` — Standalone CLI + importable library. Reads `.mid` files via mido, converts to drumgen's native cell format (flat 5-tuple hits), saves as JSON in `user_cells/`. Includes content-based auto-tagging (`auto_tag_cell()`), validation (`validate_cell()`), hit deduplication, trailing bar trim, and content hashing for dedup. Exposes `midi_to_cell()`, `save_cell()`, `auto_tag_cell()`, `validate_cell()` for GUI use.
 - `als_extractor.py` — Standalone CLI. Opens `.als` files (gzip-compressed XML), finds MidiClip elements from both Session and Arrangement views, writes each as a `.mid` file to `extracted/`. Filters non-drum tracks via name blacklist (synth, sampler, pad, etc.) when `--drums-only` is used.
 - `humanizer.py` — `Humanizer` class with seeded RNG. Per-instrument velocity variance tables, timing tendencies (e.g., snare slightly late, ride slightly early), swing application.
-- `midi_engine.py` — Position-to-tick math and MIDI file writing via `mido`. Constants: PPQ=480, note duration=30 ticks, MIDI channel=9. Includes note overlap prevention (inserts early note_off when humanizer timing causes pitch collisions).
+- `midi_engine.py` — Position-to-tick math and MIDI file writing via `mido`. Constants: PPQ=480, note duration=30 ticks, MIDI channel=9. Includes note overlap prevention (inserts early note_off when humanizer timing causes pitch collisions). Time signature meta messages and note events are interleaved in a single sorted pass (by absolute tick) to avoid mixed-meter delta calculation bugs.
 - `preview.py` — Optional FluidSynth-based WAV rendering for the Streamlit GUI.
 - `kit_mappings/` — JSON files mapping instrument names to MIDI note numbers. Default: `ugritone.json`. Also `addictive_drums.json` (note 48 = snare) and `general_midi.json`. Kit files support an `aliases` field for additional note-to-instrument mappings.
 - `user_cells/` — Directory for imported cell JSON files (gitignored). Loaded automatically by `cell_library.py` at import time.
@@ -90,11 +103,17 @@ The pipeline flows: **CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI E
 
 **Cell format:** Each cell is a dict with `name`, `tags`, `time_sig`, `num_bars`, `humanize`, `role` (groove/fill/transition), and `hits`. Single-bar cells use 4-tuples `(beat, sub, instrument, velocity_level)`. Multi-bar cells use 5-tuples `(bar, beat, sub, instrument, velocity_level)`. Sub values: 0.0=on beat, 0.25=sixteenth, 0.5=eighth, 0.75=dotted eighth.
 
+**Probability grid cells:** Cells with `type: "probability"` use `grid` instead of `hits`. Grid entries are 5-tuples `(beat, sub, instrument, probability, velocity_level)` for single-bar or 6-tuples `(bar, beat, sub, instrument, probability, velocity_level)` for multi-bar. Each entry has a probability (0.0-1.0) that determines whether the hit is included on each realization. Different seeds produce different patterns from the same grid. Physical constraints (limb conflicts) are validated after realization.
+
 **Velocity levels:** `ghost`, `soft`, `normal`, `accent` — mapped to numeric ranges by the Humanizer.
 
 **Style pools vs STYLE_MAP:** `STYLE_POOLS` maps a style name to a list of cell names (used in arrangement mode for section-aware selection). `STYLE_MAP` is a backward-compat shortcut mapping each style to its first cell.
 
-**Arrangement mode:** Parses `"N:section_type"` tokens. Section types (intro, build, verse, chorus, drive, blast, breakdown, atmospheric, silence, fill, outro) have preferred tags in `SECTION_PREFERENCES`. The assembler scores pool cells against these preferences to pick the best match.
+**Arrangement mode:** Parses `"N:section_type"` or `"N:section_type@num/den"` tokens. Section types (intro, build, verse, chorus, drive, blast, breakdown, atmospheric, silence, fill, outro) have preferred tags in `SECTION_PREFERENCES`. The assembler scores pool cells against these preferences to pick the best match. Per-section time signatures are supported via the `@N/M` suffix (e.g. `"4:verse@7/8 2:fill@4/4"`).
+
+**Layer mode:** Mix instrument layers from different cells. Four layer groups: `kick`, `snare` (includes snare_ghost, snare_rim), `cymbal` (hihat, ride, crash, china, splash), `toms`. Conflicts at the same position are resolved by priority (crash > ride > hihat, snare > tom). CLI: `--kick/--snare/--cymbal/--toms cell_name`. GUI: "Layer Mode" expander.
+
+**Generative mode:** When `--generative` / `-g` is used, the assembler prefers probability grid cells from the style pool. Each seed produces a unique pattern. Use `--variations N` to generate N outputs with sequential seeds.
 
 **Output:** MIDI files go to `output/` by default (CLI) or a configurable folder (GUI, defaults to `/mnt/c/Users/.../drumgen_output` for WSL-to-Windows access).
 
@@ -104,6 +123,8 @@ The pipeline flows: **CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI E
 2. Add the cell to the `CELLS` registry dict at the bottom of `cell_library.py`.
 3. Add the cell name to relevant entries in `STYLE_POOLS`.
 4. Use tags that match `SECTION_PREFERENCES` keys so arrangement mode can select the cell appropriately.
+
+**Adding probability grid cells:** Same as above, but the cell dict uses `"type": "probability"` and `"grid"` (list of 5-tuples) instead of `"hits"`. Include `"generative"` in tags. Each grid entry has a probability (0.0-1.0) controlling how often it fires. Near-1.0 = nearly deterministic, lower = more variation between seeds.
 
 ## Importing Cells from MIDI
 

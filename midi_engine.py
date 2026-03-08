@@ -90,19 +90,32 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
 
     track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(tempo), time=0))
 
-    current_tick = 0
+    # Build all track messages with absolute ticks for correct interleaving.
+    # Previously, time sig meta messages were written in a batch before note
+    # events, which advanced current_tick past early notes when multiple time
+    # sigs existed (mixed meters). Merging into one sorted pass fixes this.
+    all_msgs = []
+
+    # Time sig meta messages (priority=0 so they sort before notes at same tick)
     for ts_entry in time_signatures:
         num, den = ts_entry["numerator"], ts_entry["denominator"]
         ts_bar = ts_entry.get("bar_start", 1)
         ts_abs_tick = calculate_bar_start_ticks(ts_bar, time_signatures, ppq)
-        delta = max(0, ts_abs_tick - current_tick)
-        track.append(mido.MetaMessage("time_signature", numerator=num, denominator=den,
-                                      clocks_per_click=24, notated_32nd_notes_per_beat=8, time=delta))
-        current_tick = ts_abs_tick
+        meta = mido.MetaMessage("time_signature", numerator=num, denominator=den,
+                                clocks_per_click=24, notated_32nd_notes_per_beat=8)
+        all_msgs.append((ts_abs_tick, 0, 0, meta))
 
+    # Note events (note_off=1 before note_on=2 at same tick for clean transitions)
     for event_type, abs_tick, note, vel in midi_events:
-        delta = max(0, abs_tick - current_tick)
-        msg = mido.Message(event_type, note=note, velocity=vel, channel=MIDI_CHANNEL, time=delta)
+        priority = 1 if event_type == "note_off" else 2
+        msg = mido.Message(event_type, note=note, velocity=vel, channel=MIDI_CHANNEL)
+        all_msgs.append((abs_tick, priority, note, msg))
+
+    all_msgs.sort(key=lambda x: (x[0], x[1], x[2]))
+
+    current_tick = 0
+    for abs_tick, _, _, msg in all_msgs:
+        msg.time = max(0, abs_tick - current_tick)
         track.append(msg)
         current_tick = abs_tick
 

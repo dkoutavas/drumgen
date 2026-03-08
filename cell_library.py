@@ -1076,6 +1076,258 @@ def _shellac_6_8():
     }
 
 
+# ── Probability grid cells ─────────────────────────────────────────────────────
+#
+# Grid entries: (beat, sub, instrument, probability, velocity_level) — 5-tuple for single-bar
+# Multi-bar grids: (bar, beat, sub, instrument, probability, velocity_level) — 6-tuple
+
+def _prob_faraquet_4_4():
+    """Faraquet-style angular math rock probability grid. Displaced snare, syncopated kicks."""
+    grid = []
+    # Ride on eighths, high probability
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.9, "normal"))
+        grid.append((beat, 0.5, "ride", 0.9, "normal"))
+    # Syncopated kicks — displaced, variable probability
+    grid.extend([
+        (1, 0.0, "kick", 0.7, "accent"),
+        (1, 0.75, "kick", 0.4, "normal"),
+        (2, 0.5, "kick", 0.6, "normal"),
+        (3, 0.0, "kick", 0.65, "accent"),
+        (3, 0.5, "kick", 0.45, "normal"),
+        (4, 0.25, "kick", 0.5, "normal"),
+    ])
+    # Displaced snare
+    grid.extend([
+        (2, 0.0, "snare", 0.5, "accent"),
+        (2, 0.5, "snare", 0.85, "accent"),
+        (4, 0.0, "snare", 0.8, "accent"),
+        (4, 0.5, "snare", 0.55, "normal"),
+    ])
+    # Ghost notes
+    grid.extend([
+        (1, 0.5, "snare_ghost", 0.35, "ghost"),
+        (3, 0.25, "snare_ghost", 0.3, "ghost"),
+        (3, 0.75, "snare_ghost", 0.45, "ghost"),
+    ])
+    return {
+        "name": "prob_faraquet_4_4",
+        "type": "probability",
+        "tags": ["faraquet", "angular", "math", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.65,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_shellac_4_4():
+    """Shellac near-deterministic grid. Floor tom + snare + ride. Almost always the same."""
+    grid = [
+        # Floor tom on beats 1 and 3 — near-certain
+        (1, 0.0, "tom_floor", 0.98, "accent"),
+        (3, 0.0, "tom_floor", 0.98, "accent"),
+        # Snare on 2 and 4 — near-certain
+        (2, 0.0, "snare", 0.98, "accent"),
+        (4, 0.0, "snare", 0.98, "accent"),
+        # Ride on every quarter — deterministic
+        (1, 0.0, "ride", 1.0, "normal"),
+        (2, 0.0, "ride", 1.0, "normal"),
+        (3, 0.0, "ride", 1.0, "normal"),
+        (4, 0.0, "ride", 1.0, "normal"),
+    ]
+    return {
+        "name": "prob_shellac_4_4",
+        "type": "probability",
+        "tags": ["shellac", "noise_rock", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.2,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_posthardcore_4_4():
+    """Post-hardcore/Fugazi driving probability grid. Ride eighths, solid backbeat."""
+    grid = []
+    # Ride on eighths
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.95, "normal"))
+        grid.append((beat, 0.5, "ride", 0.95, "normal"))
+    # Kick on 1 and 3
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "accent"),
+        (3, 0.0, "kick", 0.9, "accent"),
+        (3, 0.5, "kick", 0.35, "normal"),
+        (4, 0.5, "kick", 0.3, "normal"),
+    ])
+    # Snare on 2 and 4
+    grid.extend([
+        (2, 0.0, "snare", 0.85, "accent"),
+        (4, 0.0, "snare", 0.85, "accent"),
+    ])
+    # Ghost notes
+    grid.extend([
+        (1, 0.5, "snare_ghost", 0.3, "ghost"),
+        (3, 0.5, "snare_ghost", 0.4, "ghost"),
+    ])
+    # Occasional hi-hat open
+    grid.extend([
+        (2, 0.5, "hihat_open", 0.15, "normal"),
+        (4, 0.5, "hihat_open", 0.15, "normal"),
+    ])
+    return {
+        "name": "prob_posthardcore_4_4",
+        "type": "probability",
+        "tags": ["posthardcore", "fugazi", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_dbeat_4_4():
+    """D-beat probability grid. Classic X.XX kick pattern with HH eighths."""
+    grid = []
+    # HH on eighths
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.9, "normal"))
+        grid.append((beat, 0.5, "hihat_closed", 0.9, "normal"))
+    # D-beat kick pattern: 1, 2, 2+, 4 (X.XX)
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "accent"),
+        (2, 0.0, "kick", 0.95, "normal"),
+        (2, 0.5, "kick", 0.95, "normal"),
+        (4, 0.0, "kick", 0.95, "normal"),
+    ])
+    # Snare on upbeats 1+ and 3+
+    grid.extend([
+        (1, 0.5, "snare", 0.95, "accent"),
+        (2, 0.5, "snare", 0.95, "accent"),
+        (3, 0.0, "snare", 0.95, "accent"),
+        (3, 0.5, "snare", 0.95, "accent"),
+        (4, 0.5, "snare", 0.95, "accent"),
+    ])
+    return {
+        "name": "prob_dbeat_4_4",
+        "type": "probability",
+        "tags": ["dbeat", "punk", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_blast_4_4():
+    """Blast beat probability grid. K/S alternating sixteenths, ride sixteenths."""
+    grid = []
+    for beat in range(1, 5):
+        # Kick on downbeats and +
+        grid.append((beat, 0.0, "kick", 0.92, "accent"))
+        grid.append((beat, 0.5, "kick", 0.92, "accent"))
+        # Snare on e and a
+        grid.append((beat, 0.25, "snare", 0.92, "accent"))
+        grid.append((beat, 0.75, "snare", 0.92, "accent"))
+        # Ride on all sixteenths
+        grid.append((beat, 0.0, "ride", 0.88, "accent"))
+        grid.append((beat, 0.25, "ride", 0.88, "normal"))
+        grid.append((beat, 0.5, "ride", 0.88, "accent"))
+        grid.append((beat, 0.75, "ride", 0.88, "normal"))
+    # Crash on beat 1 — rare
+    grid.append((1, 0.0, "crash_1", 0.3, "accent"))
+    return {
+        "name": "prob_blast_4_4",
+        "type": "probability",
+        "tags": ["blast", "extreme", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.8,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_euro_screamo_4_4():
+    """Euro-screamo/Daitro probability grid. Driving with ghost note texture."""
+    grid = []
+    # Ride on eighths
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.95, "normal"))
+        grid.append((beat, 0.5, "ride", 0.95, "normal"))
+    # Kick on 1 and 3
+    grid.extend([
+        (1, 0.0, "kick", 0.85, "accent"),
+        (3, 0.0, "kick", 0.85, "accent"),
+        (2, 0.5, "kick", 0.4, "normal"),
+        (4, 0.5, "kick", 0.35, "normal"),
+    ])
+    # Snare on 2 and 4
+    grid.extend([
+        (2, 0.0, "snare", 0.9, "accent"),
+        (4, 0.0, "snare", 0.9, "accent"),
+    ])
+    # Ghost notes — textural
+    grid.extend([
+        (1, 0.5, "snare_ghost", 0.35, "ghost"),
+        (2, 0.25, "snare_ghost", 0.35, "ghost"),
+        (3, 0.5, "snare_ghost", 0.35, "ghost"),
+        (4, 0.25, "snare_ghost", 0.35, "ghost"),
+    ])
+    return {
+        "name": "prob_euro_screamo_4_4",
+        "type": "probability",
+        "tags": ["euro_screamo", "daitro", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_faraquet_7_8():
+    """Faraquet angular 7/8 probability grid. 2+2+3 grouping."""
+    grid = []
+    # Ride on all 7 eighth-note beats
+    for beat in range(1, 8):
+        grid.append((beat, 0.0, "ride", 0.95, "normal"))
+    # Kick on group downbeats: 1, 3, 5
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "accent"),
+        (3, 0.0, "kick", 0.9, "accent"),
+        (5, 0.0, "kick", 0.9, "accent"),
+        (6, 0.5, "kick", 0.4, "normal"),
+    ])
+    # Snare on 2 and 6 (group offbeats)
+    grid.extend([
+        (2, 0.0, "snare", 0.85, "accent"),
+        (6, 0.0, "snare", 0.85, "accent"),
+        (4, 0.0, "snare", 0.45, "normal"),
+    ])
+    # Ghost notes
+    grid.extend([
+        (1, 0.5, "snare_ghost", 0.3, "ghost"),
+        (5, 0.5, "snare_ghost", 0.35, "ghost"),
+        (7, 0.0, "snare_ghost", 0.4, "ghost"),
+    ])
+    return {
+        "name": "prob_faraquet_7_8",
+        "type": "probability",
+        "tags": ["faraquet", "angular", "odd_meter", "generative"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.65,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 CELLS = {cell["name"]: cell for cell in [
@@ -1121,6 +1373,14 @@ CELLS = {cell["name"]: cell for cell in [
     _blast_3_4(),
     _driving_6_8(),
     _shellac_6_8(),
+    # Probability grid cells
+    _prob_faraquet_4_4(),
+    _prob_shellac_4_4(),
+    _prob_posthardcore_4_4(),
+    _prob_dbeat_4_4(),
+    _prob_blast_4_4(),
+    _prob_euro_screamo_4_4(),
+    _prob_faraquet_7_8(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -1173,19 +1433,26 @@ TAG_TO_POOLS = {
 }
 
 STYLE_POOLS = {
-    "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4"],
-    "dbeat": ["dbeat_standard", "dbeat_7_8"],
-    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
+    "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4",
+              "prob_blast_4_4"],
+    "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
+    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
+                "prob_shellac_4_4"],
     "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8"],
-    "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4"],
+    "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
+                 "prob_faraquet_4_4", "prob_faraquet_7_8"],
     "raein": ["raein_melodic_drive"],
     "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
-                     "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "faraquet_7_8", "faraquet_5_4", "waltz_punk"],
-    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
+                     "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "faraquet_7_8", "faraquet_5_4", "waltz_punk",
+                     "prob_posthardcore_4_4"],
+    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
+                   "prob_shellac_4_4"],
     "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional"],
     "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional"],
-    "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4"],
-    "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive"],
+    "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
+             "prob_faraquet_4_4", "prob_faraquet_7_8"],
+    "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive",
+                     "prob_euro_screamo_4_4"],
     "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release"],
     "liturgy": ["liturgy_burst_beat"],
     "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast", "atmospheric_7_8"],
