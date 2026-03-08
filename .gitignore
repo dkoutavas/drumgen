@@ -5,3 +5,5 @@ __pycache__/
 .venv/
 .drumgen_config.json
 output/
+user_cells/
+extracted/

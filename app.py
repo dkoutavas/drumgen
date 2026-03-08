@@ -9,6 +9,7 @@ from cell_library import CELLS, STYLE_POOLS, STYLE_MAP, SECTION_PREFERENCES, lis
 from assembler import assemble, assemble_arrangement
 from midi_engine import write_midi, DEFAULT_PPQ
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
+from midi_reader import midi_to_cell, save_cell
 
 st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", initial_sidebar_state="expanded")
 
@@ -134,8 +135,14 @@ with st.sidebar:
     st.divider()
 
     style = st.selectbox("Style", sorted(STYLE_POOLS.keys()), help="Genre shortcut — picks cells matching this style. 'screamo' for blast+breakdown, 'euro_screamo' for Daitro-style builds, 'posthardcore' for Fugazi/Faraquet/Raein.")
-    cell_options = ["auto"] + sorted(CELLS.keys())
+    builtin_cells = sorted(k for k, v in CELLS.items() if v.get("source") != "imported")
+    imported_cells = sorted(k for k, v in CELLS.items() if v.get("source") == "imported")
+    cell_options = ["auto"] + builtin_cells
+    if imported_cells:
+        cell_options += ["--- imported ---"] + imported_cells
     cell_name = st.selectbox("Cell override (auto = let Style choose)", cell_options, help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
+    if cell_name == "--- imported ---":
+        cell_name = "auto"
     if cell_name != "auto":
         st.caption(f"Cell '{cell_name}' overrides Style selection.")
     tempo = st.slider("Tempo (BPM)", 40, 300, 120, help="Beats per minute. Blast beats: 160-220. Post-hardcore: 120-150. D-beat: 150-200.")
@@ -184,6 +191,36 @@ with st.sidebar:
 
     kit_options = ["ugritone", "general_midi"]
     kit = st.selectbox("Kit", kit_options, help="MIDI note mapping for your drum plugin. Must match your plugin or notes trigger wrong drums.")
+
+    with st.expander("Import MIDI as Cell"):
+        uploaded = st.file_uploader("Upload .mid file", type=["mid", "midi"])
+        import_name = st.text_input("Cell name", placeholder="auto from filename")
+        import_tags = st.text_input("Tags (comma-separated)", value="imported")
+        import_role = st.selectbox("Role", ["groove", "fill", "transition"], key="import_role")
+        if st.button("Import") and uploaded:
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
+                    tmp.write(uploaded.getvalue())
+                    tmp_path = tmp.name
+                tags = [t.strip() for t in import_tags.split(",") if t.strip()]
+                cell = midi_to_cell(
+                    tmp_path,
+                    name=import_name if import_name else None,
+                    tags=tags,
+                    kit_name=kit,
+                    role=import_role,
+                )
+                path = save_cell(cell)
+                os.unlink(tmp_path)
+                st.success(f"Imported **{cell['name']}** ({len(cell['hits'])} hits, {cell['num_bars']} bars)")
+                st.caption(f"Saved to `{path}`. Refresh to see in cell dropdown.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Import failed: {e}")
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     seed_input = st.number_input("Seed (empty = random)", value=None, min_value=0, step=1, format="%d", help="Random seed for reproducibility. Same seed + same settings = same pattern. Leave empty for random.")
     seed = int(seed_input) if seed_input is not None else None

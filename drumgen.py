@@ -13,9 +13,12 @@ def _print_cells(cells, style_filter):
         print(f"No cells found for style '{style_filter}'." if style_filter else "No cells found.")
         return
 
-    # Group by role
+    # Separate imported from built-in, then group by role
+    imported = [c for c in cells if c.get("source") == "imported"]
+    builtin = [c for c in cells if c.get("source") != "imported"]
+
     groups = {}
-    for c in cells:
+    for c in builtin:
         role = c["role"]
         groups.setdefault(role, []).append(c)
 
@@ -38,6 +41,20 @@ def _print_cells(cells, style_filter):
             print(f"    {c['name']}")
             print(f"      {ts} | {bars_str} | humanize: {c['humanize']} | role: {c['role']}")
             print(f"      tags: {tags}")
+        print()
+
+    if imported:
+        print(f"  Imported Cells:")
+        for c in imported:
+            bars_str = f"{c['num_bars']} bar{'s' if c['num_bars'] > 1 else ''}"
+            ts = f"{c['time_sig'][0]}/{c['time_sig'][1]}"
+            tags = ", ".join(c["tags"])
+            src = c.get("source_file", "")
+            print(f"    {c['name']}")
+            print(f"      {ts} | {bars_str} | humanize: {c['humanize']} | role: {c['role']}")
+            print(f"      tags: {tags}")
+            if src:
+                print(f"      source: {src}")
         print()
 
     print("Style pools:")

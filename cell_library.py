@@ -10,6 +10,10 @@
 #
 # Sub values: 0.0 = on beat, 0.25 = sixteenth, 0.5 = eighth, 0.75 = dotted eighth
 
+import json
+import os
+import sys
+
 
 # ── Phase 1 cells ──────────────────────────────────────────────────────────────
 
@@ -701,6 +705,36 @@ CELLS = {cell["name"]: cell for cell in [
     _transition_snare_roll_to_crash(),
     _transition_cymbal_swell(),
 ]}
+
+USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
+
+
+def load_user_cells(directory=None):
+    """Load user cell JSON files from user_cells/ directory."""
+    if directory is None:
+        directory = USER_CELLS_DIR
+    user_cells = {}
+    if not os.path.isdir(directory):
+        return user_cells
+    for filename in sorted(os.listdir(directory)):
+        if not filename.endswith(".json"):
+            continue
+        filepath = os.path.join(directory, filename)
+        try:
+            with open(filepath, "r") as f:
+                cell = json.load(f)
+            cell["time_sig"] = tuple(cell["time_sig"])
+            cell["hits"] = [tuple(h) for h in cell["hits"]]
+            cell.setdefault("humanize", 0.5)
+            cell.setdefault("role", "groove")
+            cell.setdefault("tags", ["imported"])
+            user_cells[cell["name"]] = cell
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            print(f"Warning: skipping {filepath}: {e}", file=sys.stderr)
+    return user_cells
+
+
+CELLS.update(load_user_cells())
 
 STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash"],
