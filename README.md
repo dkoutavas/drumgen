@@ -15,8 +15,11 @@ pip install -r requirements.txt
 ## GUI
 
 ```bash
-streamlit run app.py
+./run-drumgen            # Linux / macOS / WSL
+.\run-drumgen.ps1        # Windows PowerShell
 ```
+
+Or manually: `streamlit run app.py` (venv must be active).
 
 The Streamlit GUI provides the same features as the CLI: style/cell selection, arrangement mode, humanization controls, and kit mapping. All sidebar widgets have tooltip help — hover the (?) icon for guidance on values and ranges. After generation, the pattern preview shows a grid key (`X` = accent, `x` = normal, `o` = ghost, `.` = silent) and the selected cell's tags.
 

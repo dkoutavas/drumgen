@@ -20,7 +20,8 @@ python drumgen.py --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
 python drumgen.py --list-cells
 
 # Run GUI
-streamlit run app.py
+./run-drumgen              # auto-activates venv
+# or manually: streamlit run app.py
 
 # Test a kit mapping (one hit per instrument)
 python drumgen.py --test-mapping ugritone
