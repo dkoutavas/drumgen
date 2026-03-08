@@ -1,0 +1,32 @@
+{
+  "name": "Addictive Drums",
+  "description": "Addictive Drums mapping — note 48 is primary snare, not tom_high",
+  "mapping": {
+    "kick": 36,
+    "snare": 48,
+    "snare_rim": 40,
+    "snare_ghost": 48,
+    "tom_floor": 41,
+    "hihat_closed": 42,
+    "tom_low": 43,
+    "hihat_pedal": 44,
+    "tom_mid": 45,
+    "hihat_open": 46,
+    "tom_high": 47,
+    "crash_1": 49,
+    "ride": 51,
+    "china": 52,
+    "ride_bell": 53,
+    "splash": 55,
+    "crash_2": 57
+  },
+  "aliases": {
+    "38": "snare"
+  },
+  "velocity_ranges": {
+    "ghost": [20, 50],
+    "soft": [50, 75],
+    "normal": [75, 105],
+    "accent": [105, 127]
+  }
+}

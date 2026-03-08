@@ -736,6 +736,24 @@ def load_user_cells(directory=None):
 
 CELLS.update(load_user_cells())
 
+# ── Dynamic style pool integration for imported cells ─────────────────────────
+
+# Maps cell tags to style pools where those cells should participate
+TAG_TO_POOLS = {
+    "blast": ["blast", "screamo", "emoviolence", "black_metal"],
+    "driving": ["posthardcore", "screamo", "euro_screamo", "noise_rock"],
+    "groovy": ["posthardcore", "math"],
+    "angular": ["math", "faraquet"],
+    "math": ["math", "faraquet"],
+    "halftime": ["screamo", "emoviolence"],
+    "breakdown": ["screamo", "emoviolence"],
+    "sparse": ["black_metal", "euro_screamo", "noise_rock"],
+    "atmospheric": ["black_metal", "euro_screamo", "noise_rock"],
+    "intense": ["screamo", "black_metal"],
+    "heavy": ["screamo", "emoviolence", "noise_rock"],
+    "fill": [],  # fills are found by role, not pool
+}
+
 STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash"],
     "dbeat": ["dbeat_standard"],
@@ -754,6 +772,23 @@ STYLE_POOLS = {
     "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast"],
     "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric"],
 }
+
+def _integrate_user_cells_into_pools():
+    """Scan imported cells and add them to matching STYLE_POOLS based on tags."""
+    for name, cell in CELLS.items():
+        if cell.get("source") != "imported":
+            continue
+        cell_tags = set(cell.get("tags", []))
+        pools_added = set()
+        for tag in cell_tags:
+            for pool_name in TAG_TO_POOLS.get(tag, []):
+                if pool_name in STYLE_POOLS and name not in STYLE_POOLS[pool_name]:
+                    STYLE_POOLS[pool_name].append(name)
+                    pools_added.add(pool_name)
+        if pools_added:
+            cell["_pools"] = sorted(pools_added)
+
+_integrate_user_cells_into_pools()
 
 # Backward compat
 STYLE_MAP = {k: v[0] for k, v in STYLE_POOLS.items()}
@@ -791,6 +826,7 @@ def get_cell_for_section(pool_cells, section_type):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
+    Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
     """
     section_lower = section_type.lower()
     if section_lower == "silence":
@@ -800,7 +836,13 @@ def get_cell_for_section(pool_cells, section_type):
         n = len(prefs)
         # Earlier prefs score higher: first pref = n points, last = 1
         pref_weights = {tag: n - i for i, tag in enumerate(prefs)}
-        scored = [(sum(pref_weights.get(tag, 0) for tag in cell["tags"]), cell) for cell in pool_cells]
+        scored = []
+        for cell in pool_cells:
+            score = sum(pref_weights.get(tag, 0) for tag in cell["tags"])
+            # Built-in cells get a tiebreaker bonus
+            if cell.get("source") != "imported":
+                score += 1
+            scored.append((score, cell))
         best_score = max(s for s, _ in scored)
         if best_score > 0:
             return next(cell for score, cell in scored if score == best_score)

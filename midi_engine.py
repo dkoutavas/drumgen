@@ -63,6 +63,27 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
 
     midi_events.sort(key=lambda e: (e[1], 0 if e[0] == "note_on" else 1, e[2]))
 
+    # Prevent note overlaps: insert early note_off if note_on arrives
+    # while same pitch is still active
+    active = {}  # note -> note_off tick
+    cleaned = []
+    for evt in midi_events:
+        etype, tick, note, vel = evt
+        if etype == "note_on" and vel > 0:
+            if note in active and tick < active[note]:
+                # Insert early note_off just before this note_on
+                cleaned.append(("note_off", tick, note, 0))
+            active[note] = tick + NOTE_DURATION
+            cleaned.append(evt)
+        elif etype == "note_off":
+            active.pop(note, None)
+            cleaned.append(evt)
+        else:
+            cleaned.append(evt)
+
+    # Re-sort: note_off before note_on at same tick for clean transitions
+    midi_events = sorted(cleaned, key=lambda e: (e[1], 0 if e[0] == "note_off" else 1, e[2]))
+
     mid = mido.MidiFile(type=0, ticks_per_beat=ppq)
     track = mido.MidiTrack()
     mid.tracks.append(track)

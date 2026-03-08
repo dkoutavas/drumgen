@@ -28,6 +28,20 @@ DRUM_NAME_PATTERNS = [
     "snare", "kick", "hihat", "hi-hat", "cymbal", "tom",
 ]
 
+NON_DRUM_NAME_PATTERNS = [
+    "synth", "absynth", "omnisphere", "serum", "massive", "vital",
+    "sampler", "simpler", "wavetable", "operator", "analog",
+    "pad", "lead", "keys", "piano", "organ", "string",
+    "harmony", "melody", "chord", "vocal", "vox",
+    "cornflake", "dhg2",
+]
+
+
+def _is_non_drum_track_name(name):
+    """Check if track name suggests a non-drum instrument."""
+    name_lower = name.lower()
+    return any(p in name_lower for p in NON_DRUM_NAME_PATTERNS)
+
 
 def _is_drum_track_name(name):
     """Check if track name suggests drums."""
@@ -336,7 +350,9 @@ def extract_als(als_path, output_dir=None, drums_only=False, dry_run=False,
 
         for clip in clips:
             is_drum = False
-            if _is_drum_track_name(track_name):
+            if _is_non_drum_track_name(track_name):
+                is_drum = False
+            elif _is_drum_track_name(track_name):
                 is_drum = True
             elif _notes_in_drum_range([n["note"] for n in clip["notes"]]):
                 is_drum = True

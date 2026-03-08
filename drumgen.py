@@ -44,15 +44,19 @@ def _print_cells(cells, style_filter):
         print()
 
     if imported:
-        print(f"  Imported Cells:")
+        print(f"  Imported Cells ({len(imported)}):")
         for c in imported:
             bars_str = f"{c['num_bars']} bar{'s' if c['num_bars'] > 1 else ''}"
             ts = f"{c['time_sig'][0]}/{c['time_sig'][1]}"
             tags = ", ".join(c["tags"])
             src = c.get("source_file", "")
+            bpm = c.get("source_bpm")
+            bpm_str = f" | {bpm} BPM" if bpm else ""
+            pools = c.get("_pools", [])
+            pools_str = f" | pools: {', '.join(pools)}" if pools else ""
             print(f"    {c['name']}")
-            print(f"      {ts} | {bars_str} | humanize: {c['humanize']} | role: {c['role']}")
-            print(f"      tags: {tags}")
+            print(f"      {ts} | {bars_str}{bpm_str} | humanize: {c['humanize']} | role: {c['role']}")
+            print(f"      tags: {tags}{pools_str}")
             if src:
                 print(f"      source: {src}")
         print()

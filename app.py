@@ -9,7 +9,7 @@ from cell_library import CELLS, STYLE_POOLS, STYLE_MAP, SECTION_PREFERENCES, lis
 from assembler import assemble, assemble_arrangement
 from midi_engine import write_midi, DEFAULT_PPQ
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
-from midi_reader import midi_to_cell, save_cell
+from midi_reader import midi_to_cell, save_cell, auto_tag_cell, validate_cell
 
 st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", initial_sidebar_state="expanded")
 
@@ -136,11 +136,27 @@ with st.sidebar:
 
     style = st.selectbox("Style", sorted(STYLE_POOLS.keys()), help="Genre shortcut — picks cells matching this style. 'screamo' for blast+breakdown, 'euro_screamo' for Daitro-style builds, 'posthardcore' for Fugazi/Faraquet/Raein.")
     builtin_cells = sorted(k for k, v in CELLS.items() if v.get("source") != "imported")
-    imported_cells = sorted(k for k, v in CELLS.items() if v.get("source") == "imported")
+    imported_cells_data = sorted(
+        [(k, v) for k, v in CELLS.items() if v.get("source") == "imported"],
+        key=lambda x: x[0]
+    )
     cell_options = ["auto"] + builtin_cells
-    if imported_cells:
-        cell_options += ["--- imported ---"] + imported_cells
-    cell_name = st.selectbox("Cell override (auto = let Style choose)", cell_options, help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
+    # Build display labels for imported cells with metadata
+    imported_labels = {}
+    if imported_cells_data:
+        cell_options.append("--- imported ---")
+        for name, cell_data in imported_cells_data:
+            ts = f"{cell_data['time_sig'][0]}/{cell_data['time_sig'][1]}"
+            bpm = cell_data.get("source_bpm")
+            bpm_str = f" {bpm}bpm" if bpm else ""
+            tags = [t for t in cell_data.get("tags", []) if t != "imported"]
+            tag_str = f" [{','.join(tags[:3])}]" if tags else ""
+            label = f"{name} ({ts}{bpm_str}{tag_str})"
+            imported_labels[label] = name
+            cell_options.append(label)
+    cell_label = st.selectbox("Cell override (auto = let Style choose)", cell_options, help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
+    # Resolve label back to cell name
+    cell_name = imported_labels.get(cell_label, cell_label)
     if cell_name == "--- imported ---":
         cell_name = "auto"
     if cell_name != "auto":
@@ -195,26 +211,71 @@ with st.sidebar:
     with st.expander("Import MIDI as Cell"):
         uploaded = st.file_uploader("Upload .mid file", type=["mid", "midi"])
         import_name = st.text_input("Cell name", placeholder="auto from filename")
-        import_tags = st.text_input("Tags (comma-separated)", value="imported")
+        use_auto_tag = st.checkbox("Auto-detect tags from content", value=True, key="import_auto_tag")
+        import_tags = st.text_input("Extra tags (comma-separated)", value="",
+                                    help="Added alongside auto-detected tags" if use_auto_tag else "Tags for this cell")
         import_role = st.selectbox("Role", ["groove", "fill", "transition"], key="import_role")
+
+        # Preview auto-tags before importing
+        if uploaded and st.button("Preview", key="preview_import"):
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
+                    tmp.write(uploaded.getvalue())
+                    tmp_path = tmp.name
+                cell = midi_to_cell(tmp_path, name=import_name if import_name else None, kit_name=kit, role=import_role)
+                if use_auto_tag:
+                    auto_tag_cell(cell)
+                errors, warnings = validate_cell(cell, kit_name=kit)
+                os.unlink(tmp_path)
+
+                ts = f"{cell['time_sig'][0]}/{cell['time_sig'][1]}"
+                bpm_str = f" | {cell.get('source_bpm')} BPM" if cell.get('source_bpm') else ""
+                st.info(f"**{cell['name']}** | {ts} | {cell['num_bars']} bars | {len(cell['hits'])} hits{bpm_str}")
+                st.caption(f"Tags: {', '.join(cell['tags'])}")
+                st.caption(f"Role: {cell['role']}")
+                if errors:
+                    for e in errors:
+                        st.warning(f"Validation: {e}")
+                if warnings:
+                    for w in warnings:
+                        st.caption(f"Warning: {w}")
+            except Exception as e:
+                st.error(f"Preview failed: {e}")
+
         if st.button("Import") and uploaded:
             try:
                 with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
                     tmp.write(uploaded.getvalue())
                     tmp_path = tmp.name
-                tags = [t.strip() for t in import_tags.split(",") if t.strip()]
+                extra_tags = [t.strip() for t in import_tags.split(",") if t.strip()]
                 cell = midi_to_cell(
                     tmp_path,
                     name=import_name if import_name else None,
-                    tags=tags,
+                    tags=extra_tags if extra_tags else None,
                     kit_name=kit,
                     role=import_role,
                 )
+                if use_auto_tag:
+                    auto_tag_cell(cell)
+                    # Merge extra tags
+                    if extra_tags:
+                        merged = set(cell["tags"]) | set(extra_tags)
+                        cell["tags"] = sorted(merged)
+
+                errors, warnings = validate_cell(cell, kit_name=kit)
+                if errors:
+                    st.warning(f"Validation issues: {'; '.join(errors)}. Importing anyway.")
+
                 path = save_cell(cell)
                 os.unlink(tmp_path)
-                st.success(f"Imported **{cell['name']}** ({len(cell['hits'])} hits, {cell['num_bars']} bars)")
-                st.caption(f"Saved to `{path}`. Refresh to see in cell dropdown.")
-                st.rerun()
+                if path is None:
+                    st.warning(f"Skipped **{cell['name']}** — duplicate of existing cell")
+                else:
+                    bpm_str = f" @ {cell.get('source_bpm')}bpm" if cell.get('source_bpm') else ""
+                    st.success(f"Imported **{cell['name']}** ({len(cell['hits'])} hits, {cell['num_bars']} bars{bpm_str})")
+                    st.caption(f"Tags: {', '.join(cell['tags'])}")
+                    st.caption(f"Saved to `{path}`. Refresh to see in cell dropdown.")
+                    st.rerun()
             except Exception as e:
                 st.error(f"Import failed: {e}")
                 try:
