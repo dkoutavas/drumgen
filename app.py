@@ -134,14 +134,13 @@ with st.sidebar:
 
     st.divider()
 
-    style = st.selectbox("Style", sorted(STYLE_POOLS.keys()), help="Genre shortcut — picks cells matching this style. 'screamo' for blast+breakdown, 'euro_screamo' for Daitro-style builds, 'posthardcore' for Fugazi/Faraquet/Raein.")
+    # Build cell options first so we can check if a cell is selected before rendering Style
     builtin_cells = sorted(k for k, v in CELLS.items() if v.get("source") != "imported")
     imported_cells_data = sorted(
         [(k, v) for k, v in CELLS.items() if v.get("source") == "imported"],
         key=lambda x: x[0]
     )
     cell_options = ["auto"] + builtin_cells
-    # Build display labels for imported cells with metadata
     imported_labels = {}
     if imported_cells_data:
         cell_options.append("--- imported ---")
@@ -154,13 +153,19 @@ with st.sidebar:
             label = f"{name} ({ts}{bpm_str}{tag_str})"
             imported_labels[label] = name
             cell_options.append(label)
-    cell_label = st.selectbox("Cell override (auto = let Style choose)", cell_options, help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
+
+    style = st.selectbox(
+        "Style", sorted(STYLE_POOLS.keys()),
+        disabled=(st.session_state.get("cell_override", "auto") != "auto"),
+        help="Genre shortcut — picks cells matching this style. Disabled when a specific cell is selected below.",
+    )
+    cell_label = st.selectbox("Cell override (auto = let Style choose)", cell_options, key="cell_override", help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
     # Resolve label back to cell name
     cell_name = imported_labels.get(cell_label, cell_label)
     if cell_name == "--- imported ---":
         cell_name = "auto"
     if cell_name != "auto":
-        st.caption(f"Cell '{cell_name}' overrides Style selection.")
+        st.caption(f"Style disabled — using cell '{cell_name}' directly.")
     tempo = st.slider("Tempo (BPM)", 40, 300, 120, help="Beats per minute. Blast beats: 160-220. Post-hardcore: 120-150. D-beat: 150-200.")
     if st.session_state.get("use_arrangement", False):
         st.slider("Bars", 1, 32, 4, disabled=True, help="Disabled in arrangement mode — bar count comes from the arrangement string.")
