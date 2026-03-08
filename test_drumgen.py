@@ -41,6 +41,10 @@ REQUIRED_STYLES = [
     "blast", "dbeat", "shellac", "fugazi", "faraquet", "raein",
     "posthardcore", "noise_rock", "screamo", "emoviolence", "math",
     "euro_screamo", "daitro", "liturgy", "black_metal", "deafheaven",
+    # Phase 3: Style palette expansion
+    "sonic_youth", "slint", "post_punk", "wipers", "preoccupations",
+    "dry_cleaning", "shame", "drive_like_jehu", "q_and_not_u", "atdi",
+    "blood_brothers", "unwound", "city_of_caterpillar", "oxbow",
 ]
 
 
@@ -107,7 +111,7 @@ class TestCellLibrary:
     """Cell integrity tests (built-in cells only, skips imported)."""
 
     def test_all_builtin_cells_registered(self):
-        assert len(BUILTIN_CELLS) >= 44  # 37 original + 7 probability grids
+        assert len(BUILTIN_CELLS) >= 55  # 44 original + 11 new (phase 3)
 
     def test_required_fields(self):
         required_base = {"name", "tags", "time_sig", "num_bars", "humanize"}
@@ -1098,3 +1102,164 @@ class TestVariations:
             assert note_ons > 0
         finally:
             os.unlink(tmp_path)
+
+
+# ── TestNewStyleCells ────────────────────────────────────────────────────────
+
+class TestNewStyleCells:
+    """Cell-specific assertions for Phase 3 style palette expansion."""
+
+    def test_motorik_pulse_no_ghost_no_ride(self):
+        cell = CELLS["motorik_pulse"]
+        instruments = {h[2] for h in cell["hits"]}
+        velocities = {h[3] for h in cell["hits"]}
+        assert "ride" not in instruments
+        assert "ghost" not in velocities
+        hh_hits = [h for h in cell["hits"] if h[2] == "hihat_closed"]
+        assert len(hh_hits) == 8
+
+    def test_motorik_build_structure(self):
+        cell = CELLS["motorik_build"]
+        assert cell["num_bars"] == 4
+        assert "humanize_per_bar" in cell
+        bar1_vels = {h[4] for h in cell["hits"] if h[0] == 1}
+        bar4_vels = {h[4] for h in cell["hits"] if h[0] == 4}
+        assert bar1_vels == {"ghost"}
+        assert bar4_vels == {"accent"}
+
+    def test_slint_explosion_has_floor_tom_and_ride(self):
+        cell = CELLS["slint_explosion"]
+        instruments = {h[2] for h in cell["hits"]}
+        assert "tom_floor" in instruments
+        assert "ride" in instruments
+
+    def test_athletic_angular_structure(self):
+        cell = CELLS["athletic_angular"]
+        assert cell["num_bars"] == 2
+        instruments = {h[3] for h in cell["hits"]}
+        assert "snare_ghost" in instruments
+        assert "tom_floor" in instruments
+
+    def test_postpunk_machine_no_ghost_has_hihat(self):
+        cell = CELLS["postpunk_machine"]
+        instruments = {h[2] for h in cell["hits"]}
+        velocities = {h[3] for h in cell["hits"]}
+        assert "hihat_closed" in instruments
+        assert "ride" not in instruments
+        assert "ghost" not in velocities
+
+    def test_postpunk_busy_has_hihat_open(self):
+        cell = CELLS["postpunk_busy"]
+        assert cell["num_bars"] == 2
+        instruments = {h[3] for h in cell["hits"]}
+        assert "hihat_open" in instruments
+
+    def test_unwound_dynamics_structure(self):
+        cell = CELLS["unwound_dynamics"]
+        assert cell["num_bars"] == 4
+        assert "humanize_per_bar" in cell
+        # Quiet bars have ride_bell
+        quiet_instruments = {h[3] for h in cell["hits"] if h[0] in (1, 2)}
+        assert "ride_bell" in quiet_instruments
+        # Loud bars have kick + ride + snare
+        loud_instruments = {h[3] for h in cell["hits"] if h[0] in (3, 4)}
+        assert "kick" in loud_instruments
+        assert "ride" in loud_instruments
+        assert "snare" in loud_instruments
+
+    def test_city_of_caterpillar_build_structure(self):
+        cell = CELLS["city_of_caterpillar_build"]
+        assert cell["num_bars"] == 8
+        assert "humanize_per_bar" in cell
+        # Progressive instrumentation: bars 1-2 ride_bell only
+        bar1_instruments = {h[3] for h in cell["hits"] if h[0] == 1}
+        assert bar1_instruments == {"ride_bell"}
+        # Bars 7-8 should have kick, snare, ride
+        bar7_instruments = {h[3] for h in cell["hits"] if h[0] == 7}
+        assert "kick" in bar7_instruments
+        assert "snare" in bar7_instruments
+        assert "ride" in bar7_instruments
+        assert "crash_1" in bar7_instruments
+
+    def test_prob_slint_multi_bar_grid(self):
+        cell = CELLS["prob_slint_4_4"]
+        assert cell["num_bars"] == 4
+        assert cell.get("type") == "probability"
+        # All grid entries should be 6-tuples (multi-bar)
+        for entry in cell["grid"]:
+            assert len(entry) == 6, f"Expected 6-tuple, got {len(entry)}-tuple: {entry}"
+
+
+# ── TestNewStylePools ────────────────────────────────────────────────────────
+
+class TestNewStylePools:
+    """Verify Phase 3 style pools exist and reference valid cells."""
+
+    NEW_STYLES = [
+        "sonic_youth", "slint", "post_punk", "wipers", "preoccupations",
+        "dry_cleaning", "shame", "drive_like_jehu", "q_and_not_u", "atdi",
+        "blood_brothers", "unwound", "city_of_caterpillar", "oxbow",
+    ]
+
+    @pytest.mark.parametrize("style", NEW_STYLES)
+    def test_pool_exists(self, style):
+        assert style in STYLE_POOLS, f"Style '{style}' missing from STYLE_POOLS"
+
+    @pytest.mark.parametrize("style", NEW_STYLES)
+    def test_pool_cells_exist(self, style):
+        for cell_name in STYLE_POOLS[style]:
+            assert cell_name in CELLS, f"Cell '{cell_name}' in pool '{style}' not found in CELLS"
+
+    def test_posthardcore_has_athletic_angular(self):
+        assert "athletic_angular" in STYLE_POOLS["posthardcore"]
+
+    def test_noise_rock_has_unwound_dynamics(self):
+        assert "unwound_dynamics" in STYLE_POOLS["noise_rock"]
+
+    def test_screamo_has_city_of_caterpillar_build(self):
+        assert "city_of_caterpillar_build" in STYLE_POOLS["screamo"]
+
+    def test_euro_screamo_has_city_of_caterpillar_build(self):
+        assert "city_of_caterpillar_build" in STYLE_POOLS["euro_screamo"]
+
+
+# ── TestNewStylesEndToEnd ────────────────────────────────────────────────────
+
+class TestNewStylesEndToEnd:
+    """End-to-end generation tests for Phase 3 styles."""
+
+    NEW_STYLES = [
+        "sonic_youth", "slint", "post_punk", "wipers", "preoccupations",
+        "dry_cleaning", "shame", "drive_like_jehu", "q_and_not_u", "atdi",
+        "blood_brothers", "unwound", "city_of_caterpillar", "oxbow",
+    ]
+
+    @pytest.mark.parametrize("style", NEW_STYLES)
+    def test_generate_4_bars(self, style):
+        result = assemble(style=style, bars=4, tempo=130, seed=42)
+        assert len(result["events"]) > 0
+
+    @pytest.mark.parametrize("style", ["sonic_youth", "slint", "drive_like_jehu"])
+    def test_generative_mode(self, style):
+        result = assemble(style=style, bars=4, tempo=130, generative=True, seed=42)
+        assert len(result["events"]) > 0
+
+    def test_prob_slint_multi_bar_realization(self):
+        """prob_slint_4_4 is 4-bar grid — 8 bars should cycle 2x."""
+        result = assemble(style="slint", bars=8, tempo=100, generative=True, seed=42)
+        assert len(result["events"]) > 0
+
+    def test_slint_arrangement_mode(self):
+        result = assemble_arrangement(
+            style="slint", arrangement_str="4:atmospheric 4:drive",
+            tempo=100, seed=42,
+        )
+        assert len(result["events"]) > 0
+
+    def test_city_of_caterpillar_arrangement(self):
+        result = assemble_arrangement(
+            style="city_of_caterpillar",
+            arrangement_str="8:build 4:blast 4:breakdown",
+            tempo=130, seed=42,
+        )
+        assert len(result["events"]) > 0

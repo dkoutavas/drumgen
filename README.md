@@ -73,7 +73,7 @@ python drumgen.py --test-mapping ugritone
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--style` / `-s` | required | Style: blast, dbeat, shellac, fugazi, faraquet, raein, posthardcore, noise_rock, screamo, emoviolence, math, euro_screamo, daitro, liturgy, black_metal, deafheaven |
+| `--style` / `-s` | required | Style: blast, dbeat, shellac, fugazi, faraquet, raein, posthardcore, noise_rock, screamo, emoviolence, math, euro_screamo, daitro, liturgy, black_metal, deafheaven, sonic_youth, slint, post_punk, wipers, preoccupations, dry_cleaning, shame, drive_like_jehu, q_and_not_u, atdi, blood_brothers, unwound, city_of_caterpillar, oxbow |
 | `--cell` | | Exact cell name (overrides --style) |
 | `--arrangement` / `-a` | | Arrangement: `"4:build 8:drive@7/8 2:blast"`. Use `@N/M` for per-section time sig. |
 | `--generative` / `-g` | | Use probability grids for generative patterns. Same style, different each time. |
@@ -117,7 +117,7 @@ python drumgen.py --style shellac --generative --variations 5 --tempo 130 --bars
 
 Each grid entry has a probability (0.0-1.0). Near-deterministic styles like Shellac (0.98) sound almost identical each time. Angular styles like Faraquet (0.4-0.9) produce wide variation. Physical constraints (no ride+hihat, no snare+tom at same position) are enforced after realization.
 
-Available probability cells: `prob_faraquet_4_4`, `prob_shellac_4_4`, `prob_posthardcore_4_4`, `prob_dbeat_4_4`, `prob_blast_4_4`, `prob_euro_screamo_4_4`, `prob_faraquet_7_8`.
+Available probability cells: `prob_faraquet_4_4`, `prob_shellac_4_4`, `prob_posthardcore_4_4`, `prob_dbeat_4_4`, `prob_blast_4_4`, `prob_euro_screamo_4_4`, `prob_faraquet_7_8`, `prob_postpunk_4_4`, `prob_angular_athletic_4_4`, `prob_slint_4_4`.
 
 ## Layer Mode
 
@@ -130,7 +130,7 @@ python drumgen.py --kick dbeat_standard --snare blast_traditional --cymbal faraq
 
 Layer groups: `kick`, `snare` (snare + ghost + rim), `cymbal` (hihat, ride, crash, china, splash), `toms` (high, mid, low, floor). Conflicts at the same beat position are resolved by priority (crash > ride > hihat, snare > tom). Mutually exclusive with `--arrangement`.
 
-## Cells (28)
+## Cells (39)
 
 ### Groove Cells
 
@@ -150,6 +150,14 @@ Layer groups: `kick`, `snare` (snare + ghost + rim), `cymbal` (hihat, ride, cras
 | liturgy_burst_beat | 1 | K/S near-simultaneous (flammed) every 16th. 3-over-4 accent. |
 | blackmetal_atmospheric | 1 | Sparse: kick 1, ride bell pings, snare 3, HH pedal |
 | deafheaven_build_to_blast | 8 | Kick quarters → eighths → sixteenths → full blast |
+| motorik_pulse | 1 | HH closed eighths, kick 1/3, snare 2/4. Steady machine beat. |
+| motorik_build | 4 | Motorik crescendo: ghost → soft → normal → accent |
+| slint_explosion | 1 | Heavy kick, snare 2/4, floor tom, ride eighths. Climax. |
+| athletic_angular | 2 | Busy syncopated kick, ride eighths, ghost snares, floor tom |
+| postpunk_machine | 1 | Kick 1/3, snare 2/4, HH eighths. No ghost, no ride. |
+| postpunk_busy | 2 | Athletic kick, ride eighths, ghost snares, HH open accent |
+| unwound_dynamics | 4 | Quiet ride bell/rim → loud ride/kick/snare explosion |
+| city_of_caterpillar_build | 8 | Ride bell → ride eighths → floor tom → full blast. Crescendo. |
 
 ### Probability Grid Cells (Generative)
 
@@ -162,6 +170,9 @@ Layer groups: `kick`, `snare` (snare + ghost + rim), `cymbal` (hihat, ride, cras
 | prob_blast_4_4 | 4/4 | Blast beat. K/S alternating 16ths 0.92, ride 16ths 0.88 |
 | prob_euro_screamo_4_4 | 4/4 | Daitro-style. Kick 0.85, snare 0.9, ghost 0.35, ride 0.95 |
 | prob_faraquet_7_8 | 7/8 | Angular 7/8. 2+2+3 grouping, ride 0.95, kick on 1/3/5 |
+| prob_postpunk_4_4 | 4/4 | Post-punk. HH closed 1.0, kick/snare 0.95, rare HH open, rare ghost |
+| prob_angular_athletic_4_4 | 4/4 | Athletic angular. Variable kick, ride 0.9 eighths, ghost snares 0.4 |
+| prob_slint_4_4 | 4/4 (4-bar) | Slint dynamic. Quiet ride bell → loud ride/kick/snare explosion |
 
 ### Fill Cells
 
@@ -202,6 +213,20 @@ Each style maps to a pool of cells. In arrangement mode, the best cell is select
 | liturgy | liturgy_burst_beat |
 | black_metal | liturgy_burst_beat, blackmetal_atmospheric, deafheaven_build_to_blast, atmospheric_7_8 |
 | deafheaven | deafheaven_build_to_blast, blackmetal_atmospheric |
+| sonic_youth | motorik_pulse, motorik_build, **prob_postpunk_4_4** |
+| slint | motorik_build, slint_explosion, unwound_dynamics, **prob_slint_4_4** |
+| post_punk | postpunk_machine, postpunk_busy, motorik_pulse, **prob_postpunk_4_4** |
+| wipers | postpunk_machine, **prob_postpunk_4_4** |
+| preoccupations | postpunk_machine, motorik_pulse, **prob_postpunk_4_4** |
+| dry_cleaning | postpunk_machine, motorik_pulse, **prob_postpunk_4_4** |
+| shame | postpunk_machine, postpunk_busy, **prob_postpunk_4_4** |
+| drive_like_jehu | athletic_angular, postpunk_busy, slint_explosion, **prob_angular_athletic_4_4** |
+| q_and_not_u | athletic_angular, postpunk_busy, **prob_angular_athletic_4_4** |
+| atdi | postpunk_busy, athletic_angular, **prob_angular_athletic_4_4** |
+| blood_brothers | postpunk_busy, athletic_angular, **prob_angular_athletic_4_4** |
+| unwound | unwound_dynamics, postpunk_machine, slint_explosion |
+| city_of_caterpillar | city_of_caterpillar_build, emoviolence_blast_crash, emoviolence_angular_breakdown |
+| oxbow | unwound_dynamics, shellac_floor_tom_drive, slint_explosion |
 
 ## Architecture
 
@@ -217,7 +242,7 @@ midi_engine.py      Position math, MIDI file writing, note overlap prevention,
                     interleaved time sig + note event write for mixed meters
 midi_reader.py      MIDI import, auto-tagging, validation, dedup, content hashing
 als_extractor.py    Ableton .als extraction, non-drum track filtering
-test_drumgen.py     Test suite (pytest) — 125 tests
+test_drumgen.py     Test suite (pytest) — 200 tests
 kit_mappings/       JSON instrument-to-note mappings (ugritone, addictive_drums, GM)
 user_cells/         Imported cell JSON files (gitignored, auto-loaded)
 styles/             Style DNA reference (build-time only)
