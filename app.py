@@ -8,7 +8,7 @@ from datetime import datetime
 
 from cell_library import CELLS, STYLE_POOLS, STYLE_MAP, SECTION_PREFERENCES, list_cells
 from assembler import assemble, assemble_arrangement, assemble_layered
-from midi_engine import write_midi, DEFAULT_PPQ
+from midi_engine import write_midi, DEFAULT_PPQ, unique_filepath
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
 from midi_reader import midi_to_cell, save_cell, auto_tag_cell, validate_cell
 
@@ -499,8 +499,9 @@ if generate or generate_top:
 
             base_name, ext = os.path.splitext(filename)
             for vi, vr in enumerate(variation_results, 1):
-                var_filename = f"{base_name}_v{vi}{ext}"
-                var_path = os.path.join(output_folder, var_filename)
+                var_path = os.path.join(output_folder, f"{base_name}_v{vi}{ext}")
+                var_path = unique_filepath(var_path)
+                var_filename = os.path.basename(var_path)
                 write_midi(
                     events=vr["events"], tempo=vr["tempo"],
                     time_signatures=vr["time_signatures"],
@@ -514,6 +515,8 @@ if generate or generate_top:
             result = variation_results[0]
 
         output_path = os.path.join(output_folder, filename)
+        output_path = unique_filepath(output_path)
+        filename = os.path.basename(output_path)
         write_midi(
             events=result["events"],
             tempo=result["tempo"],

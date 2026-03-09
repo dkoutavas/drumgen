@@ -17,7 +17,7 @@ from cell_library import (
     get_cell, get_pool, get_cell_for_section, get_fill_cells,
 )
 from humanizer import Humanizer, get_cluster_amount, infer_section_type
-from midi_engine import position_to_ticks, calculate_bar_start_ticks, write_midi, DEFAULT_PPQ
+from midi_engine import position_to_ticks, calculate_bar_start_ticks, write_midi, DEFAULT_PPQ, unique_filepath
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1464,3 +1464,31 @@ class TestAdvancedHumanization:
         )
         assert len(result["events"]) > 0
         assert all(t >= 0 for t, _, _ in result["events"])
+
+
+class TestUniqueFilepath:
+    """Tests for unique_filepath() auto-increment."""
+
+    def test_returns_original_when_no_conflict(self, tmp_path):
+        p = tmp_path / "test.mid"
+        assert unique_filepath(str(p)) == str(p)
+
+    def test_appends_1_when_original_exists(self, tmp_path):
+        p = tmp_path / "test.mid"
+        p.touch()
+        result = unique_filepath(str(p))
+        assert result == str(tmp_path / "test_1.mid")
+
+    def test_appends_2_when_original_and_1_exist(self, tmp_path):
+        (tmp_path / "test.mid").touch()
+        (tmp_path / "test_1.mid").touch()
+        result = unique_filepath(str(tmp_path / "test.mid"))
+        assert result == str(tmp_path / "test_2.mid")
+
+    def test_preserves_directory_and_extension(self, tmp_path):
+        sub = tmp_path / "output"
+        sub.mkdir()
+        (sub / "pattern.mid").touch()
+        result = unique_filepath(str(sub / "pattern.mid"))
+        assert result == str(sub / "pattern_1.mid")
+        assert result.endswith(".mid")

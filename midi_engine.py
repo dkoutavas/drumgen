@@ -1,10 +1,28 @@
 import json
 import os
 import sys
+from pathlib import Path
 
 import mido
 
 KIT_MAPPINGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kit_mappings")
+
+
+def unique_filepath(filepath):
+    """If filepath exists, append _1, _2, etc. until unique."""
+    p = Path(filepath)
+    if not p.exists():
+        return str(p)
+    stem = p.stem
+    suffix = p.suffix
+    parent = p.parent
+    counter = 1
+    while True:
+        new_path = parent / f"{stem}_{counter}{suffix}"
+        if not new_path.exists():
+            return str(new_path)
+        counter += 1
+
 DEFAULT_PPQ = 480
 NOTE_DURATION = 30  # ticks
 MIDI_CHANNEL = 9

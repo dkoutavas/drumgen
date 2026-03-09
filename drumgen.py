@@ -6,7 +6,7 @@ import sys
 
 from assembler import assemble, assemble_arrangement, assemble_layered
 from cell_library import list_cells, STYLE_POOLS, CELLS, SECTION_PREFERENCES
-from midi_engine import write_midi, generate_test_mapping
+from midi_engine import write_midi, generate_test_mapping, unique_filepath
 
 
 def _print_cells(cells, style_filter):
@@ -112,6 +112,7 @@ def main():
     # --test-mapping mode
     if args.test_mapping:
         output = args.output or f"output/test_{args.test_mapping}.mid"
+        output = unique_filepath(output)
         generate_test_mapping(args.test_mapping, output)
         return
 
@@ -140,6 +141,7 @@ def main():
         else:
             layer_label = "+".join(sorted(layer_args.keys()))
             output_path = f"output/layered_{layer_label}_{args.tempo}bpm.mid"
+        output_path = unique_filepath(output_path)
 
         write_midi(
             events=result["events"],
@@ -175,6 +177,7 @@ def main():
             output_path = args.output
         else:
             output_path = f"output/{args.style}_arrangement_{args.tempo}bpm.mid"
+        output_path = unique_filepath(output_path)
 
         write_midi(
             events=result["events"],
@@ -220,7 +223,7 @@ def main():
                 vary=args.vary,
                 generative=args.generative,
             )
-            output_path = f"{base}_v{vi}{ext}"
+            output_path = unique_filepath(f"{base}_v{vi}{ext}")
             write_midi(
                 events=result["events"],
                 tempo=result["tempo"],
@@ -252,6 +255,7 @@ def main():
     else:
         label = args.cell or args.style
         output_path = f"output/{label}_{args.tempo}bpm_{args.bars}bars.mid"
+    output_path = unique_filepath(output_path)
 
     write_midi(
         events=result["events"],
