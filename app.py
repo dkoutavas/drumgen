@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime
@@ -37,12 +38,31 @@ def wsl_to_windows_path(wsl_path):
     return wsl_path
 
 
+def windows_to_wsl(win_path):
+    win_path = win_path.replace("\\", "/")
+    if len(win_path) >= 2 and win_path[1] == ":":
+        drive = win_path[0].lower()
+        return f"/mnt/{drive}/{win_path[3:]}"
+    return win_path
+
+
 # ── Auto filename ─────────────────────────────────────────────────────────────
 
-def auto_filename(style, tempo, bars, arrangement=False):
-    if arrangement:
-        return f"{style}_{tempo}bpm_arrangement.mid"
-    return f"{style}_{tempo}bpm_{bars}bars.mid"
+def auto_filename(style, tempo, bars, arrangement=False, cell_name="auto",
+                  layer_active=False, layers=None, generative=False):
+    parts = []
+    if generative:
+        parts.append("gen")
+    if layer_active and layers:
+        active = [f"{k[0]}_{v[:15]}" for k, v in layers.items() if v != "none"]
+        parts.append("layer_" + "_".join(active) if active else "layer")
+    elif cell_name != "auto":
+        parts.append(cell_name)
+    else:
+        parts.append(style)
+    parts.append(f"{tempo}bpm")
+    parts.append("arrangement" if arrangement else f"{bars}bars")
+    return "_".join(parts) + ".mid"
 
 
 # ── Pattern preview ───────────────────────────────────────────────────────────
@@ -119,71 +139,116 @@ if "arrangement_text" not in st.session_state:
 
 config = load_config()
 
+# ── Pre-compute mode state (for disabling widgets rendered before mode widgets) ──
+
+_layer_active = any(st.session_state.get(k, "none") != "none"
+                    for k in ["layer_kick", "layer_snare", "layer_cymbal", "layer_toms"])
+_use_arrangement = st.session_state.get("use_arrangement", False)
+
+# ── Build cell options (needed before sidebar renders) ────────────────────────
+
+builtin_cells = sorted(k for k, v in CELLS.items() if v.get("source") != "imported")
+imported_cells_data = sorted(
+    [(k, v) for k, v in CELLS.items() if v.get("source") == "imported"],
+    key=lambda x: x[0]
+)
+cell_options = ["auto"] + builtin_cells
+imported_labels = {}
+if imported_cells_data:
+    cell_options.append("--- imported ---")
+    for name, cell_data in imported_cells_data:
+        ts = f"{cell_data['time_sig'][0]}/{cell_data['time_sig'][1]}"
+        bpm = cell_data.get("source_bpm")
+        bpm_str = f" {bpm}bpm" if bpm else ""
+        tags = [t for t in cell_data.get("tags", []) if t != "imported"]
+        tag_str = f" [{','.join(tags[:3])}]" if tags else ""
+        label = f"{name} ({ts}{bpm_str}{tag_str})"
+        imported_labels[label] = name
+        cell_options.append(label)
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
     st.title("\U0001f941 drumgen")
 
-    output_folder = st.text_input("Output Folder", value=config.get("output_folder", DEFAULT_OUTPUT), help="Where .mid files are saved. Use a Windows-accessible path like /mnt/c/... so Ableton can find the files.")
+    # ── Output ────────────────────────────────────────────────────────────
+    st.markdown("##### Output")
+    stored_wsl = config.get("output_folder", DEFAULT_OUTPUT)
+    initial_win = wsl_to_windows_path(stored_wsl)
+    win_input = st.text_input(
+        "Output Folder", value=initial_win, key="output_folder_win",
+        help="Where .mid files are saved. Accepts Windows or WSL paths.",
+    )
+    output_folder = windows_to_wsl(win_input)
     if output_folder != config.get("output_folder"):
         config["output_folder"] = output_folder
         save_config(config)
-    win_path = wsl_to_windows_path(output_folder)
-    if win_path != output_folder:
-        st.caption(f"Windows: `{win_path}`")
+    st.caption(f"WSL: `{output_folder}`")
+    if st.button("Open folder", use_container_width=True, key="open_folder_sidebar"):
+        subprocess.Popen(["explorer.exe", wsl_to_windows_path(output_folder)])
 
+    kit_options = ["ugritone", "general_midi"]
+    kit = st.selectbox("Kit", kit_options, help="MIDI note mapping for your drum plugin.")
     st.divider()
 
-    # Build cell options first so we can check if a cell is selected before rendering Style
-    builtin_cells = sorted(k for k, v in CELLS.items() if v.get("source") != "imported")
-    imported_cells_data = sorted(
-        [(k, v) for k, v in CELLS.items() if v.get("source") == "imported"],
-        key=lambda x: x[0]
-    )
-    cell_options = ["auto"] + builtin_cells
-    imported_labels = {}
-    if imported_cells_data:
-        cell_options.append("--- imported ---")
-        for name, cell_data in imported_cells_data:
-            ts = f"{cell_data['time_sig'][0]}/{cell_data['time_sig'][1]}"
-            bpm = cell_data.get("source_bpm")
-            bpm_str = f" {bpm}bpm" if bpm else ""
-            tags = [t for t in cell_data.get("tags", []) if t != "imported"]
-            tag_str = f" [{','.join(tags[:3])}]" if tags else ""
-            label = f"{name} ({ts}{bpm_str}{tag_str})"
-            imported_labels[label] = name
-            cell_options.append(label)
-
+    # ── What ──────────────────────────────────────────────────────────────
+    st.markdown("##### What")
+    _cell_override = st.session_state.get("cell_override", "auto")
     style = st.selectbox(
         "Style", sorted(STYLE_POOLS.keys()),
-        disabled=(st.session_state.get("cell_override", "auto") != "auto"),
-        help="Genre shortcut — picks cells matching this style. Disabled when a specific cell is selected below.",
+        disabled=(_layer_active or _cell_override != "auto"),
+        help="Genre shortcut — picks cells matching this style.",
     )
-    cell_label = st.selectbox("Cell override (auto = let Style choose)", cell_options, key="cell_override", help="Pick a specific rhythmic cell. Overrides Style when not 'auto'. Use this when you know exactly which pattern you want.")
-    # Resolve label back to cell name
+    cell_label = st.selectbox(
+        "Cell override (auto = let Style choose)", cell_options,
+        key="cell_override", disabled=_layer_active,
+        help="Pick a specific rhythmic cell. Overrides Style when not 'auto'.",
+    )
     cell_name = imported_labels.get(cell_label, cell_label)
     if cell_name == "--- imported ---":
         cell_name = "auto"
-    if cell_name != "auto":
-        st.caption(f"Style disabled — using cell '{cell_name}' directly.")
-    tempo = st.slider("Tempo (BPM)", 40, 300, 120, help="Beats per minute. Blast beats: 160-220. Post-hardcore: 120-150. D-beat: 150-200.")
-    if st.session_state.get("use_arrangement", False):
-        st.slider("Bars", 1, 32, 4, disabled=True, help="Disabled in arrangement mode — bar count comes from the arrangement string.")
-        st.caption("Bars set by arrangement string")
-        bars = 4
-    else:
-        bars = st.slider("Bars", 1, 32, 4, help="Number of bars to generate. Quick loops: 2-4. Full sections: 8-16.")
-    time_sig = st.selectbox("Time Signature", ["4/4", "3/4", "6/8", "7/8", "5/4"], help="Most cells are written for 4/4. Odd meter support is limited.")
-    humanize = st.slider("Humanize", 0.0, 1.0, 0.7, step=0.05, help="How human the drummer sounds. 0.0 = robotic. 0.2 = tight (Shellac). 0.7 = natural. 0.9+ = barely holding it together.")
-    vary = st.slider("Vary", 0.0, 1.0, 0.0, step=0.05, help="How much the pattern mutates on repeats. 0.0 = exact loop. 0.3 = occasional ghost note or kick shift. Keeps longer sections from sounding mechanical.")
+    if _layer_active:
+        st.caption("Style & Cell disabled \u2014 layer mode active")
+    elif cell_name != "auto":
+        st.caption(f"Style disabled \u2014 using cell '{cell_name}' directly")
+
     generative = st.checkbox("Generative mode", value=False,
         help="Probability-based generation. Same style, different each time.")
     num_variations = 1
     if generative:
         num_variations = st.number_input("Variations", min_value=1, max_value=20, value=1)
-    swing = st.slider("Swing", 0.0, 1.0, 0.0, step=0.05, help="Delays upbeat notes. 0.0 = straight. 0.5 = moderate swing. Most underground genres use 0.0.")
-    fill_every = st.selectbox("Fill Every N Bars", [0, 2, 4, 8], help="Insert a drum fill every N bars. 0 = no fills. 4 = fill every 4-bar phrase.")
+    st.divider()
 
+    # ── Sound ─────────────────────────────────────────────────────────────
+    st.markdown("##### Sound")
+    tempo = st.slider("Tempo (BPM)", 40, 300, 120,
+        help="Beats per minute. Blast beats: 160-220. Post-hardcore: 120-150.")
+    time_sig = st.selectbox("Time Signature", ["4/4", "3/4", "6/8", "7/8", "5/4"],
+        help="Most cells are written for 4/4. Odd meter support is limited.")
+    if _use_arrangement:
+        st.slider("Bars", 1, 32, 4, disabled=True,
+            help="Disabled in arrangement mode \u2014 bar count comes from the arrangement string.")
+        st.caption("Bars set by arrangement string")
+        bars = 4
+    else:
+        bars = st.slider("Bars", 1, 32, 4,
+            help="Number of bars to generate. Quick loops: 2-4. Full sections: 8-16.")
+    st.divider()
+
+    # ── Feel ──────────────────────────────────────────────────────────────
+    st.markdown("##### Feel")
+    humanize = st.slider("Humanize", 0.0, 1.0, 0.7, step=0.05,
+        help="How human the drummer sounds. 0.0 = robotic. 0.7 = natural.")
+    swing = st.slider("Swing", 0.0, 1.0, 0.0, step=0.05,
+        help="Delays upbeat notes. 0.0 = straight. 0.5 = moderate swing.")
+    vary = st.slider("Vary", 0.0, 1.0, 0.0, step=0.05,
+        help="How much the pattern mutates on repeats. 0.0 = exact loop.")
+    fill_every = st.selectbox("Fill Every N Bars", [0, 2, 4, 8],
+        help="Insert a drum fill every N bars. 0 = no fills.")
+    st.divider()
+
+    # ── Modes ─────────────────────────────────────────────────────────────
+    st.markdown("##### Modes")
     with st.expander("Layer Mode (mix cells)"):
         st.caption("Pick cells per instrument group. Overrides Style/Cell.")
         sorted_cell_names = sorted(CELLS.keys())
@@ -191,12 +256,24 @@ with st.sidebar:
         layer_snare = st.selectbox("Snare", ["none"] + sorted_cell_names, key="layer_snare")
         layer_cymbal = st.selectbox("Cymbal", ["none"] + sorted_cell_names, key="layer_cymbal")
         layer_toms = st.selectbox("Toms", ["none"] + sorted_cell_names, key="layer_toms")
+        if st.button("Clear all layers", use_container_width=True):
+            st.session_state.layer_kick = "none"
+            st.session_state.layer_snare = "none"
+            st.session_state.layer_cymbal = "none"
+            st.session_state.layer_toms = "none"
+            st.rerun()
 
-    layer_active = any(v != "none" for v in [layer_kick, layer_snare, layer_cymbal, layer_toms])
+    layers_map = {"kick": layer_kick, "snare": layer_snare, "cymbal": layer_cymbal, "toms": layer_toms}
+    layer_active = any(v != "none" for v in layers_map.values())
+    if layer_active:
+        active_summary = " | ".join(f"{k[0].upper()}:{v}" for k, v in layers_map.items() if v != "none")
+        st.caption(f"Layers: {active_summary}")
 
-    st.divider()
+    if layer_active:
+        cell_name = "auto"
 
-    use_arrangement = st.checkbox("Use Arrangement Mode", key="use_arrangement", help="Chain multiple sections into one MIDI file (e.g. '4:build 8:drive 2:blast'). Overrides Bars.")
+    use_arrangement = st.checkbox("Use Arrangement Mode", key="use_arrangement",
+        help="Chain multiple sections into one MIDI file.")
 
     if use_arrangement:
         st.session_state.arrangement_text = st.text_input(
@@ -204,7 +281,9 @@ with st.sidebar:
             value=st.session_state.arrangement_text,
             placeholder="e.g. 4:build 8:drive 2:blast",
         )
-        st.caption("Tip: add @N/M per section, e.g. '4:verse@7/8 2:fill@4/4'")
+        st.caption("Tip: append @N/M for per-section meters, e.g. '4:verse@7/8'")
+        quick_meter = st.selectbox("Meter for quick-add",
+            ["(use global)", "4/4", "3/4", "6/8", "7/8", "5/4"], key="quick_meter")
 
         st.caption("Quick-add sections:")
         quick_sections = {
@@ -215,19 +294,42 @@ with st.sidebar:
         cols = st.columns(3)
         for i, (section, default_bars) in enumerate(quick_sections.items()):
             with cols[i % 3]:
-                if st.button(f"{default_bars}:{section}", key=f"qa_{section}", use_container_width=True):
+                meter_suffix = f"@{quick_meter}" if quick_meter != "(use global)" else ""
+                btn_label = f"{default_bars}:{section}{meter_suffix}"
+                if st.button(btn_label, key=f"qa_{section}", use_container_width=True):
                     current = st.session_state.arrangement_text.strip()
-                    token = f"{default_bars}:{section}"
+                    token = f"{default_bars}:{section}{meter_suffix}"
                     st.session_state.arrangement_text = f"{current} {token}".strip()
                     st.rerun()
-        if st.button("Clear", use_container_width=True):
+        if st.button("Clear", use_container_width=True, key="clear_arrangement"):
             st.session_state.arrangement_text = ""
             st.rerun()
-
     st.divider()
 
-    kit_options = ["ugritone", "general_midi"]
-    kit = st.selectbox("Kit", kit_options, help="MIDI note mapping for your drum plugin. Must match your plugin or notes trigger wrong drums.")
+    # ── Generate ──────────────────────────────────────────────────────────
+    st.markdown("##### Generate")
+    seed_input = st.number_input("Seed (empty = random)", value=None, min_value=0, step=1, format="%d",
+        help="Random seed for reproducibility. Same seed + same settings = same pattern.")
+    seed = int(seed_input) if seed_input is not None else None
+
+    default_fn = auto_filename(
+        style, tempo, bars,
+        arrangement=use_arrangement,
+        cell_name=cell_name,
+        layer_active=layer_active,
+        layers=layers_map,
+        generative=generative,
+    )
+    if "prev_auto_fn" not in st.session_state:
+        st.session_state.prev_auto_fn = ""
+    if default_fn != st.session_state.prev_auto_fn:
+        st.session_state.filename_input = default_fn
+        st.session_state.prev_auto_fn = default_fn
+    filename = st.text_input("Filename", key="filename_input")
+
+    auto_play = st.checkbox("Auto-play audio after generate", value=False, key="auto_play")
+
+    generate = st.button("Generate", type="primary", use_container_width=True)
 
     with st.expander("Import MIDI as Cell"):
         uploaded = st.file_uploader("Upload .mid file", type=["mid", "midi"])
@@ -237,7 +339,6 @@ with st.sidebar:
                                     help="Added alongside auto-detected tags" if use_auto_tag else "Tags for this cell")
         import_role = st.selectbox("Role", ["groove", "fill", "transition"], key="import_role")
 
-        # Preview auto-tags before importing
         if uploaded and st.button("Preview", key="preview_import"):
             try:
                 with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as tmp:
@@ -249,9 +350,9 @@ with st.sidebar:
                 errors, warnings = validate_cell(cell, kit_name=kit)
                 os.unlink(tmp_path)
 
-                ts = f"{cell['time_sig'][0]}/{cell['time_sig'][1]}"
+                ts_str = f"{cell['time_sig'][0]}/{cell['time_sig'][1]}"
                 bpm_str = f" | {cell.get('source_bpm')} BPM" if cell.get('source_bpm') else ""
-                st.info(f"**{cell['name']}** | {ts} | {cell['num_bars']} bars | {len(cell['hits'])} hits{bpm_str}")
+                st.info(f"**{cell['name']}** | {ts_str} | {cell['num_bars']} bars | {len(cell['hits'])} hits{bpm_str}")
                 st.caption(f"Tags: {', '.join(cell['tags'])}")
                 st.caption(f"Role: {cell['role']}")
                 if errors:
@@ -278,7 +379,6 @@ with st.sidebar:
                 )
                 if use_auto_tag:
                     auto_tag_cell(cell)
-                    # Merge extra tags
                     if extra_tags:
                         merged = set(cell["tags"]) | set(extra_tags)
                         cell["tags"] = sorted(merged)
@@ -290,7 +390,7 @@ with st.sidebar:
                 path = save_cell(cell)
                 os.unlink(tmp_path)
                 if path is None:
-                    st.warning(f"Skipped **{cell['name']}** — duplicate of existing cell")
+                    st.warning(f"Skipped **{cell['name']}** \u2014 duplicate of existing cell")
                 else:
                     bpm_str = f" @ {cell.get('source_bpm')}bpm" if cell.get('source_bpm') else ""
                     st.success(f"Imported **{cell['name']}** ({len(cell['hits'])} hits, {cell['num_bars']} bars{bpm_str})")
@@ -304,20 +404,16 @@ with st.sidebar:
                 except OSError:
                     pass
 
-    seed_input = st.number_input("Seed (empty = random)", value=None, min_value=0, step=1, format="%d", help="Random seed for reproducibility. Same seed + same settings = same pattern. Leave empty for random.")
-    seed = int(seed_input) if seed_input is not None else None
-
-    default_fn = auto_filename(style, tempo, bars, arrangement=use_arrangement)
-    filename = st.text_input("Filename", value=default_fn)
-
-    generate = st.button("Generate", type="primary", use_container_width=True)
-
 # ── Main area ─────────────────────────────────────────────────────────────────
 
 st.header("drumgen")
+generate_top = st.button("Generate", type="primary", key="generate_top")
 
-if generate:
+if generate or generate_top:
     try:
+        variation_files = []
+        resolved_cell = None
+
         if layer_active:
             # Layer mode
             layers = {}
@@ -374,7 +470,6 @@ if generate:
                 generative=generative,
             )
             total_bars = bars
-            # Track which cell was actually used
             if resolved_cell:
                 actual_cell = resolved_cell
             else:
@@ -383,7 +478,6 @@ if generate:
 
         # Handle variations
         if generative and num_variations > 1 and not layer_active:
-            import random as _rand
             base_seed = result["seed"]
             variation_results = [result]
             for vi in range(1, num_variations):
@@ -396,14 +490,13 @@ if generate:
                     )
                 else:
                     vr = assemble(
-                        style=style, cell_name=resolved_cell if not layer_active else None,
+                        style=style, cell_name=resolved_cell,
                         bars=bars, tempo=tempo, time_sig=time_sig, humanize=humanize,
                         swing=swing, fill_every=fill_every, seed=var_seed, vary=vary,
                         generative=True,
                     )
                 variation_results.append(vr)
 
-            # Write all variations
             base_name, ext = os.path.splitext(filename)
             for vi, vr in enumerate(variation_results, 1):
                 var_filename = f"{base_name}_v{vi}{ext}"
@@ -415,32 +508,23 @@ if generate:
                 )
                 with open(var_path, "rb") as f:
                     var_bytes = f.read()
-                st.success(f"Variation {vi}: **{var_filename}** (seed {vr['seed']})")
-                st.download_button(
-                    label=f"Download v{vi}",
-                    data=var_bytes,
-                    file_name=var_filename,
-                    mime="audio/midi",
-                    key=f"dl_var_{vi}",
-                )
-            # Use first variation as the main result for preview
+                variation_files.append({
+                    "filename": var_filename, "seed": vr["seed"], "bytes": var_bytes,
+                })
             result = variation_results[0]
 
         output_path = os.path.join(output_folder, filename)
-        if not (generative and num_variations > 1 and not layer_active):
-            write_midi(
-                events=result["events"],
-                tempo=result["tempo"],
-                time_signatures=result["time_signatures"],
-                kit_mapping_path=kit,
-                output_path=output_path,
-            )
+        write_midi(
+            events=result["events"],
+            tempo=result["tempo"],
+            time_signatures=result["time_signatures"],
+            kit_mapping_path=kit,
+            output_path=output_path,
+        )
 
-        # Read file bytes for download
         with open(output_path, "rb") as f:
             midi_bytes = f.read()
 
-        # Store in session state
         st.session_state.last_result = {
             "events": result["events"],
             "time_signatures": result["time_signatures"],
@@ -456,9 +540,9 @@ if generate:
             "actual_cell": result.get("actual_cell", ""),
             "arrangement": use_arrangement,
             "section_summary": result.get("section_summary", ""),
+            "variation_files": variation_files,
         }
 
-        # Add to history
         st.session_state.history.insert(0, {
             "time": datetime.now().strftime("%H:%M:%S"),
             "filename": filename,
@@ -478,65 +562,48 @@ if "last_result" in st.session_state:
     r = st.session_state.last_result
     win_out = wsl_to_windows_path(r["output_path"])
 
-    st.success(f"Saved: **{r['filename']}**")
-    st.caption(f"WSL: `{r['output_path']}`")
-    if win_out != r["output_path"]:
-        st.caption(f"Windows: `{win_out}`")
+    # Row 1: Success + Download + Open folder
+    col_msg, col_dl, col_open = st.columns([3, 1, 1])
+    with col_msg:
+        st.success(f"Saved: **{r['filename']}**")
+    with col_dl:
+        st.download_button(
+            label="Download .mid",
+            data=r["midi_bytes"],
+            file_name=r["filename"],
+            mime="audio/midi",
+            use_container_width=True,
+        )
+    with col_open:
+        if st.button("Open folder", use_container_width=True, key="open_folder_result"):
+            subprocess.Popen(["explorer.exe", wsl_to_windows_path(os.path.dirname(r["output_path"]))])
 
+    # Row 2: Compact info caption
+    cell_info = ""
     if r.get("actual_cell") and not r["arrangement"]:
-        if r["cell"] != "auto":
-            st.info(f"Cell used: **{r['actual_cell']}** (manually selected)")
-        else:
-            st.info(f"Cell used: **{r['actual_cell']}** (from style '{r['style']}')")
-        cell_data = CELLS.get(r["actual_cell"])
-        if cell_data and cell_data.get("tags"):
-            st.caption(f"Tags: {', '.join(cell_data['tags'])}")
+        cell_info = f"Cell: {r['actual_cell']} | "
+    st.caption(f"{cell_info}Seed: {r['seed']} | Path: `{win_out}`")
 
-    col1, col2 = st.columns([1, 1])
+    # Variation downloads
+    if r.get("variation_files"):
+        vcols = st.columns(min(len(r["variation_files"]), 5))
+        for i, vf in enumerate(r["variation_files"]):
+            with vcols[i % 5]:
+                st.download_button(
+                    label=f"v{i+1} (seed {vf['seed']})",
+                    data=vf["bytes"],
+                    file_name=vf["filename"],
+                    mime="audio/midi",
+                    use_container_width=True,
+                    key=f"dl_var_{i+1}",
+                )
 
-    with col1:
-        st.subheader("Parameters")
-        params = {
-            "Style": r["style"],
-            "Tempo": f"{r['tempo']} BPM",
-            "Bars": r["total_bars"],
-            "Cell": r["cell"],
-            "Humanize": r["humanize"],
-            "Seed": r["seed"],
-        }
-        if r["arrangement"] and r.get("section_summary"):
-            params["Sections"] = r["section_summary"]
-        for k, v in params.items():
-            st.text(f"{k}: {v}")
-
-    with col2:
-        st.subheader("Stats")
-        events = r["events"]
-        total_hits = len(events)
-        unique_instruments = len({inst for _, inst, _ in events})
-        velocities = [v for _, _, v in events]
-        vel_min = min(velocities) if velocities else 0
-        vel_max = max(velocities) if velocities else 0
-        st.text(f"Total hits: {total_hits}")
-        st.text(f"Unique instruments: {unique_instruments}")
-        st.text(f"Velocity range: {vel_min}–{vel_max}")
-
-    st.download_button(
-        label="Download .mid",
-        data=r["midi_bytes"],
-        file_name=r["filename"],
-        mime="audio/midi",
-        use_container_width=True,
-    )
-
-    # ── Audio preview ─────────────────────────────────────────────────────
-    st.subheader("Audio Preview")
+    # Row 3: Audio preview
     if not is_fluidsynth_available():
-        st.caption("Audio preview unavailable — install FluidSynth: `sudo zypper install fluidsynth fluid-soundfont-gm`")
+        st.caption("Audio preview unavailable \u2014 install FluidSynth: `sudo zypper install fluidsynth fluid-soundfont-gm`")
     elif find_soundfont() is None:
-        st.caption("Audio preview unavailable — no soundfont found. Run: `sudo zypper install fluid-soundfont-gm`")
+        st.caption("Audio preview unavailable \u2014 no soundfont found. Run: `sudo zypper install fluid-soundfont-gm`")
     else:
-        # Render to temp wav if not already cached for this result
         if "wav_bytes" not in r:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 tmp_wav = tmp.name
@@ -554,15 +621,46 @@ if "last_result" in st.session_state:
                     pass
 
         if r.get("wav_bytes"):
-            st.audio(r["wav_bytes"], format="audio/wav")
-            st.caption("Preview uses General MIDI drums — your Ugritone kit will sound different.")
+            st.audio(r["wav_bytes"], format="audio/wav",
+                     autoplay=st.session_state.get("auto_play", False))
+            st.caption("Preview uses General MIDI drums \u2014 your Ugritone kit will sound different.")
         else:
             st.caption("Preview rendering failed.")
 
-    st.subheader("Pattern Preview")
-    st.caption("**X** = accent (loud)  **x** = normal  **o** = ghost (quiet)  **.** = silent")
-    preview = build_pattern_preview(r["events"], r["time_signatures"], r["tempo"])
-    st.code(preview, language=None)
+    # Row 4: Pattern Preview (expanded by default)
+    with st.expander("Pattern Preview", expanded=True):
+        st.caption("**X** = accent (loud)  **x** = normal  **o** = ghost (quiet)  **.** = silent")
+        preview = build_pattern_preview(r["events"], r["time_signatures"], r["tempo"])
+        st.code(preview, language=None)
+
+    # Row 5: Parameters & Stats (collapsed by default)
+    with st.expander("Parameters & Stats"):
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown("**Parameters**")
+            params = {
+                "Style": r["style"],
+                "Tempo": f"{r['tempo']} BPM",
+                "Bars": r["total_bars"],
+                "Cell": r["cell"],
+                "Humanize": r["humanize"],
+                "Seed": r["seed"],
+            }
+            if r["arrangement"] and r.get("section_summary"):
+                params["Sections"] = r["section_summary"]
+            for k, v in params.items():
+                st.text(f"{k}: {v}")
+        with col2:
+            st.markdown("**Stats**")
+            events = r["events"]
+            total_hits = len(events)
+            unique_instruments = len({inst for _, inst, _ in events})
+            velocities = [v for _, _, v in events]
+            vel_min = min(velocities) if velocities else 0
+            vel_max = max(velocities) if velocities else 0
+            st.text(f"Total hits: {total_hits}")
+            st.text(f"Unique instruments: {unique_instruments}")
+            st.text(f"Velocity range: {vel_min}\u2013{vel_max}")
 
 # ── Session history ───────────────────────────────────────────────────────────
 
@@ -570,4 +668,4 @@ if st.session_state.history:
     st.divider()
     st.subheader("History")
     for entry in st.session_state.history:
-        st.text(f"[{entry['time']}] {entry['filename']} — {entry['style']} @ {entry['tempo']}bpm, {entry['bars']} bars (seed {entry['seed']})")
+        st.text(f"[{entry['time']}] {entry['filename']} \u2014 {entry['style']} @ {entry['tempo']}bpm, {entry['bars']} bars (seed {entry['seed']})")
