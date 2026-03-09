@@ -16,7 +16,7 @@ from cell_library import (
     CELLS, STYLE_POOLS, SECTION_PREFERENCES,
     get_cell, get_pool, get_cell_for_section, get_fill_cells,
 )
-from humanizer import Humanizer
+from humanizer import Humanizer, get_cluster_amount, infer_section_type
 from midi_engine import position_to_ticks, calculate_bar_start_ticks, write_midi, DEFAULT_PPQ
 
 
@@ -1263,3 +1263,202 @@ class TestNewStylesEndToEnd:
             tempo=130, seed=42,
         )
         assert len(result["events"]) > 0
+
+
+# ── Advanced Humanization ────────────────────────────────────────────────────
+
+class TestAdvancedHumanization:
+    """Tests for velocity contour, flam, section drift, and ghost clustering."""
+
+    # ── Velocity contour ─────────────────────────────────────────────────
+
+    def test_velocity_contour_affects_ride(self):
+        h = Humanizer(0.7, seed=1)
+        base_vel = 90
+        boosted = h.velocity_contour(base_vel, "ride", 2, 0.0)   # downbeat sub
+        weakened = h.velocity_contour(base_vel, "ride", 2, 0.75)  # weakest sub
+        assert boosted > weakened
+
+    def test_contour_no_effect_on_kick(self):
+        h = Humanizer(0.7, seed=1)
+        vel = 90
+        assert h.velocity_contour(vel, "kick", 1, 0.0) == vel
+
+    def test_contour_disabled_at_zero(self):
+        h = Humanizer(0.0, seed=1)
+        vel = 90
+        assert h.velocity_contour(vel, "ride", 1, 0.0) == vel
+        assert h.velocity_contour(vel, "hihat_closed", 2, 0.5) == vel
+
+    def test_beat1_emphasis(self):
+        h = Humanizer(0.7, seed=1)
+        base_vel = 90
+        beat1 = h.velocity_contour(base_vel, "ride", 1, 0.0)
+        beat2 = h.velocity_contour(base_vel, "ride", 2, 0.0)
+        assert beat1 > beat2  # beat 1 gets extra boost
+
+    def test_contour_clamps_velocity(self):
+        h = Humanizer(1.0, seed=1)
+        assert h.velocity_contour(125, "ride", 1, 0.0) <= 127
+        assert h.velocity_contour(2, "ride", 3, 0.75) >= 1
+
+    # ── Kick-snare flam ──────────────────────────────────────────────────
+
+    def test_flam_separates_kick_snare(self):
+        h = Humanizer(0.7, seed=42)
+        events = [
+            (960, "kick", 100),
+            (960, "snare", 110),
+            (1920, "hihat_closed", 80),
+        ]
+        result = h.apply_flam(events, tempo=120, ppq=480)
+        kick_tick = next(t for t, i, v in result if i == "kick")
+        snare_tick = next(t for t, i, v in result if i == "snare")
+        assert kick_tick < snare_tick
+
+    def test_flam_skips_ghost_velocity(self):
+        h = Humanizer(0.7, seed=42)
+        events = [
+            (960, "kick", 100),
+            (960, "snare", 40),  # ghost-level velocity
+        ]
+        result = h.apply_flam(events, tempo=120, ppq=480)
+        kick_tick = next(t for t, i, v in result if i == "kick")
+        assert kick_tick == 960  # unchanged
+
+    def test_flam_disabled_at_low_humanize(self):
+        h = Humanizer(0.1, seed=42)
+        events = [
+            (960, "kick", 100),
+            (960, "snare", 110),
+        ]
+        result = h.apply_flam(events, tempo=120, ppq=480)
+        kick_tick = next(t for t, i, v in result if i == "kick")
+        assert kick_tick == 960  # unchanged
+
+    # ── Section drift ────────────────────────────────────────────────────
+
+    def test_drift_verse_positive(self):
+        h = Humanizer(0.7, seed=1)
+        drift = h.compute_section_drift_ms("verse", 3, 8)
+        assert drift > 0  # drag = positive
+
+    def test_drift_chorus_negative(self):
+        h = Humanizer(0.7, seed=1)
+        drift = h.compute_section_drift_ms("chorus", 0, 4)
+        assert drift < 0  # push = negative
+
+    def test_drift_build_gradual(self):
+        h = Humanizer(0.7, seed=1)
+        drift_early = h.compute_section_drift_ms("build", 0, 8)
+        drift_late = h.compute_section_drift_ms("build", 7, 8)
+        assert abs(drift_late) > abs(drift_early)  # increases over bars
+
+    def test_drift_disabled_at_zero(self):
+        h = Humanizer(0.0, seed=1)
+        assert h.compute_section_drift_ms("verse", 3, 8) == 0.0
+        assert h.compute_section_drift_ms("chorus", 0, 4) == 0.0
+
+    def test_drift_unknown_section(self):
+        h = Humanizer(0.7, seed=1)
+        assert h.compute_section_drift_ms("nonexistent", 3, 8) == 0.0
+
+    # ── Ghost clustering ─────────────────────────────────────────────────
+
+    def test_ghost_clustering_pulls_toward_accent(self):
+        h = Humanizer(0.7, seed=42)
+        accent_tick = 960
+        ghost_tick = 720  # before accent
+        events = [
+            (accent_tick, "snare", 110),
+            (ghost_tick, "snare_ghost", 35),
+            (480, "kick", 100),
+        ]
+        result = h.apply_ghost_clustering(events, 0.7, tempo=120, ppq=480)
+        new_ghost_tick = next(t for t, i, v in result if i == "snare_ghost")
+        # Ghost should have moved closer to accent (or at least changed)
+        original_distance = abs(accent_tick - ghost_tick)
+        new_distance = abs(accent_tick - new_ghost_tick)
+        assert new_distance < original_distance
+
+    def test_clustering_adds_paired_ghost(self):
+        """With high cluster amount and enough runs, paired ghosts appear."""
+        found_extra = False
+        for seed in range(100):
+            h = Humanizer(1.0, seed=seed)
+            events = [
+                (960, "snare", 120),
+                (720, "snare_ghost", 30),
+            ]
+            result = h.apply_ghost_clustering(events, 1.0, tempo=120, ppq=480)
+            ghost_count = sum(1 for _, i, _ in result if i == "snare_ghost")
+            if ghost_count > 1:
+                found_extra = True
+                break
+        assert found_extra, "Expected paired ghost to appear in at least one seed"
+
+    def test_clustering_shellac_zero(self):
+        cell = {"tags": ["shellac", "precise"]}
+        assert get_cluster_amount(cell) == 0.0
+
+    def test_get_cluster_amount_faraquet(self):
+        cell = {"tags": ["faraquet", "angular"]}
+        assert get_cluster_amount(cell) == 0.7
+
+    def test_get_cluster_amount_default(self):
+        cell = {"tags": ["unknown_tag"]}
+        assert get_cluster_amount(cell) == 0.3
+
+    # ── infer_section_type ───────────────────────────────────────────────
+
+    def test_infer_section_type_blast(self):
+        cell = {"tags": ["blast", "extreme"]}
+        assert infer_section_type(cell) == "blast"
+
+    def test_infer_section_type_default(self):
+        cell = {"tags": []}
+        assert infer_section_type(cell) == "verse"
+
+    def test_infer_section_type_driving(self):
+        cell = {"tags": ["driving", "intense"]}
+        assert infer_section_type(cell) == "drive"
+
+    # ── Integration / reproducibility ────────────────────────────────────
+
+    def test_seed_reproducibility_advanced(self):
+        """Same seed produces identical events with all advanced features."""
+        r1 = assemble(style="faraquet", bars=4, tempo=140, seed=42)
+        r2 = assemble(style="faraquet", bars=4, tempo=140, seed=42)
+        assert r1["events"] == r2["events"]
+
+    def test_events_sorted_after_humanization(self):
+        result = assemble(style="faraquet", bars=4, tempo=140, seed=42)
+        ticks = [e[0] for e in result["events"]]
+        assert ticks == sorted(ticks)
+
+    def test_all_ticks_non_negative(self):
+        for style in ["faraquet", "shellac", "blast", "raein"]:
+            result = assemble(style=style, bars=4, tempo=160, seed=42)
+            for tick, inst, vel in result["events"]:
+                assert tick >= 0, f"Negative tick {tick} for {inst} in style {style}"
+
+    def test_arrangement_advanced_humanization(self):
+        """Arrangement mode applies drift, flam, clustering without errors."""
+        result = assemble_arrangement(
+            style="faraquet",
+            arrangement_str="4:verse 4:chorus 2:blast",
+            tempo=140, seed=42,
+        )
+        assert len(result["events"]) > 0
+        ticks = [e[0] for e in result["events"]]
+        assert ticks == sorted(ticks)
+        assert all(t >= 0 for t, _, _ in result["events"])
+
+    def test_layered_advanced_humanization(self):
+        """Layer mode applies drift, flam, clustering without errors."""
+        result = assemble_layered(
+            layers={"kick": "blast_traditional", "cymbal": "shellac_floor_tom_drive"},
+            bars=4, tempo=160, seed=42,
+        )
+        assert len(result["events"]) > 0
+        assert all(t >= 0 for t, _, _ in result["events"])

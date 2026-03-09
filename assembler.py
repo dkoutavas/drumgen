@@ -3,7 +3,7 @@ import random
 import sys
 
 from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS, CELLS
-from humanizer import Humanizer
+from humanizer import Humanizer, get_cluster_amount, infer_section_type
 from midi_engine import position_to_ticks, DEFAULT_PPQ
 
 
@@ -249,7 +249,7 @@ def _resolve_layer_conflicts(merged_hits):
 
 def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
                  tempo, time_sig_list, ppq, beat_ticks, swing, humanize_override,
-                 velocity_offset=0):
+                 velocity_offset=0, section_drift_ms=0.0):
     """Process one bar of hits, returning list of (abs_tick, instrument, velocity)."""
     events = []
     # Determine humanize amount for this bar
@@ -272,7 +272,15 @@ def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
             abs_tick = humanizer.apply_swing(abs_tick, is_upbeat, swing, beat_ticks)
 
         abs_tick = humanizer.humanize_timing(abs_tick, instrument, tempo, ppq)
+
+        # Section drift: shift all hits by drift amount
+        if section_drift_ms != 0.0:
+            ms_per_tick = (60000.0 / tempo) / ppq
+            abs_tick = max(0, abs_tick + int(section_drift_ms / ms_per_tick))
+
         velocity = humanizer.humanize_velocity(vel_level, instrument)
+        # Velocity contour: wrist pattern + beat-1 emphasis for cymbals
+        velocity = humanizer.velocity_contour(velocity, instrument, beat, sub)
         velocity = max(1, min(127, velocity + velocity_offset))
         events.append((abs_tick, instrument, velocity))
 
@@ -354,6 +362,7 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
 
     events = []
     seen_cell_bars = set()
+    section_type = infer_section_type(cell)
 
     for bar_idx in range(bars):
         bar_number = bar_idx + 1
@@ -379,9 +388,11 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             active_hits = vary_hits(active_hits, cell_bar, vary, rng, time_sig=(num, den))
         seen_cell_bars.add(cell_bar)
 
+        drift_ms = humanizer.compute_section_drift_ms(section_type, bar_idx, bars)
         bar_events = _process_bar(
             bar_number, cell_bar, active_hits, active_cell, humanizer,
             tempo, time_signatures, ppq, beat_ticks, swing, humanize,
+            section_drift_ms=drift_ms,
         )
         events.extend(bar_events)
 
@@ -396,6 +407,9 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         crash_vel = humanizer.humanize_velocity("accent", "crash_1")
         events.append((crash_tick, "crash_1", crash_vel))
 
+    events = humanizer.apply_flam(events, tempo, ppq)
+    cluster_amt = get_cluster_amount(cell)
+    events = humanizer.apply_ghost_clustering(events, cluster_amt, tempo, ppq)
     events.sort(key=lambda e: (e[0], e[1]))
 
     return {
@@ -489,6 +503,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
 
     events = []
     bar_cursor = 0  # 0-indexed global bar counter
+    used_cells = []
 
     for section_bars, section_type, (sec_num, sec_den) in sections:
         beat_ticks = ppq * 4 // sec_den
@@ -505,8 +520,11 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
 
         if cell is None:
             # Silence section — advance bar counter, emit nothing
+            used_cells.append(None)
             bar_cursor += section_bars
             continue
+
+        used_cells.append(cell)
 
         if tuple(cell.get("time_sig", (4, 4))) != (sec_num, sec_den):
             print(f"Warning: section '{section_type}' using {cell['time_sig'][0]}/{cell['time_sig'][1]} "
@@ -556,6 +574,8 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
                 current_hits = vary_hits(cell_hits, cell_bar, vary, rng, time_sig=(sec_num, sec_den))
             seen_cell_bars.add(cell_bar)
 
+            drift_ms = humanizer.compute_section_drift_ms(section_type, i, section_bars)
+
             # For prob cells, remap cell_bar hits to the correct global bar_number
             if is_prob:
                 remapped_hits = []
@@ -565,18 +585,24 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
                 bar_events = _process_bar(
                     bar_number, bar_number, remapped_hits, cell, humanizer,
                     tempo, time_signatures, ppq, beat_ticks, swing, humanize,
-                    velocity_offset=vel_offset,
+                    velocity_offset=vel_offset, section_drift_ms=drift_ms,
                 )
             else:
                 bar_events = _process_bar(
                     bar_number, cell_bar, current_hits, cell, humanizer,
                     tempo, time_signatures, ppq, beat_ticks, swing, humanize,
-                    velocity_offset=vel_offset,
+                    velocity_offset=vel_offset, section_drift_ms=drift_ms,
                 )
             events.extend(bar_events)
 
         bar_cursor += section_bars
 
+    events = humanizer.apply_flam(events, tempo, ppq)
+    cluster_amt = max(
+        (get_cluster_amount(c) for c in used_cells if c is not None),
+        default=0.3
+    )
+    events = humanizer.apply_ghost_clustering(events, cluster_amt, tempo, ppq)
     events.sort(key=lambda e: (e[0], e[1]))
 
     section_summary = " → ".join(
@@ -640,6 +666,7 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
     dummy_cell = {"humanize": humanize_amount, "humanize_per_bar": None, "num_bars": 1}
 
     events = []
+    section_type = "verse"
 
     for bar_idx in range(bars):
         bar_number = bar_idx + 1
@@ -667,12 +694,20 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
         merged_hits = _resolve_layer_conflicts(merged_hits)
 
         # Process bar
+        drift_ms = humanizer.compute_section_drift_ms(section_type, bar_idx, bars)
         bar_events = _process_bar(
             bar_number, bar_number, merged_hits, dummy_cell, humanizer,
             tempo, time_signatures, ppq, beat_ticks, swing, humanize,
+            section_drift_ms=drift_ms,
         )
         events.extend(bar_events)
 
+    events = humanizer.apply_flam(events, tempo, ppq)
+    cluster_amt = max(
+        (get_cluster_amount(c) for c in layer_cells.values()),
+        default=0.0
+    )
+    events = humanizer.apply_ghost_clustering(events, cluster_amt, tempo, ppq)
     events.sort(key=lambda e: (e[0], e[1]))
 
     return {

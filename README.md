@@ -237,12 +237,13 @@ drumgen.py          CLI entry point (generative, variations, layer mode, mixed m
 assembler.py        Cell selection, bar layout, arrangement mode, probability grid
                     realization, layer extraction/conflict resolution, humanization
 cell_library.py     Cell data (fixed + probability grids), style pools, section prefs
-humanizer.py        Seeded RNG, per-instrument velocity/timing tables
+humanizer.py        Seeded RNG, per-instrument velocity/timing tables,
+                    velocity contour, section drift, flam, ghost clustering
 midi_engine.py      Position math, MIDI file writing, note overlap prevention,
                     interleaved time sig + note event write for mixed meters
 midi_reader.py      MIDI import, auto-tagging, validation, dedup, content hashing
 als_extractor.py    Ableton .als extraction, non-drum track filtering
-test_drumgen.py     Test suite (pytest) — 200 tests
+test_drumgen.py     Test suite (pytest) — 226 tests
 kit_mappings/       JSON instrument-to-note mappings (ugritone, addictive_drums, GM)
 user_cells/         Imported cell JSON files (gitignored, auto-loaded)
 styles/             Style DNA reference (build-time only)
@@ -277,3 +278,20 @@ The GUI also supports MIDI import via the sidebar expander with preview, auto-ta
 - `general_midi` — Standard GM drums
 
 Custom mappings: create a JSON file in `kit_mappings/` or pass a path with `--kit`. Kit files support an `aliases` field for additional note-to-instrument mappings (useful when a source kit maps multiple notes to the same instrument).
+
+## Humanization
+
+All patterns are humanized by default. The `--humanize` slider (0.0-1.0) controls the intensity of all humanization features. At 0.0, output is perfectly quantized.
+
+**Basic humanization** (per-hit):
+- Per-instrument velocity variance (snare ±18, hihat ±25, etc.)
+- Timing tendencies (snare slightly late, ride slightly early)
+- Swing application
+
+**Advanced humanization** (physics-based):
+- **Velocity contour** — Cymbal wrist pattern: downbeats louder, weak subdivisions softer. Beat 1 gets extra emphasis. Makes ride/hihat patterns breathe naturally.
+- **Section push/pull drift** — Verses gradually drag behind the beat. Choruses and blasts push ahead. Builds gradually accelerate. Models how real drummers respond to song energy.
+- **Kick-snare flam** — When kick and snare hit simultaneously (both loud), the kick fires 5-12ms early. Creates the natural flam that real drummers produce on accented unison hits.
+- **Ghost note clustering** — Ghost notes gravitate toward nearby snare accents, with style-dependent intensity. Angular styles (faraquet: 0.7) cluster heavily. Precise styles (shellac: 0.0) don't cluster at all.
+
+All advanced features scale from the master humanize slider. Seed reproducibility is preserved — same seed always produces identical output.
