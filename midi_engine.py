@@ -50,6 +50,10 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
     kit = load_kit_mapping(kit_mapping_path)
     instruments = kit["mapping"]
     inst_lookup = {k.lower(): v for k, v in instruments.items()}
+    # Resolve aliases → mapped note numbers
+    for alias, target in kit.get("aliases", {}).items():
+        if alias.lower() not in inst_lookup and target.lower() in inst_lookup:
+            inst_lookup[alias.lower()] = inst_lookup[target.lower()]
 
     midi_events = []
     for abs_tick, instrument, velocity in events:

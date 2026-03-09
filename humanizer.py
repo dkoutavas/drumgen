@@ -81,6 +81,14 @@ class Humanizer:
         "tom_low": 18,
         "tom_floor": 18,
         "hihat_pedal": 15,
+        "tom_mid_high": 18,
+        "hihat_wide_open": 20,
+        "crash_1_choke": 8,
+        "crash_2_choke": 8,
+        "ride_crash": 16,
+        "fx_cymbal_1": 14,
+        "fx_cymbal_2": 14,
+        "china_2": 16,
     }
 
     TIMING_TENDENCIES = {
@@ -101,9 +109,17 @@ class Humanizer:
         "hihat_pedal": 0,
         "hihat_open": -1,
         "splash": -2,
+        "tom_mid_high": 0,
+        "hihat_wide_open": -1,
+        "crash_1_choke": 0,
+        "crash_2_choke": 0,
+        "ride_crash": -3,
+        "fx_cymbal_1": -2,
+        "fx_cymbal_2": -2,
+        "china_2": -2,
     }
 
-    CONTOUR_INSTRUMENTS = {"ride", "ride_bell", "hihat_closed", "hihat_open"}
+    CONTOUR_INSTRUMENTS = {"ride", "ride_bell", "hihat_closed", "hihat_open", "hihat_wide_open"}
 
     CONTOUR_OFFSETS = {
         0.0:  +6,   # downbeat — strongest

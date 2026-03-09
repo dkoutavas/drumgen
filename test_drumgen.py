@@ -27,10 +27,12 @@ BUILTIN_CELLS = {name: cell for name, cell in CELLS.items()
 
 VALID_INSTRUMENTS = {
     "kick", "snare", "snare_ghost", "snare_rim",
-    "hihat_closed", "hihat_open", "hihat_pedal",
-    "ride", "ride_bell",
-    "crash_1", "crash_2", "china", "splash",
-    "tom_high", "tom_mid", "tom_low", "tom_floor",
+    "hihat_closed", "hihat_open", "hihat_wide_open", "hihat_pedal",
+    "ride", "ride_bell", "ride_crash",
+    "crash_1", "crash_2", "crash_1_choke", "crash_2_choke",
+    "china", "china_2", "splash",
+    "fx_cymbal_1", "fx_cymbal_2",
+    "tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor",
 }
 
 VALID_VELOCITY_LEVELS = {"ghost", "soft", "normal", "accent"}

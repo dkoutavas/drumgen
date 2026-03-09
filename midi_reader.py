@@ -167,7 +167,7 @@ def validate_cell(cell, kit_name="ugritone"):
 
     # Must have at least one kick, snare, or tom
     core_instruments = {"kick", "snare", "snare_ghost", "snare_rim",
-                        "tom_high", "tom_mid", "tom_low", "tom_floor"}
+                        "tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor"}
     instruments_present = set()
     for h in hits:
         inst = h[3] if len(h) == 5 else h[2]
@@ -267,9 +267,11 @@ def auto_tag_cell(cell):
         tags.add("groovy")
 
     # ── Fill pattern ──
-    tom_instruments = {"tom_high", "tom_mid", "tom_low", "tom_floor"}
+    tom_instruments = {"tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor"}
     tom_count = sum(inst_counts.get(t, 0) for t in tom_instruments)
-    ride_hh = inst_counts.get("ride", 0) + inst_counts.get("hihat_closed", 0) + inst_counts.get("hihat_open", 0)
+    ride_hh = (inst_counts.get("ride", 0) + inst_counts.get("ride_crash", 0)
+               + inst_counts.get("hihat_closed", 0) + inst_counts.get("hihat_open", 0)
+               + inst_counts.get("hihat_wide_open", 0))
     if tom_count > total_hits * 0.3 and ride_hh == 0:
         tags.add("fill")
         cell["role"] = "fill"
@@ -311,11 +313,12 @@ def auto_tag_cell(cell):
         tags.update(["angular", "math"])
 
     # ── China cymbal ──
-    if inst_counts.get("china", 0) > 0:
+    if inst_counts.get("china", 0) > 0 or inst_counts.get("china_2", 0) > 0:
         tags.add("intense")
 
     # ── Crash accents ──
-    crash_count = inst_counts.get("crash_1", 0) + inst_counts.get("crash_2", 0)
+    crash_count = (inst_counts.get("crash_1", 0) + inst_counts.get("crash_2", 0)
+                   + inst_counts.get("crash_1_choke", 0) + inst_counts.get("crash_2_choke", 0))
     if crash_count > 0:
         tags.add("accent")
 

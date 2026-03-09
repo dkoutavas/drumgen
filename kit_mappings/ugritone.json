@@ -1,24 +1,39 @@
 {
   "name": "Ugritone",
-  "description": "Ugritone drum plugin mapping for Ableton Live",
+  "description": "Ugritone drum plugin mapping for Ableton Live (GM MIDI Standard preset)",
   "mapping": {
     "kick": 36,
     "snare": 38,
     "snare_rim": 37,
     "snare_ghost": 38,
     "tom_high": 48,
+    "tom_mid_high": 47,
     "tom_mid": 45,
     "tom_low": 43,
     "tom_floor": 41,
     "hihat_closed": 42,
     "hihat_open": 46,
+    "hihat_wide_open": 32,
     "hihat_pedal": 44,
     "crash_1": 49,
+    "crash_1_choke": 50,
     "crash_2": 57,
+    "crash_2_choke": 58,
     "ride": 51,
     "ride_bell": 53,
+    "ride_crash": 54,
     "china": 52,
-    "splash": 55
+    "china_2": 61,
+    "splash": 55,
+    "fx_cymbal_1": 56,
+    "fx_cymbal_2": 59
+  },
+  "aliases": {
+    "tom_mid_h": "tom_high",
+    "tom_low_h": "tom_mid_high",
+    "floor_tom": "tom_floor",
+    "hihat_semi_open": "hihat_open",
+    "open_hihat": "hihat_open"
   },
   "velocity_ranges": {
     "ghost": [20, 50],

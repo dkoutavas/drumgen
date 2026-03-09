@@ -12,17 +12,22 @@ from midi_engine import position_to_ticks, DEFAULT_PPQ
 LAYER_GROUPS = {
     "kick":   {"kick"},
     "snare":  {"snare", "snare_rim", "snare_ghost"},
-    "cymbal": {"hihat_closed", "hihat_open", "hihat_pedal", "ride", "ride_bell",
-               "crash_1", "crash_2", "china", "splash"},
-    "toms":   {"tom_high", "tom_mid", "tom_low", "tom_floor"},
+    "cymbal": {"hihat_closed", "hihat_open", "hihat_wide_open", "hihat_pedal",
+               "ride", "ride_bell", "ride_crash",
+               "crash_1", "crash_2", "crash_1_choke", "crash_2_choke",
+               "china", "china_2", "splash", "fx_cymbal_1", "fx_cymbal_2"},
+    "toms":   {"tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor"},
 }
 
 # ── Cymbal/stick priority for constraint resolution ──────────────────────────
 
-_CYMBAL_PRIORITY = {"crash_1": 3, "crash_2": 3, "china": 3, "splash": 2,
-                    "ride": 1, "ride_bell": 1, "hihat_closed": 0, "hihat_open": 0, "hihat_pedal": 0}
+_CYMBAL_PRIORITY = {"crash_1": 3, "crash_2": 3, "crash_1_choke": 3, "crash_2_choke": 3,
+                    "china": 3, "china_2": 3, "splash": 2,
+                    "ride": 1, "ride_bell": 1, "ride_crash": 2,
+                    "fx_cymbal_1": 2, "fx_cymbal_2": 2,
+                    "hihat_closed": 0, "hihat_open": 0, "hihat_wide_open": 0, "hihat_pedal": 0}
 _STICK_PRIORITY = {"snare": 2, "snare_rim": 2, "snare_ghost": 1,
-                   "tom_high": 0, "tom_mid": 0, "tom_low": 0, "tom_floor": 0}
+                   "tom_high": 0, "tom_mid_high": 0, "tom_mid": 0, "tom_low": 0, "tom_floor": 0}
 _VEL_RANK = {"accent": 3, "normal": 2, "soft": 1, "ghost": 0}
 
 
