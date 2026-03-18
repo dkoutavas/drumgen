@@ -336,12 +336,22 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         elif style_lower in STYLE_MAP:
             cell = get_cell(STYLE_MAP[style_lower])
         else:
+            from cell_library import _suggest_match
+            available = sorted(STYLE_POOLS.keys())
+            suggestions = _suggest_match(style.lower(), available)
+            hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise ValueError(
-                f"Unknown style: '{style}'. Available: {', '.join(sorted(STYLE_POOLS.keys()))}"
+                f"Unknown style: '{style}'.{hint}\n"
+                f"Available styles: {', '.join(available)}\n"
+                f"Run 'python drumgen.py --list-cells' to see all styles and cells."
             )
     else:
-        raise ValueError("Must provide --style or --cell")
-    time_signatures = [{"bar_start": 1, "bar_end": bars + 10, "numerator": num, "denominator": den}]
+        raise ValueError(
+            "No style or cell specified. Use --style or --cell to pick a pattern.\n"
+            f"Available styles: {', '.join(sorted(STYLE_POOLS.keys()))}\n"
+            "Run 'python drumgen.py --list-cells' for full details."
+        )
+    time_signatures = [{"bar_start": 1, "bar_end": bars, "numerator": num, "denominator": den}]
 
     humanize_amount = humanize if humanize is not None else cell["humanize"]
     humanizer = Humanizer(humanize_amount, seed=seed)
@@ -357,7 +367,11 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     if fill_every > 0:
         fill_cells = get_fill_cells()
         if fill_cells:
-            fill_cell = fill_cells[0]
+            cell_tags = set(cell.get("tags", []))
+            scored = [(len(cell_tags & set(f.get("tags", []))), f) for f in fill_cells]
+            best_score = max(s for s, _ in scored)
+            top_fills = [f for s, f in scored if s == best_score]
+            fill_cell = rng.choice(top_fills)
 
     if is_prob:
         cell_hits = realize_probability_grid(cell, bars, rng)
@@ -521,7 +535,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
             if prob_match:
                 section_pool = prob_match
 
-        cell = get_cell_for_section(section_pool, section_type, requested_time_sig=(sec_num, sec_den))
+        cell = get_cell_for_section(section_pool, section_type, requested_time_sig=(sec_num, sec_den), rng=rng)
 
         if cell is None:
             # Silence section — advance bar counter, emit nothing
@@ -644,7 +658,7 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
         seed = random.randint(0, 2**31 - 1)
 
     num, den = [int(x) for x in time_sig.split("/")]
-    time_signatures = [{"bar_start": 1, "bar_end": bars + 10, "numerator": num, "denominator": den}]
+    time_signatures = [{"bar_start": 1, "bar_end": bars, "numerator": num, "denominator": den}]
 
     ppq = DEFAULT_PPQ
     beat_ticks = ppq * 4 // den

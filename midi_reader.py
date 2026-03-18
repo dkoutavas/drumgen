@@ -51,9 +51,17 @@ def _build_reverse_mapping(kit):
         if mapping["snare"] == mapping["snare_ghost"]:
             reverse[mapping["snare"]] = "snare"
     # Apply aliases: additional note -> instrument mappings
+    # Aliases can be note-number keys ("38": "snare") or name keys
+    # ("tom_mid_h": "tom_high") — handle both formats.
     aliases = kit.get("aliases", {})
-    for note_str, instrument in aliases.items():
-        reverse[int(note_str)] = instrument
+    for alias_key, target in aliases.items():
+        try:
+            # Note-number key: map MIDI note directly to instrument
+            reverse[int(alias_key)] = target
+        except ValueError:
+            # Name key: resolve target instrument's MIDI note, then add alias
+            if target in mapping:
+                reverse[mapping[target]] = target
     return reverse
 
 

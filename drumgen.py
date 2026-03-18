@@ -73,7 +73,20 @@ def _print_cells(cells, style_filter):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="drumgen v3 — algorithmic drum pattern generator"
+        description="drumgen v3 — algorithmic drum pattern generator",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+examples:
+  %(prog)s --style screamo --tempo 180 --bars 4
+  %(prog)s --style shellac --tempo 130 --bars 8 --humanize 0.8
+  %(prog)s --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
+  %(prog)s --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+  %(prog)s --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
+  %(prog)s --style faraquet --generative --variations 3 --tempo 140 --bars 8
+  %(prog)s --list-cells
+  %(prog)s --list-cells --style screamo
+  %(prog)s --test-mapping ugritone
+""",
     )
     parser.add_argument("--style", "-s", type=str, help="Style tag (blast, dbeat, shellac, fugazi, screamo, emoviolence, euro_screamo, black_metal, etc.)")
     parser.add_argument("--cell", type=str, help="Exact cell name (overrides --style)")
@@ -270,4 +283,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (ValueError, KeyError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)

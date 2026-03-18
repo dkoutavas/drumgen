@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from datetime import datetime
@@ -17,7 +18,17 @@ st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", 
 # ── Persistent config ─────────────────────────────────────────────────────────
 
 CONFIG_PATH = Path(__file__).parent / ".drumgen_config.json"
-DEFAULT_OUTPUT = "/mnt/c/Users/diony/Documents/drumgen_output"
+
+
+def _detect_default_output():
+    """Pick a sensible default output folder based on platform."""
+    if sys.platform == "win32":
+        return str(Path.home() / "Documents" / "drumgen_output")
+    # WSL / macOS / native Linux
+    return str(Path(__file__).parent / "output")
+
+
+DEFAULT_OUTPUT = _detect_default_output()
 
 
 def load_config():
@@ -44,6 +55,14 @@ def windows_to_wsl(win_path):
         drive = win_path[0].lower()
         return f"/mnt/{drive}/{win_path[3:]}"
     return win_path
+
+
+def _open_folder(path):
+    """Open a folder in the platform's file manager."""
+    if sys.platform == "win32":
+        os.startfile(path)
+    else:
+        subprocess.Popen(["explorer.exe", wsl_to_windows_path(path)])
 
 
 # ── Auto filename ─────────────────────────────────────────────────────────────
@@ -183,9 +202,14 @@ with st.sidebar:
     if output_folder != config.get("output_folder"):
         config["output_folder"] = output_folder
         save_config(config)
-    st.caption(f"WSL: `{output_folder}`")
+    if sys.platform == "win32":
+        st.caption(f"Path: `{output_folder}`")
+    elif Path("/mnt/c").is_dir():
+        st.caption(f"WSL: `{output_folder}`")
+    else:
+        st.caption(f"Path: `{output_folder}`")
     if st.button("Open folder", use_container_width=True, key="open_folder_sidebar"):
-        subprocess.Popen(["explorer.exe", wsl_to_windows_path(output_folder)])
+        _open_folder(output_folder)
 
     kit_options = ["ugritone", "general_midi"]
     kit = st.selectbox("Kit", kit_options, help="MIDI note mapping for your drum plugin.")
@@ -223,7 +247,7 @@ with st.sidebar:
     st.markdown("##### Sound")
     tempo = st.slider("Tempo (BPM)", 40, 300, 120,
         help="Beats per minute. Blast beats: 160-220. Post-hardcore: 120-150.")
-    time_sig = st.selectbox("Time Signature", ["4/4", "3/4", "6/8", "7/8", "5/4"],
+    time_sig = st.selectbox("Time Signature", ["4/4", "3/4", "6/4", "6/8", "7/8", "5/4"],
         help="Most cells are written for 4/4. Odd meter support is limited.")
     if _use_arrangement:
         st.slider("Bars", 1, 32, 4, disabled=True,
@@ -279,11 +303,12 @@ with st.sidebar:
         st.session_state.arrangement_text = st.text_input(
             "Arrangement",
             value=st.session_state.arrangement_text,
-            placeholder="e.g. 4:build 8:drive 2:blast",
+            placeholder="4:build 8:drive 2:blast 4:breakdown 1:fill 4:outro",
+            help="Format: BARS:SECTION_TYPE. Example: '4:build 8:drive 2:blast'",
         )
-        st.caption("Tip: append @N/M for per-section meters, e.g. '4:verse@7/8'")
+        st.caption("Syntax: `N:section` — sections: intro, build, verse, chorus, drive, blast, breakdown, atmospheric, silence, fill, outro. Append `@N/M` for odd meters (e.g. `4:verse@7/8`).")
         quick_meter = st.selectbox("Meter for quick-add",
-            ["(use global)", "4/4", "3/4", "6/8", "7/8", "5/4"], key="quick_meter")
+            ["(use global)", "4/4", "3/4", "6/4", "6/8", "7/8", "5/4"], key="quick_meter")
 
         st.caption("Quick-add sections:")
         quick_sections = {
@@ -579,7 +604,7 @@ if "last_result" in st.session_state:
         )
     with col_open:
         if st.button("Open folder", use_container_width=True, key="open_folder_result"):
-            subprocess.Popen(["explorer.exe", wsl_to_windows_path(os.path.dirname(r["output_path"]))])
+            _open_folder(os.path.dirname(r["output_path"]))
 
     # Row 2: Compact info caption
     cell_info = ""
@@ -603,9 +628,14 @@ if "last_result" in st.session_state:
 
     # Row 3: Audio preview
     if not is_fluidsynth_available():
-        st.caption("Audio preview unavailable \u2014 install FluidSynth: `sudo zypper install fluidsynth fluid-soundfont-gm`")
+        st.caption("Audio preview unavailable — install [FluidSynth](https://github.com/FluidSynth/fluidsynth/wiki/Download): "
+                   "`apt install fluidsynth fluid-soundfont-gm` (Debian/Ubuntu) · "
+                   "`brew install fluid-synth` (macOS) · "
+                   "`zypper install fluidsynth fluid-soundfont-gm` (openSUSE)")
     elif find_soundfont() is None:
-        st.caption("Audio preview unavailable \u2014 no soundfont found. Run: `sudo zypper install fluid-soundfont-gm`")
+        st.caption("Audio preview unavailable — FluidSynth found but no soundfont. "
+                   "Install a GM soundfont: `apt install fluid-soundfont-gm` (Debian/Ubuntu) · "
+                   "`zypper install fluid-soundfont-gm` (openSUSE)")
     else:
         if "wav_bytes" not in r:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:

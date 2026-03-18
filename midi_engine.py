@@ -141,7 +141,11 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
         track.append(msg)
         current_tick = abs_tick
 
-    track.append(mido.MetaMessage("end_of_track", time=0))
+    # Pad end_of_track to the bar boundary so DAWs see correct clip length
+    last_ts = time_signatures[-1]
+    expected_end_tick = calculate_bar_start_ticks(last_ts["bar_end"] + 1, time_signatures, ppq)
+    pad_ticks = max(0, expected_end_tick - current_tick)
+    track.append(mido.MetaMessage("end_of_track", time=pad_ticks))
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     mid.save(output_path)

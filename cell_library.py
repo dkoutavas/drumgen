@@ -355,7 +355,9 @@ def _daitro_quiet_build():
         hits.append((bar, 2, 0.5, "snare_ghost", "ghost"))
         hits.append((bar, 4, 0.5, "snare_ghost", "ghost"))
         for beat in range(1, 5):
-            hits.append((bar, beat, 0.0, "ride", "accent"))
+            # Skip ride on bar 7 beat 1 — crash_1 replaces it
+            if not (bar == 7 and beat == 1):
+                hits.append((bar, beat, 0.0, "ride", "accent"))
             hits.append((bar, beat, 0.5, "ride", "accent"))
     # Crash on bar 7 beat 1
     hits.append((7, 1, 0.0, "crash_1", "accent"))
@@ -1076,6 +1078,53 @@ def _shellac_6_8():
     }
 
 
+# ── 6/4 cells ─────────────────────────────────────────────────────────────────
+
+def _postrock_6_4():
+    """Post-rock 6/4: spacious feel, kick on 1+4, snare on 4, ride quarters, ghost snares."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (4, 0.0, "kick", "normal"),
+        (4, 0.0, "snare", "accent"),
+        (2, 0.0, "snare_ghost", "ghost"),
+        (5, 0.5, "snare_ghost", "ghost"),
+    ]
+    for beat in range(1, 7):
+        hits.append((beat, 0.0, "ride", "normal"))
+    return {
+        "name": "postrock_6_4",
+        "tags": ["postrock", "atmospheric", "sparse", "odd_meter"],
+        "time_sig": (6, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _driving_6_4():
+    """Driving 6/4: syncopated kick, snare on 4, ride eighths."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (3, 0.5, "kick", "normal"),
+        (5, 0.0, "kick", "normal"),
+        (4, 0.0, "snare", "accent"),
+        (6, 0.5, "snare", "normal"),
+    ]
+    for beat in range(1, 7):
+        hits.append((beat, 0.0, "ride", "normal"))
+        hits.append((beat, 0.5, "ride", "normal"))
+    return {
+        "name": "driving_6_4",
+        "tags": ["posthardcore", "driving", "odd_meter"],
+        "time_sig": (6, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
 # ── Probability grid cells ─────────────────────────────────────────────────────
 #
 # Grid entries: (beat, sub, instrument, probability, velocity_level) — 5-tuple for single-bar
@@ -1421,7 +1470,6 @@ def _athletic_angular():
         (1, 2, 0.0, "snare", "accent"),
         (1, 4, 0.0, "snare", "accent"),
         (1, 1, 0.5, "snare_ghost", "ghost"),
-        (1, 2, 0.5, "snare_ghost", "ghost"),
         (1, 3, 0.5, "snare_ghost", "ghost"),
         (1, 4, 0.5, "snare_ghost", "ghost"),
         (1, 2, 0.5, "tom_floor", "accent"),
@@ -1442,9 +1490,7 @@ def _athletic_angular():
         (2, 2, 0.5, "snare", "accent"),
         (2, 4, 0.0, "snare", "accent"),
         (2, 1, 0.5, "snare_ghost", "ghost"),
-        (2, 2, 0.5, "snare_ghost", "ghost"),
         (2, 3, 0.5, "snare_ghost", "ghost"),
-        (2, 4, 0.5, "snare_ghost", "ghost"),
         (2, 4, 0.5, "tom_floor", "accent"),
         (2, 1, 0.0, "ride", "normal"),
         (2, 1, 0.5, "ride", "normal"),
@@ -1626,7 +1672,9 @@ def _city_of_caterpillar_build():
             (bar, 4, 0.0, "snare", "accent"),
         ])
         for beat in range(1, 5):
-            hits.append((bar, beat, 0.0, "ride", "accent"))
+            # Skip ride on bar 7 beat 1 — crash_1 replaces it
+            if not (bar == 7 and beat == 1):
+                hits.append((bar, beat, 0.0, "ride", "accent"))
             hits.append((bar, beat, 0.5, "ride", "accent"))
         hits.append((bar, 1, 0.0, "tom_floor", "normal"))
     hits.append((7, 1, 0.0, "crash_1", "accent"))
@@ -1813,6 +1861,9 @@ CELLS = {cell["name"]: cell for cell in [
     _blast_3_4(),
     _driving_6_8(),
     _shellac_6_8(),
+    # 6/4 cells
+    _postrock_6_4(),
+    _driving_6_4(),
     # Probability grid cells
     _prob_faraquet_4_4(),
     _prob_shellac_4_4(),
@@ -1903,12 +1954,13 @@ STYLE_POOLS = {
     "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
     "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
                 "prob_shellac_4_4"],
-    "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8"],
+    "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
                  "prob_faraquet_4_4", "prob_faraquet_7_8"],
     "raein": ["raein_melodic_drive"],
     "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
-                     "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "faraquet_7_8", "faraquet_5_4", "waltz_punk",
+                     "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
+                     "faraquet_7_8", "faraquet_5_4", "waltz_punk",
                      "prob_posthardcore_4_4",
                      "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
     "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
@@ -1938,6 +1990,8 @@ STYLE_POOLS = {
     "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion"],
     "city_of_caterpillar": ["city_of_caterpillar_build", "emoviolence_blast_crash", "emoviolence_angular_breakdown"],
     "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion"],
+    "postrock": ["postrock_6_4", "blackmetal_atmospheric", "city_of_caterpillar_build",
+                 "motorik_build", "slint_explosion"],
 }
 
 def _integrate_user_cells_into_pools():
@@ -1975,9 +2029,21 @@ SECTION_PREFERENCES = {
 }
 
 
+def _suggest_match(name, options, n=3):
+    """Return close matches for a misspelled name."""
+    import difflib
+    return difflib.get_close_matches(name, options, n=n, cutoff=0.5)
+
+
 def get_cell(name):
     if name not in CELLS:
-        raise KeyError(f"Unknown cell: '{name}'. Available: {', '.join(sorted(CELLS.keys()))}")
+        available = sorted(CELLS.keys())
+        suggestions = _suggest_match(name, available)
+        hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+        raise KeyError(
+            f"Unknown cell: '{name}'.{hint}\n"
+            f"Run 'python drumgen.py --list-cells' to see all available cells."
+        )
     return CELLS[name]
 
 
@@ -1985,16 +2051,23 @@ def get_pool(style):
     """Return list of cell dicts for a style pool."""
     style_lower = style.lower()
     if style_lower not in STYLE_POOLS:
-        raise KeyError(f"Unknown style: '{style}'. Available: {', '.join(sorted(STYLE_POOLS.keys()))}")
+        available = sorted(STYLE_POOLS.keys())
+        suggestions = _suggest_match(style_lower, available)
+        hint = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+        raise KeyError(
+            f"Unknown style: '{style}'.{hint}\n"
+            f"Available styles: {', '.join(available)}"
+        )
     return [CELLS[name] for name in STYLE_POOLS[style_lower]]
 
 
-def get_cell_for_section(pool_cells, section_type, requested_time_sig=None):
+def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
     Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
     If requested_time_sig is given, prefer cells matching that time signature.
+    If rng is provided, ties are broken randomly; otherwise the first match is used.
     """
     section_lower = section_type.lower()
     if section_lower == "silence":
@@ -2020,7 +2093,10 @@ def get_cell_for_section(pool_cells, section_type, requested_time_sig=None):
             scored.append((score, cell))
         best_score = max(s for s, _ in scored)
         if best_score > 0:
-            return next(cell for score, cell in scored if score == best_score)
+            best_cells = [cell for score, cell in scored if score == best_score]
+            if rng and len(best_cells) > 1:
+                return rng.choice(best_cells)
+            return best_cells[0]
     # Fallback: first cell in pool
     return pool_cells[0] if pool_cells else None
 

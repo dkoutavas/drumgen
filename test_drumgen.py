@@ -1492,3 +1492,163 @@ class TestUniqueFilepath:
         result = unique_filepath(str(sub / "pattern.mid"))
         assert result == str(sub / "pattern_1.mid")
         assert result.endswith(".mid")
+
+
+# ── End-of-track bar alignment ───────────────────────────────────────────────
+
+class TestEndOfTrackBarAlignment:
+    """Verify MIDI files end exactly at the bar boundary."""
+
+    def _get_total_ticks(self, midi_path):
+        """Sum all delta times in the track to get total tick length."""
+        mid = mido.MidiFile(midi_path)
+        return sum(msg.time for msg in mid.tracks[0])
+
+    def test_end_of_track_3_4(self, tmp_path):
+        """4 bars of 3/4 should produce total ticks = 4 * 3 * 480 = 5760."""
+        result = assemble(cell_name="waltz_punk", bars=4, tempo=120,
+                         time_sig="3/4", humanize=0.0, seed=42)
+        out = str(tmp_path / "test_3_4.mid")
+        write_midi(result["events"], result["tempo"],
+                  result["time_signatures"], "ugritone", out)
+        assert self._get_total_ticks(out) == 4 * 3 * 480
+
+    def test_end_of_track_4_4(self, tmp_path):
+        """4 bars of 4/4 should produce total ticks = 4 * 4 * 480 = 7680."""
+        result = assemble(cell_name="blast_traditional", bars=4, tempo=120,
+                         time_sig="4/4", humanize=0.0, seed=42)
+        out = str(tmp_path / "test_4_4.mid")
+        write_midi(result["events"], result["tempo"],
+                  result["time_signatures"], "ugritone", out)
+        assert self._get_total_ticks(out) == 4 * 4 * 480
+
+    def test_end_of_track_mixed_meter(self, tmp_path):
+        """2 bars 3/4 + 2 bars 4/4 = 2*3*480 + 2*4*480 = 6720."""
+        result = assemble_arrangement(
+            style="shellac", arrangement_str="2:verse@3/4 2:drive@4/4",
+            tempo=120, humanize=0.0, seed=42)
+        out = str(tmp_path / "test_mixed.mid")
+        write_midi(result["events"], result["tempo"],
+                  result["time_signatures"], "ugritone", out)
+        assert self._get_total_ticks(out) == 2 * 3 * 480 + 2 * 4 * 480
+
+
+# ── Fill randomization ───────────────────────────────────────────────────────
+
+class TestFillRandomization:
+    """Verify fill selection uses tag scoring and RNG tie-breaking."""
+
+    def test_fill_selection_uses_rng_for_ties(self):
+        """When multiple fills tie on score, different seeds should pick different ones."""
+        import random
+        from cell_library import get_fill_cells
+
+        fill_cells = get_fill_cells()
+        if len(fill_cells) < 2:
+            pytest.skip("Need at least 2 fill cells for this test")
+
+        # Use a fake cell with no tags to force all fills to tie at score 0
+        fake_cell_tags = set()
+        scored = [(len(fake_cell_tags & set(f.get("tags", []))), f) for f in fill_cells]
+        best_score = max(s for s, _ in scored)
+        top_fills = [f for s, f in scored if s == best_score]
+
+        if len(top_fills) < 2:
+            pytest.skip("Need at least 2 tied fill cells for this test")
+
+        picks = set()
+        for seed in range(50):
+            rng = random.Random(seed)
+            pick = rng.choice(top_fills)
+            picks.add(pick["name"])
+        assert len(picks) > 1, "RNG should select different fills across different seeds"
+
+    def test_fill_scoring_prefers_tag_overlap(self):
+        """Fills with more tag overlap should be preferred."""
+        import random
+
+        fill_a = {"name": "fill_a", "tags": ["blast", "intense", "fill"], "role": "fill",
+                  "time_sig": (4, 4), "num_bars": 1, "humanize": 0.5, "hits": []}
+        fill_b = {"name": "fill_b", "tags": ["fill", "general"], "role": "fill",
+                  "time_sig": (4, 4), "num_bars": 1, "humanize": 0.5, "hits": []}
+        fills = [fill_a, fill_b]
+
+        cell_tags = {"blast", "intense"}
+        scored = [(len(cell_tags & set(f.get("tags", []))), f) for f in fills]
+        best_score = max(s for s, _ in scored)
+        top_fills = [f for s, f in scored if s == best_score]
+
+        assert len(top_fills) == 1
+        assert top_fills[0]["name"] == "fill_a"
+
+
+# ── 6/4 cells ────────────────────────────────────────────────────────────────
+
+class TestSixFourCells:
+    """Verify 6/4 cells are correctly defined and usable."""
+
+    def test_postrock_6_4_in_cells(self):
+        assert "postrock_6_4" in CELLS
+
+    def test_driving_6_4_in_cells(self):
+        assert "driving_6_4" in CELLS
+
+    def test_postrock_6_4_time_sig(self):
+        cell = CELLS["postrock_6_4"]
+        assert cell["time_sig"] == (6, 4)
+
+    def test_driving_6_4_time_sig(self):
+        cell = CELLS["driving_6_4"]
+        assert cell["time_sig"] == (6, 4)
+
+    def test_postrock_6_4_hits_within_time_sig(self):
+        cell = CELLS["postrock_6_4"]
+        for hit in cell["hits"]:
+            beat = hit[0]
+            assert 1 <= beat <= 6, f"Beat {beat} out of range for 6/4"
+
+    def test_driving_6_4_hits_within_time_sig(self):
+        cell = CELLS["driving_6_4"]
+        for hit in cell["hits"]:
+            beat = hit[0]
+            assert 1 <= beat <= 6, f"Beat {beat} out of range for 6/4"
+
+    def test_6_4_bar_length(self, tmp_path):
+        """4 bars of 6/4 should produce total ticks = 4 * 6 * 480 = 11520."""
+        result = assemble(cell_name="postrock_6_4", bars=4, tempo=100,
+                         time_sig="6/4", humanize=0.0, seed=42)
+        out = str(tmp_path / "test_6_4.mid")
+        write_midi(result["events"], result["tempo"],
+                  result["time_signatures"], "ugritone", out)
+        total = sum(msg.time for msg in mido.MidiFile(out).tracks[0])
+        assert total == 4 * 6 * 480
+
+    def test_6_4_in_style_pools(self):
+        assert "postrock_6_4" in STYLE_POOLS.get("postrock", [])
+        assert "driving_6_4" in STYLE_POOLS.get("posthardcore", [])
+        assert "driving_6_4" in STYLE_POOLS.get("fugazi", [])
+
+
+# ── MIDI Pipeline Validation ────────────────────────────────────────────────
+
+from validate_midi import validate_pipeline, run_quick
+
+
+class TestMidiValidation:
+    @pytest.mark.parametrize("style", ["shellac", "blast", "faraquet", "post_punk",
+                                        "screamo", "euro_screamo", "black_metal", "slint"])
+    def test_pipeline_validation(self, style):
+        result = validate_pipeline(style=style, bars=4, tempo=120, time_sig="4/4",
+                                   humanize=0.0, mode="single", kit_name="ugritone", seed=42)
+        assert result.passed, f"{result.label}: {result.errors}"
+
+    def test_arrangement_validation(self):
+        result = validate_pipeline(style="shellac", bars=4, tempo=130, time_sig="4/4",
+                                   humanize=0.0, mode="arrangement",
+                                   arrangement_str="2:verse 2:drive", kit_name="ugritone", seed=42)
+        assert result.passed, f"{result.label}: {result.errors}"
+
+    def test_quick_suite(self):
+        results = run_quick()
+        failures = [r for r in results if not r.passed]
+        assert not failures, f"{len(failures)} failures: {[r.label for r in failures]}"

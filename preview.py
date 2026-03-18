@@ -12,6 +12,17 @@ SOUNDFONT_PATHS = [
     Path("/usr/share/sounds/sf2/FluidR3_GM2-2.sf2"),
 ]
 
+# Windows-specific soundfont paths (best-effort)
+import sys
+if sys.platform == "win32":
+    import os
+    _programdata = os.environ.get("ProgramData", r"C:\ProgramData")
+    _localappdata = os.environ.get("LOCALAPPDATA", "")
+    SOUNDFONT_PATHS.extend([
+        Path(_programdata) / "soundfonts" / "FluidR3_GM.sf2",
+        Path(_localappdata) / "FluidSynth" / "FluidR3_GM.sf2" if _localappdata else Path("."),
+    ])
+
 
 def find_soundfont():
     for path in SOUNDFONT_PATHS:
