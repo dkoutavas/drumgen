@@ -361,10 +361,16 @@ def midi_to_cell(midi_path, name=None, tags=None, kit_name="ugritone",
     mid = mido.MidiFile(midi_path)
     ppq = mid.ticks_per_beat
 
+    # Extract BPM early so it can be included in auto-generated names
+    source_bpm = _extract_bpm(mid)
+
     if name is None:
         name = os.path.splitext(os.path.basename(midi_path))[0]
         # Sanitize: replace spaces/dashes with underscores
         name = name.replace(" ", "_").replace("-", "_").lower()
+        # Append BPM if available (only for auto-generated names)
+        if source_bpm is not None:
+            name = f"{name}_{int(round(source_bpm))}bpm"
 
     if tags is None:
         tags = ["imported"]
@@ -377,9 +383,6 @@ def midi_to_cell(midi_path, name=None, tags=None, kit_name="ugritone",
                 time_sig_num = msg.numerator
                 time_sig_den = msg.denominator
                 break
-
-    # Extract BPM
-    source_bpm = _extract_bpm(mid)
 
     beat_ticks = ppq * 4 // time_sig_den
     bar_ticks = time_sig_num * beat_ticks

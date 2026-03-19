@@ -1629,6 +1629,50 @@ class TestSixFourCells:
         assert "driving_6_4" in STYLE_POOLS.get("fugazi", [])
 
 
+# ── MIDI Duration / Overshoot Tests ────────────────────────────────────────
+
+class TestMidiNoOvershoot:
+    """Verify no MIDI event exceeds the expected bar boundary for odd meters."""
+
+    @pytest.mark.parametrize("time_sig,tempo", [
+        ("3/4", 60), ("3/4", 120), ("3/4", 140), ("3/4", 180),
+        ("7/8", 60), ("7/8", 120), ("7/8", 140), ("7/8", 180),
+        ("6/8", 60), ("6/8", 120), ("6/8", 140), ("6/8", 180),
+    ])
+    def test_no_event_exceeds_bar_boundary(self, time_sig, tempo):
+        """All MIDI events (especially note_off) must land at or before the expected end tick."""
+        with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
+            tmp_path = f.name
+        try:
+            result = assemble(
+                style="shellac", tempo=tempo, bars=4, time_sig=time_sig,
+                seed=42, humanize=0.7, swing=0.0, vary=0.0,
+            )
+            write_midi(
+                events=result["events"], tempo=result["tempo"],
+                time_signatures=result["time_signatures"],
+                kit_mapping_path="ugritone", output_path=tmp_path,
+            )
+            mid = mido.MidiFile(tmp_path)
+
+            # Calculate expected end tick
+            ts_list = result["time_signatures"]
+            last_ts = ts_list[-1]
+            expected_end = calculate_bar_start_ticks(last_ts["bar_end"] + 1, ts_list)
+
+            # Walk track and check all absolute ticks
+            abs_tick = 0
+            for msg in mid.tracks[0]:
+                abs_tick += msg.time
+                if msg.type in ("note_on", "note_off"):
+                    assert abs_tick <= expected_end, (
+                        f"{time_sig}@{tempo}bpm: {msg.type} at tick {abs_tick} "
+                        f"exceeds expected end {expected_end}"
+                    )
+        finally:
+            os.unlink(tmp_path)
+
+
 # ── MIDI Pipeline Validation ────────────────────────────────────────────────
 
 from validate_midi import validate_pipeline, run_quick

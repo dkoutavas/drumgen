@@ -106,6 +106,14 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
     # Re-sort: note_off before note_on at same tick for clean transitions
     midi_events = sorted(cleaned, key=lambda e: (e[1], 0 if e[0] == "note_off" else 1, e[2]))
 
+    # Clamp note_off events to expected end tick so clips don't overshoot in DAWs
+    last_ts = time_signatures[-1]
+    expected_end_tick = calculate_bar_start_ticks(last_ts["bar_end"] + 1, time_signatures, ppq)
+    midi_events = [
+        (etype, min(tick, expected_end_tick) if etype == "note_off" else tick, note, vel)
+        for etype, tick, note, vel in midi_events
+    ]
+
     mid = mido.MidiFile(type=0, ticks_per_beat=ppq)
     track = mido.MidiTrack()
     mid.tracks.append(track)

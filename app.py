@@ -62,7 +62,15 @@ def _open_folder(path):
     if sys.platform == "win32":
         os.startfile(path)
     else:
-        subprocess.Popen(["explorer.exe", wsl_to_windows_path(path)])
+        # Use wslpath for reliable conversion (handles both /mnt/ and native WSL paths)
+        try:
+            result = subprocess.run(
+                ["wslpath", "-w", path], capture_output=True, text=True, timeout=5
+            )
+            win_path = result.stdout.strip() if result.returncode == 0 else wsl_to_windows_path(path)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            win_path = wsl_to_windows_path(path)
+        subprocess.Popen(["explorer.exe", win_path])
 
 
 # ── Auto filename ─────────────────────────────────────────────────────────────
@@ -205,7 +213,12 @@ with st.sidebar:
     if sys.platform == "win32":
         st.caption(f"Path: `{output_folder}`")
     elif Path("/mnt/c").is_dir():
-        st.caption(f"WSL: `{output_folder}`")
+        try:
+            r = subprocess.run(["wslpath", "-w", output_folder], capture_output=True, text=True, timeout=5)
+            win_display = r.stdout.strip() if r.returncode == 0 else wsl_to_windows_path(output_folder)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            win_display = wsl_to_windows_path(output_folder)
+        st.caption(f"WSL: `{win_display}`")
     else:
         st.caption(f"Path: `{output_folder}`")
     if st.button("Open folder", use_container_width=True, key="open_folder_sidebar"):
