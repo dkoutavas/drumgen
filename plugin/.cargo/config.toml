@@ -1,0 +1,4 @@
+# Cross-compilation config for building Windows VST3 from WSL2.
+# Requires: sudo apt install gcc-mingw-w64-x86-64
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"

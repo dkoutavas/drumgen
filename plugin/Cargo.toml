@@ -1,0 +1,26 @@
+[workspace]
+members = ["xtask"]
+
+[package]
+name = "drumgen-vst"
+version = "0.1.0"
+edition = "2021"
+authors = ["drumgen"]
+description = "Algorithmic drum pattern generator VST3 plugin"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+rand = "0.8"
+rand_chacha = "0.3"
+rand_distr = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+crossbeam-channel = "0.5"
+
+[profile.release]
+strip = true
+lto = "thin"
+opt-level = 2
