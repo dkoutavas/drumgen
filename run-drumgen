@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")"
 source .venv/bin/activate
+
+# On WSL, use Windows browser so Streamlit auto-opens correctly
+if [ -d /mnt/c ] && [ -z "$BROWSER" ]; then
+    export BROWSER="explorer.exe"
+fi
+
 streamlit run app.py "$@"

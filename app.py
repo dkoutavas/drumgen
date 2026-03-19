@@ -24,7 +24,20 @@ def _detect_default_output():
     """Pick a sensible default output folder based on platform."""
     if sys.platform == "win32":
         return str(Path.home() / "Documents" / "drumgen_output")
-    # WSL / macOS / native Linux
+    # WSL: default to Windows Documents so Ableton can access files directly
+    if Path("/mnt/c").is_dir():
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/C", "echo %USERNAME%"],
+                capture_output=True, text=True, timeout=5,
+            )
+            win_user = result.stdout.strip()
+            if win_user:
+                wsl_path = f"/mnt/c/Users/{win_user}/Documents/drumgen_output"
+                return wsl_path
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    # macOS / native Linux fallback
     return str(Path(__file__).parent / "output")
 
 

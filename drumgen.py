@@ -2,11 +2,34 @@
 import argparse
 import os
 import random
+import subprocess
 import sys
+from pathlib import Path
 
 from assembler import assemble, assemble_arrangement, assemble_layered
 from cell_library import list_cells, STYLE_POOLS, CELLS, SECTION_PREFERENCES
 from midi_engine import write_midi, generate_test_mapping, unique_filepath
+
+
+def _default_output_dir():
+    """Return the default output directory, using Windows Documents on WSL."""
+    if sys.platform == "win32":
+        return str(Path.home() / "Documents" / "drumgen_output")
+    if Path("/mnt/c").is_dir():
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/C", "echo %USERNAME%"],
+                capture_output=True, text=True, timeout=5,
+            )
+            win_user = result.stdout.strip()
+            if win_user:
+                return f"/mnt/c/Users/{win_user}/Documents/drumgen_output"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    return str(Path(__file__).parent / "output")
+
+
+OUTPUT_DIR = _default_output_dir()
 
 
 def _print_cells(cells, style_filter):
@@ -153,7 +176,7 @@ examples:
             output_path = args.output
         else:
             layer_label = "+".join(sorted(layer_args.keys()))
-            output_path = f"output/layered_{layer_label}_{args.tempo}bpm.mid"
+            output_path = f"{OUTPUT_DIR}/layered_{layer_label}_{args.tempo}bpm.mid"
         output_path = unique_filepath(output_path)
 
         write_midi(
@@ -189,7 +212,7 @@ examples:
         if args.output:
             output_path = args.output
         else:
-            output_path = f"output/{args.style}_arrangement_{args.tempo}bpm.mid"
+            output_path = f"{OUTPUT_DIR}/{args.style}_arrangement_{args.tempo}bpm.mid"
         output_path = unique_filepath(output_path)
 
         write_midi(
@@ -219,7 +242,7 @@ examples:
             base_rng = random.Random()
             seeds = [base_rng.randint(0, 2**31 - 1) for _ in range(num_variations)]
 
-        base_output = args.output or f"output/{args.cell or args.style}_{args.tempo}bpm_{args.bars}bars.mid"
+        base_output = args.output or f"{OUTPUT_DIR}/{args.cell or args.style}_{args.tempo}bpm_{args.bars}bars.mid"
         base, ext = os.path.splitext(base_output)
 
         for vi, var_seed in enumerate(seeds, 1):
@@ -267,7 +290,7 @@ examples:
         output_path = args.output
     else:
         label = args.cell or args.style
-        output_path = f"output/{label}_{args.tempo}bpm_{args.bars}bars.mid"
+        output_path = f"{OUTPUT_DIR}/{label}_{args.tempo}bpm_{args.bars}bars.mid"
     output_path = unique_filepath(output_path)
 
     write_midi(
