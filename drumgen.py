@@ -32,6 +32,11 @@ def _default_output_dir():
 OUTPUT_DIR = _default_output_dir()
 
 
+def _ts_suffix(time_sig):
+    """Return '_3_4' for non-4/4 time sigs, empty string for 4/4."""
+    return f"_{time_sig.replace('/', '_')}" if time_sig != "4/4" else ""
+
+
 def _print_cells(cells, style_filter):
     if not cells:
         print(f"No cells found for style '{style_filter}'." if style_filter else "No cells found.")
@@ -176,7 +181,7 @@ examples:
             output_path = args.output
         else:
             layer_label = "+".join(sorted(layer_args.keys()))
-            output_path = f"{OUTPUT_DIR}/layered_{layer_label}_{args.tempo}bpm.mid"
+            output_path = f"{OUTPUT_DIR}/layered_{layer_label}_{args.tempo}bpm{_ts_suffix(args.time_sig)}.mid"
         output_path = unique_filepath(output_path)
 
         write_midi(
@@ -212,7 +217,7 @@ examples:
         if args.output:
             output_path = args.output
         else:
-            output_path = f"{OUTPUT_DIR}/{args.style}_arrangement_{args.tempo}bpm.mid"
+            output_path = f"{OUTPUT_DIR}/{args.style}_arrangement_{args.tempo}bpm{_ts_suffix(args.time_sig)}.mid"
         output_path = unique_filepath(output_path)
 
         write_midi(
@@ -242,7 +247,7 @@ examples:
             base_rng = random.Random()
             seeds = [base_rng.randint(0, 2**31 - 1) for _ in range(num_variations)]
 
-        base_output = args.output or f"{OUTPUT_DIR}/{args.cell or args.style}_{args.tempo}bpm_{args.bars}bars.mid"
+        base_output = args.output or f"{OUTPUT_DIR}/{args.cell or args.style}_{args.tempo}bpm{_ts_suffix(args.time_sig)}_{args.bars}bars.mid"
         base, ext = os.path.splitext(base_output)
 
         for vi, var_seed in enumerate(seeds, 1):
@@ -290,7 +295,7 @@ examples:
         output_path = args.output
     else:
         label = args.cell or args.style
-        output_path = f"{OUTPUT_DIR}/{label}_{args.tempo}bpm_{args.bars}bars.mid"
+        output_path = f"{OUTPUT_DIR}/{label}_{args.tempo}bpm{_ts_suffix(args.time_sig)}_{args.bars}bars.mid"
     output_path = unique_filepath(output_path)
 
     write_midi(

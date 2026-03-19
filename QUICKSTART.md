@@ -21,7 +21,7 @@ source .venv/bin/activate
 python drumgen.py --style screamo --tempo 180 --bars 4
 ```
 
-Output goes to `output/`. Open the `.mid` file in your DAW.
+Output goes to `Documents/drumgen_output/` on WSL/Windows, or `output/` on Linux/macOS. Open the `.mid` file in your DAW.
 
 ## More examples
 
@@ -48,7 +48,7 @@ python drumgen.py --list-cells
 ./run-drumgen
 ```
 
-Opens a browser-based interface with the same generation options.
+Opens a browser-based interface with the same generation options. On WSL, the browser auto-opens via `explorer.exe`.
 
 ## Audio preview (optional)
 

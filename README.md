@@ -15,11 +15,11 @@ pip install -r requirements.txt
 ## GUI
 
 ```bash
-./run-drumgen            # Linux / macOS / WSL
+./run-drumgen            # Linux / macOS / WSL (auto-opens browser)
 .\run-drumgen.ps1        # Windows PowerShell
 ```
 
-Or manually: `streamlit run app.py` (venv must be active).
+Or manually: `streamlit run app.py` (venv must be active). On WSL, the browser auto-opens via `explorer.exe`.
 
 The Streamlit GUI provides the same features as the CLI: style/cell selection, arrangement mode, generative mode, layer mode, humanization controls, and kit mapping. All sidebar widgets have tooltip help — hover the (?) icon for guidance on values and ranges. After generation, the pattern preview shows a grid key (`X` = accent, `x` = normal, `o` = ghost, `.` = silent) and the selected cell's tags.
 
@@ -91,7 +91,7 @@ python drumgen.py --test-mapping ugritone
 | `--fill-every` | 0 | Insert fill every N bars (0 = none) |
 | `--seed` | random | Seed for reproducibility |
 | `--kit` | ugritone | Kit mapping name or path |
-| `--output` / `-o` | auto | Output .mid path |
+| `--output` / `-o` | auto | Output .mid path. Defaults to `Documents/drumgen_output` on WSL/Windows, `output/` on Linux/macOS. Non-4/4 time sigs are included in the filename. |
 
 ## Arrangement Mode
 
@@ -243,7 +243,7 @@ midi_engine.py      Position math, MIDI file writing, note overlap prevention,
                     interleaved time sig + note event write for mixed meters
 midi_reader.py      MIDI import, auto-tagging, validation, dedup, content hashing
 als_extractor.py    Ableton .als extraction, non-drum track filtering
-test_drumgen.py     Test suite (pytest) — 226 tests
+test_drumgen.py     Test suite (pytest) — 265 tests
 kit_mappings/       JSON instrument-to-note mappings (ugritone, addictive_drums, GM)
 user_cells/         Imported cell JSON files (gitignored, auto-loaded)
 styles/             Style DNA reference (build-time only)

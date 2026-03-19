@@ -89,7 +89,7 @@ def _open_folder(path):
 # ── Auto filename ─────────────────────────────────────────────────────────────
 
 def auto_filename(style, tempo, bars, arrangement=False, cell_name="auto",
-                  layer_active=False, layers=None, generative=False):
+                  layer_active=False, layers=None, generative=False, time_sig="4/4"):
     parts = []
     if generative:
         parts.append("gen")
@@ -101,6 +101,8 @@ def auto_filename(style, tempo, bars, arrangement=False, cell_name="auto",
     else:
         parts.append(style)
     parts.append(f"{tempo}bpm")
+    if time_sig != "4/4":
+        parts.append(time_sig.replace("/", "_"))
     parts.append("arrangement" if arrangement else f"{bars}bars")
     return "_".join(parts) + ".mid"
 
@@ -370,6 +372,7 @@ with st.sidebar:
         layer_active=layer_active,
         layers=layers_map,
         generative=generative,
+        time_sig=time_sig,
     )
     if "prev_auto_fn" not in st.session_state:
         st.session_state.prev_auto_fn = ""
