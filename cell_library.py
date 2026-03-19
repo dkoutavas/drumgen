@@ -34,7 +34,7 @@ def _blast_traditional():
         "tags": ["blast", "extreme", "screamo", "metal", "intense"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -65,7 +65,7 @@ def _dbeat_standard():
         "tags": ["dbeat", "punk", "crust", "hardcore", "driving"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "groove",
         "hits": hits,
     }
@@ -116,7 +116,7 @@ def _fugazi_driving_chorus():
         "tags": ["fugazi", "posthardcore", "driving", "chorus"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "groove",
         "hits": hits,
     }
@@ -165,7 +165,7 @@ def _faraquet_displaced_4_4():
         "tags": ["faraquet", "angular", "math", "posthardcore"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "hits": hits,
     }
@@ -194,7 +194,7 @@ def _raein_melodic_drive():
         "tags": ["raein", "euro_screamo", "melodic", "groovy", "driving"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -237,7 +237,7 @@ def _fill_linear_1bar():
         "tags": ["fill", "posthardcore", "general"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "fill",
         "hits": hits,
     }
@@ -262,7 +262,7 @@ def _emoviolence_angular_breakdown():
         "tags": ["screamo", "emoviolence", "breakdown", "halftime", "heavy", "slow"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -285,7 +285,7 @@ def _emoviolence_blast_crash():
         "tags": ["screamo", "emoviolence", "blast", "chaotic", "intense"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.9,
+        "humanize": 0.6,
         "role": "groove",
         "hits": hits,
     }
@@ -310,7 +310,7 @@ def _emoviolence_chaotic_fill():
         "tags": ["screamo", "emoviolence", "fill", "chaotic"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.9,
+        "humanize": 0.6,
         "role": "fill",
         "hits": hits,
     }
@@ -367,8 +367,8 @@ def _daitro_quiet_build():
         "tags": ["daitro", "euro_screamo", "build", "crescendo", "intro", "atmospheric"],
         "time_sig": (4, 4),
         "num_bars": 8,
-        "humanize": 0.6,
-        "humanize_per_bar": {(1, 2): 0.4, (3, 4): 0.5, (5, 6): 0.6, (7, 8): 0.8},
+        "humanize": 0.4,
+        "humanize_per_bar": {(1, 2): 0.3, (3, 4): 0.35, (5, 6): 0.4, (7, 8): 0.55},
         "role": "groove",
         "hits": hits,
     }
@@ -403,7 +403,7 @@ def _daitro_tremolo_drive():
         "tags": ["daitro", "euro_screamo", "driving", "intense", "verse", "chorus", "tremolo"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -447,7 +447,7 @@ def _daitro_blast_release():
         "tags": ["daitro", "euro_screamo", "blast", "release", "climax", "intense"],
         "time_sig": (4, 4),
         "num_bars": 4,
-        "humanize": 0.7,
+        "humanize": 0.5,
         "role": "groove",
         "hits": hits,
     }
@@ -474,7 +474,7 @@ def _liturgy_burst_beat():
         "tags": ["liturgy", "black_metal", "blast", "experimental", "polyrhythmic", "intense"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "groove",
         "hits": hits,
     }
@@ -497,7 +497,7 @@ def _blackmetal_atmospheric():
         "tags": ["black_metal", "atmospheric", "post", "sparse", "intro", "bridge", "quiet"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -552,8 +552,8 @@ def _deafheaven_build_to_blast():
         "tags": ["deafheaven", "black_metal", "build", "transition", "climax", "intense"],
         "time_sig": (4, 4),
         "num_bars": 8,
-        "humanize": 0.6,
-        "humanize_per_bar": {(1, 2): 0.4, (3, 4): 0.5, (5, 6): 0.6, (7, 8): 0.8},
+        "humanize": 0.4,
+        "humanize_per_bar": {(1, 2): 0.3, (3, 4): 0.35, (5, 6): 0.4, (7, 8): 0.55},
         "role": "groove",
         "hits": hits,
     }
@@ -572,7 +572,7 @@ def _transition_crash_silence():
         "tags": ["transition", "any"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.3,
+        "humanize": 0.25,
         "role": "transition",
         "hits": hits,
     }
@@ -594,7 +594,7 @@ def _transition_half_time_shift():
         "tags": ["transition", "posthardcore", "buildup", "halftime"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "transition",
         "hits": hits,
     }
@@ -619,7 +619,7 @@ def _transition_snare_roll_to_crash():
         "tags": ["transition", "fill", "blast_entry", "screamo", "buildup"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "transition",
         "hits": hits,
     }
@@ -652,7 +652,7 @@ def _transition_cymbal_swell():
         "tags": ["transition", "build", "euro_screamo", "atmospheric"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "transition",
         "hits": hits,
     }
@@ -672,7 +672,7 @@ def _fill_floor_tom_sparse():
         "tags": ["fill", "noise_rock", "shellac", "heavy"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.3,
+        "humanize": 0.25,
         "role": "fill",
         "hits": hits,
     }
@@ -713,7 +713,7 @@ def _faraquet_7_8():
         "tags": ["faraquet", "angular", "math", "posthardcore", "odd_meter"],
         "time_sig": (7, 8),
         "num_bars": 2,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "hits": hits,
     }
@@ -751,7 +751,7 @@ def _blast_7_8():
         "tags": ["blast", "extreme", "screamo", "metal", "odd_meter"],
         "time_sig": (7, 8),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -783,7 +783,7 @@ def _dbeat_7_8():
         "tags": ["dbeat", "punk", "hardcore", "odd_meter"],
         "time_sig": (7, 8),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "groove",
         "hits": hits,
     }
@@ -806,7 +806,7 @@ def _driving_7_8():
         "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
         "time_sig": (7, 8),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -829,7 +829,7 @@ def _atmospheric_7_8():
         "tags": ["black_metal", "atmospheric", "sparse", "odd_meter"],
         "time_sig": (7, 8),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -869,7 +869,7 @@ def _faraquet_5_4():
         "tags": ["faraquet", "angular", "math", "posthardcore", "odd_meter"],
         "time_sig": (5, 4),
         "num_bars": 2,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "hits": hits,
     }
@@ -911,7 +911,7 @@ def _driving_5_4():
         "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
         "time_sig": (5, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -934,7 +934,7 @@ def _blast_5_4():
         "tags": ["blast", "extreme", "odd_meter"],
         "time_sig": (5, 4),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -961,7 +961,7 @@ def _waltz_punk():
         "tags": ["posthardcore", "punk", "odd_meter", "angular"],
         "time_sig": (3, 4),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "groove",
         "hits": hits,
     }
@@ -1002,7 +1002,7 @@ def _driving_3_4():
         "tags": ["posthardcore", "fugazi", "driving", "odd_meter"],
         "time_sig": (3, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -1025,7 +1025,7 @@ def _blast_3_4():
         "tags": ["blast", "extreme", "odd_meter"],
         "time_sig": (3, 4),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "hits": hits,
     }
@@ -1053,7 +1053,7 @@ def _driving_6_8():
         "tags": ["posthardcore", "driving", "odd_meter"],
         "time_sig": (6, 8),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "hits": hits,
     }
@@ -1096,7 +1096,7 @@ def _postrock_6_4():
         "tags": ["postrock", "atmospheric", "sparse", "odd_meter"],
         "time_sig": (6, 4),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "groove",
         "hits": hits,
     }
@@ -1119,7 +1119,7 @@ def _driving_6_4():
         "tags": ["posthardcore", "driving", "odd_meter"],
         "time_sig": (6, 4),
         "num_bars": 1,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "groove",
         "hits": hits,
     }
@@ -1165,7 +1165,7 @@ def _prob_faraquet_4_4():
         "tags": ["faraquet", "angular", "math", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "grid": grid,
     }
@@ -1233,7 +1233,7 @@ def _prob_posthardcore_4_4():
         "tags": ["posthardcore", "fugazi", "driving", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.6,
+        "humanize": 0.4,
         "role": "groove",
         "grid": grid,
     }
@@ -1267,7 +1267,7 @@ def _prob_dbeat_4_4():
         "tags": ["dbeat", "punk", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.4,
+        "humanize": 0.3,
         "role": "groove",
         "grid": grid,
     }
@@ -1296,7 +1296,7 @@ def _prob_blast_4_4():
         "tags": ["blast", "extreme", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.8,
+        "humanize": 0.55,
         "role": "groove",
         "grid": grid,
     }
@@ -1334,7 +1334,7 @@ def _prob_euro_screamo_4_4():
         "tags": ["euro_screamo", "daitro", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.55,
+        "humanize": 0.4,
         "role": "groove",
         "grid": grid,
     }
@@ -1371,7 +1371,7 @@ def _prob_faraquet_7_8():
         "tags": ["faraquet", "angular", "odd_meter", "generative"],
         "time_sig": (7, 8),
         "num_bars": 1,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "grid": grid,
     }
@@ -1396,7 +1396,7 @@ def _motorik_pulse():
         "tags": ["motorik", "krautrock", "sonic_youth", "post_punk", "driving", "verse"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.25,
+        "humanize": 0.2,
         "role": "groove",
         "hits": hits,
     }
@@ -1426,8 +1426,8 @@ def _motorik_build():
         "tags": ["motorik", "slint", "build", "crescendo", "atmospheric"],
         "time_sig": (4, 4),
         "num_bars": 4,
-        "humanize": 0.4,
-        "humanize_per_bar": {(1, 2): 0.3, (3, 4): 0.4},
+        "humanize": 0.3,
+        "humanize_per_bar": {(1, 2): 0.2, (3, 4): 0.3},
         "role": "groove",
         "hits": hits,
     }
@@ -1452,7 +1452,7 @@ def _slint_explosion():
         "tags": ["slint", "post_punk", "driving", "intense", "climax"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "groove",
         "hits": hits,
     }
@@ -1506,7 +1506,7 @@ def _athletic_angular():
         "tags": ["athletic", "angular", "driving", "drive_like_jehu", "posthardcore", "intense"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.7,
+        "humanize": 0.5,
         "role": "groove",
         "hits": hits,
     }
@@ -1529,7 +1529,7 @@ def _postpunk_machine():
         "tags": ["post_punk", "motorik", "driving", "verse"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.3,
+        "humanize": 0.25,
         "role": "groove",
         "hits": hits,
     }
@@ -1583,7 +1583,7 @@ def _postpunk_busy():
         "tags": ["post_punk", "athletic", "atdi", "blood_brothers", "driving", "intense"],
         "time_sig": (4, 4),
         "num_bars": 2,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "hits": hits,
     }
@@ -1634,8 +1634,8 @@ def _unwound_dynamics():
         "tags": ["unwound", "noise_rock", "dynamic", "atmospheric", "driving"],
         "time_sig": (4, 4),
         "num_bars": 4,
-        "humanize": 0.55,
-        "humanize_per_bar": {(1, 2): 0.6, (3, 4): 0.5},
+        "humanize": 0.4,
+        "humanize_per_bar": {(1, 2): 0.4, (3, 4): 0.35},
         "role": "groove",
         "hits": hits,
     }
@@ -1683,8 +1683,8 @@ def _city_of_caterpillar_build():
         "tags": ["screamo", "emoviolence", "city_of_caterpillar", "build", "crescendo", "atmospheric", "intro"],
         "time_sig": (4, 4),
         "num_bars": 8,
-        "humanize": 0.6,
-        "humanize_per_bar": {(1, 2): 0.35, (3, 4): 0.45, (5, 6): 0.55, (7, 8): 0.7},
+        "humanize": 0.4,
+        "humanize_per_bar": {(1, 2): 0.25, (3, 4): 0.3, (5, 6): 0.4, (7, 8): 0.5},
         "role": "groove",
         "hits": hits,
     }
@@ -1722,7 +1722,7 @@ def _prob_postpunk_4_4():
         "tags": ["post_punk", "motorik", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.3,
+        "humanize": 0.25,
         "role": "groove",
         "grid": grid,
     }
@@ -1769,7 +1769,7 @@ def _prob_angular_athletic_4_4():
         "tags": ["athletic", "angular", "drive_like_jehu", "atdi", "generative"],
         "time_sig": (4, 4),
         "num_bars": 1,
-        "humanize": 0.65,
+        "humanize": 0.45,
         "role": "groove",
         "grid": grid,
     }
@@ -1810,7 +1810,7 @@ def _prob_slint_4_4():
         "tags": ["slint", "post_punk", "dynamic", "build", "generative"],
         "time_sig": (4, 4),
         "num_bars": 4,
-        "humanize": 0.5,
+        "humanize": 0.35,
         "role": "groove",
         "grid": grid,
     }

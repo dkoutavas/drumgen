@@ -517,7 +517,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
 
     ppq = DEFAULT_PPQ
 
-    humanizer = Humanizer(humanize if humanize is not None else 0.5, seed=seed)
+    humanizer = Humanizer(humanize if humanize is not None else 0.3, seed=seed)
     rng = random.Random(seed)
 
     events = []
@@ -675,7 +675,7 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
         humanize_values.append(cell["humanize"])
 
     if humanize is None:
-        humanize_amount = min(humanize_values) if humanize_values else 0.5
+        humanize_amount = min(humanize_values) if humanize_values else 0.3
     else:
         humanize_amount = humanize
 
