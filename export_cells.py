@@ -47,9 +47,21 @@ def export(output_path):
             continue
         builtin_cells[name] = _serialize_cell(cell)
 
+    # Prune style pools to cells that actually ship in the plugin. STYLE_POOLS
+    # picks up user-imported cell names at import time (via tag-to-pool mapping),
+    # but those bodies are excluded above — leaving dangling names that inflate
+    # pool sizes and would never resolve in the plugin. Keep only resolvable ones.
+    pruned_pools = {}
+    dropped = 0
+    for style, names in sorted(STYLE_POOLS.items()):
+        keep = [n for n in names if n in builtin_cells]
+        dropped += len(names) - len(keep)
+        if keep:
+            pruned_pools[style] = keep
+
     data = {
         "cells": builtin_cells,
-        "style_pools": {style: list(names) for style, names in sorted(STYLE_POOLS.items())},
+        "style_pools": pruned_pools,
         "section_preferences": {sec: list(tags) for sec, tags in sorted(SECTION_PREFERENCES.items())},
     }
 
@@ -69,6 +81,8 @@ def export(output_path):
 
     print(f"Exported {len(builtin_cells)} cells ({n_fixed} fixed, {n_prob} probability)")
     print(f"  {n_styles} style pools, {n_sections} section preferences")
+    if dropped:
+        print(f"  pruned {dropped} dangling pool entries (user-imported cells not shipped)")
     print(f"  -> {output_path}")
 
 

@@ -182,7 +182,8 @@ impl Humanizer {
         let (low, high) = velocity_level.range();
         let center = (low + high) / 2;
         let variance = Self::instrument_variance(instrument);
-        let scaled_variance = (variance as f64 * self.humanize_amount).round() as i32;
+        // Truncate toward zero (Rust `as i32`) to match Python's int() — not round().
+        let scaled_variance = (variance as f64 * self.humanize_amount) as i32;
         let scaled_variance = scaled_variance.max(3);
         if scaled_variance <= 0 {
             return center.clamp(1, 127);

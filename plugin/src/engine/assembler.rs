@@ -475,8 +475,13 @@ pub fn assemble(
     }
 
     // Add crash on bar 1 beat 1 if not present
+    // Matches Python's inst.startswith("crash") — includes the choke variants so a
+    // cell that already opens on a crash choke doesn't get a redundant crash added.
     let has_crash_bar1 = events.iter().any(|e| {
-        matches!(e.instrument, Instrument::Crash1 | Instrument::Crash2) && e.tick < beat_ticks
+        matches!(
+            e.instrument,
+            Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke
+        ) && e.tick < beat_ticks
     });
     if !has_crash_bar1 && bars > 0 {
         let crash_tick = midi_math::position_to_ticks(1, 1, 0.0, &time_signatures, ppq);
