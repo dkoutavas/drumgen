@@ -152,6 +152,26 @@ fn pixel_knob(ui: &mut egui::Ui, setter: &ParamSetter, label: &str, p: &FloatPar
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn theme_and_font_bake_without_panic() {
+        // Exercise the risky runtime path headlessly: embedding the pixel font
+        // and baking the glyph atlas + theme. A corrupt TTF or misused egui API
+        // would panic here instead of only in the host.
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            install_theme(ctx);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("DRUMGEN");
+                ui.label("posthardcore");
+            });
+        });
+    }
+}
+
 pub fn create(params: Arc<DrumgenParams>, n_styles: usize) -> Option<Box<dyn Editor>> {
     let egui_state = params.editor_state.clone();
     create_egui_editor(
