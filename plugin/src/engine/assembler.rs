@@ -42,9 +42,12 @@ fn drift_offset(bar_index: i32, total_bars: i32, direction: &str) -> i32 {
 /// Validate physical constraints at each position in a bar.
 /// Keeps highest-priority cymbal, highest-priority stick, and all feet.
 fn validate_physical_constraints(bar_hits: &[Hit]) -> Vec<Hit> {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    let mut positions: HashMap<(i32, i64), Vec<&Hit>> = HashMap::new();
+    // BTreeMap (not HashMap): group iteration order must be deterministic because
+    // the surviving hits feed the per-hit humanize RNG stream downstream. With a
+    // random HashMap order the same seed produced different MIDI across runs.
+    let mut positions: BTreeMap<(i32, i64), Vec<&Hit>> = BTreeMap::new();
     for hit in bar_hits {
         // Use integer sub for grouping (avoid float comparison issues)
         let sub_key = (hit.sub * 1000.0) as i64;
@@ -124,9 +127,11 @@ fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec
 
 /// Resolve conflicts in merged layer hits.
 fn resolve_layer_conflicts(merged_hits: &[Hit]) -> Vec<Hit> {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    let mut positions: HashMap<(i32, i32, i64), Vec<&Hit>> = HashMap::new();
+    // BTreeMap for deterministic group and instrument iteration (see the note in
+    // validate_physical_constraints — same seed must give the same MIDI).
+    let mut positions: BTreeMap<(i32, i32, i64), Vec<&Hit>> = BTreeMap::new();
     for hit in merged_hits {
         let sub_key = (hit.sub * 1000.0) as i64;
         positions.entry((hit.bar, hit.beat, sub_key)).or_default().push(hit);
@@ -136,7 +141,7 @@ fn resolve_layer_conflicts(merged_hits: &[Hit]) -> Vec<Hit> {
 
     for (_, hits) in &positions {
         // Deduplicate by instrument — keep highest velocity rank
-        let mut by_inst: HashMap<Instrument, &Hit> = HashMap::new();
+        let mut by_inst: BTreeMap<Instrument, &Hit> = BTreeMap::new();
         for &hit in hits {
             let existing = by_inst.get(&hit.instrument);
             if existing.is_none()
@@ -839,6 +844,28 @@ mod tests {
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
+    }
+
+    #[test]
+    fn test_generative_seed_reproducible_across_runs() {
+        // Regression: HashMap iteration order in constraint/flam paths used to
+        // make the same seed produce different MIDI across runs. Generate the
+        // same generative pattern 20x with humanize on and assert every run is
+        // byte-identical (tick, instrument, velocity).
+        let lib = CellLibrary::new();
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument, i32)> {
+            r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
+        };
+        let first = key(&assemble(
+            &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 7, 0.0, true,
+        ));
+        assert!(!first.is_empty());
+        for _ in 0..20 {
+            let again = key(&assemble(
+                &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 7, 0.0, true,
+            ));
+            assert_eq!(first, again, "same seed must yield identical MIDI every run");
+        }
     }
 
     #[test]

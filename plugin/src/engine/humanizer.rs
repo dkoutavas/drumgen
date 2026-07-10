@@ -260,8 +260,10 @@ impl Humanizer {
         }
         let ms_per_tick = (60000.0 / tempo) / ppq as f64;
 
-        // Group events by tick
-        let mut tick_map: std::collections::HashMap<i64, Vec<usize>> = std::collections::HashMap::new();
+        // Group events by tick. BTreeMap (not HashMap): the RNG draw below runs
+        // inside this loop, so a random tick order would consume the RNG stream
+        // differently and break same-seed reproducibility.
+        let mut tick_map: std::collections::BTreeMap<i64, Vec<usize>> = std::collections::BTreeMap::new();
         for (i, event) in events.iter().enumerate() {
             tick_map.entry(event.tick).or_default().push(i);
         }

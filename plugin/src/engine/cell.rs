@@ -3,7 +3,10 @@ use std::collections::HashMap;
 
 /// Instrument names matching the Python engine.
 /// Each maps to a MIDI note number via the kit mapping.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+// PartialOrd/Ord give a deterministic total order (declaration order) so the
+// engine can iterate instrument-keyed maps reproducibly — see the BTreeMap use
+// in assembler conflict resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Instrument {
     Kick,
