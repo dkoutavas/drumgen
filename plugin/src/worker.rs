@@ -24,6 +24,7 @@ pub struct GenRequest {
     pub bars: i32,
     pub seed: u64,
     pub swing: f64,
+    pub generative: bool,
     pub generation: u64,
 }
 
@@ -102,7 +103,7 @@ fn worker_loop(
             }
         }
 
-        let res = gen.generate(req.style, req.humanize, req.bars, req.seed, req.swing, false);
+        let res = gen.generate(req.style, req.humanize, req.bars, req.seed, req.swing, req.generative);
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
         let pattern = Arc::new(Pattern::from_assemble(&res, req.generation, style_name, String::new()));
 

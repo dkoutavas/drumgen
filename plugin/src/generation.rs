@@ -96,4 +96,32 @@ impl GenerationManager {
     pub fn style_name(&self, index: usize) -> Option<&str> {
         self.library.style_by_index(index)
     }
+
+    /// Sorted list of style names (index order matches the Style param).
+    pub fn style_names(&self) -> Vec<String> {
+        self.library.style_names().to_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn generate_is_fast_enough_to_stay_off_the_audio_thread() {
+        // The bar-boundary swap story assumes generation is well under a bar.
+        // Pin a generous ceiling on the worst case (16 bars, generative, humanize
+        // on) across every style so a pathological regression is caught. Real
+        // times are sub-millisecond; 50ms is a safety net, not a target.
+        let gen = GenerationManager::new();
+        let n = gen.num_styles();
+        for i in 0..n as i32 {
+            let t = Instant::now();
+            let res = gen.generate(i, 0.7, 16, 3, 0.0, true);
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            assert!(!res.events.is_empty() || res.total_bars == 16);
+            assert!(ms < 50.0, "style {} took {:.2}ms to generate", i, ms);
+        }
+    }
 }

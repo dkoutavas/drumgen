@@ -17,6 +17,10 @@ use engine::midi_math::PPQ;
 
 const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
 const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
+// Generative is always on: the engine re-realizes a probability grid per seed
+// (so the dice re-rolls the groove) and falls back to fixed cells otherwise.
+// No user-facing toggle — see design §3.
+const GENERATIVE: bool = true;
 
 /// Snapshot of the generation-affecting params, for change detection.
 #[derive(Clone, Copy)]
@@ -44,6 +48,7 @@ impl ParamSnapshot {
             bars: self.bars,
             seed: self.seed as u64,
             swing: self.swing as f64,
+            generative: GENERATIVE,
             generation,
         }
     }
@@ -86,7 +91,9 @@ struct Drumgen {
 
 impl Default for Drumgen {
     fn default() -> Self {
-        let params = Arc::new(DrumgenParams::default());
+        // Parse the cell library first so params can bind to the real style names.
+        let gen = GenerationManager::new();
+        let params = Arc::new(DrumgenParams::new(gen.style_names()));
         let snap = ParamSnapshot {
             style: params.style.value(),
             humanize: params.humanize.value(),
@@ -95,10 +102,9 @@ impl Default for Drumgen {
             swing: params.swing.value(),
         };
 
-        // Parse the cell library and generate an initial pattern so the plugin
-        // is valid before `initialize()`; the manager is then handed to the worker.
-        let gen = GenerationManager::new();
-        let res = gen.generate(snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64, false);
+        // Generate an initial pattern so the plugin is valid before `initialize()`;
+        // the manager is then handed to the worker.
+        let res = gen.generate(snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64, GENERATIVE);
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
         let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
 

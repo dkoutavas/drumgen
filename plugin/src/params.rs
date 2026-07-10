@@ -1,12 +1,10 @@
 use nih_plug::prelude::*;
+use std::sync::Arc;
 
 /// Plugin parameters exposed to the DAW for automation.
-///
-/// Phase 1: parameters are defined but only `bars` affects the hardcoded pattern
-/// (loop length). The rest are wired up in Phase 2 when the full engine is ported.
 #[derive(Params)]
 pub struct DrumgenParams {
-    /// Style index (0-27). Maps to STYLE_POOLS entries in Phase 2.
+    /// Style index — maps to the sorted style list. Displayed as the genre name.
     #[id = "style"]
     pub style: IntParam,
 
@@ -19,8 +17,7 @@ pub struct DrumgenParams {
     #[id = "bars"]
     pub bars: IntParam,
 
-    /// RNG seed for generative mode (0-9999).
-    /// Different seeds produce different probability grid realizations.
+    /// RNG seed — the "dice". Each value re-rolls the groove.
     #[id = "seed"]
     pub seed: IntParam,
 
@@ -29,32 +26,54 @@ pub struct DrumgenParams {
     pub swing: FloatParam,
 }
 
-impl Default for DrumgenParams {
-    fn default() -> Self {
-        Self {
-            style: IntParam::new("Style", 0, IntRange::Linear { min: 0, max: 27 }),
+impl DrumgenParams {
+    /// Build the params bound to the given sorted style names, so the Style
+    /// param covers every style and shows genre names instead of bare indices.
+    pub fn new(style_names: Vec<String>) -> Self {
+        let count = style_names.len().max(1);
+        let max_style = (count - 1) as i32;
+        // Default to the persona's home genre; fall back to index 0.
+        let default_style = style_names
+            .iter()
+            .position(|s| s == "posthardcore")
+            .unwrap_or(0) as i32;
 
-            humanize: FloatParam::new(
-                "Humanize",
-                0.35,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit("%")
-            .with_value_to_string(formatters::v2s_f32_percentage(0))
-            .with_string_to_value(formatters::s2v_f32_percentage()),
+        // value_to_string maps the index to the genre name (also seen in the
+        // host-generic UI, so even without the custom editor it never shows a bare int).
+        let names = Arc::new(style_names);
+        let names_fmt = names.clone();
+        let style_fmt = Arc::new(move |v: i32| {
+            names_fmt
+                .get(v as usize)
+                .cloned()
+                .unwrap_or_else(|| v.to_string())
+        });
+
+        Self {
+            style: IntParam::new("Style", default_style, IntRange::Linear { min: 0, max: max_style })
+                .with_value_to_string(style_fmt),
+
+            humanize: FloatParam::new("Humanize", 0.40, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit("%")
+                .with_value_to_string(formatters::v2s_f32_percentage(0))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
 
             bars: IntParam::new("Bars", 4, IntRange::Linear { min: 1, max: 16 }),
 
             seed: IntParam::new("Seed", 0, IntRange::Linear { min: 0, max: 9999 }),
 
-            swing: FloatParam::new(
-                "Swing",
-                0.0,
-                FloatRange::Linear { min: 0.0, max: 1.0 },
-            )
-            .with_unit("%")
-            .with_value_to_string(formatters::v2s_f32_percentage(0))
-            .with_string_to_value(formatters::s2v_f32_percentage()),
+            swing: FloatParam::new("Swing", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+                .with_unit("%")
+                .with_value_to_string(formatters::v2s_f32_percentage(0))
+                .with_string_to_value(formatters::s2v_f32_percentage()),
         }
+    }
+}
+
+impl Default for DrumgenParams {
+    /// Fallback with no style names (host never uses this path — the plugin
+    /// builds params via `new()` with the real list).
+    fn default() -> Self {
+        Self::new(Vec::new())
     }
 }
