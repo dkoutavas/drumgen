@@ -2,6 +2,7 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 
 pub mod engine;
+mod editor;
 mod generation;
 mod params;
 mod pattern;
@@ -94,13 +95,18 @@ struct Drumgen {
     last_end_samples: Option<i64>,
     last_bar_index: Option<usize>,
     sample_rate: f32,
+
+    /// Number of styles, for the editor's Style picker wrap-around.
+    n_styles: usize,
 }
 
 impl Default for Drumgen {
     fn default() -> Self {
         // Parse the cell library first so params can bind to the real style names.
         let gen = GenerationManager::new();
-        let params = Arc::new(DrumgenParams::new(gen.style_names()));
+        let style_names = gen.style_names();
+        let n_styles = style_names.len().max(1);
+        let params = Arc::new(DrumgenParams::new(style_names));
         let snap = ParamSnapshot {
             style: params.style.value(),
             humanize: params.humanize.value(),
@@ -137,6 +143,7 @@ impl Default for Drumgen {
             last_end_samples: None,
             last_bar_index: None,
             sample_rate: 44100.0,
+            n_styles,
         }
     }
 }
@@ -202,6 +209,10 @@ impl Plugin for Drumgen {
 
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
+    }
+
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        editor::create(self.params.clone(), self.n_styles)
     }
 
     fn initialize(

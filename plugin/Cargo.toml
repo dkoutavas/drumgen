@@ -12,7 +12,11 @@ description = "Algorithmic drum pattern generator VST3 plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+# The rev MUST match on both nih_plug lines — cargo treats git+URL and
+# git+URL?rev=... as different sources, which would pull two nih_plug copies
+# and cause Params-trait type mismatches.
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "28b149ec4d62757d0b448809148a0c3ca6e09a95" }
+nih_plug_egui = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "28b149ec4d62757d0b448809148a0c3ca6e09a95" }
 rand = "0.8"
 rand_chacha = "0.3"
 rand_distr = "0.4"

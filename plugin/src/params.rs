@@ -1,4 +1,5 @@
 use nih_plug::prelude::*;
+use nih_plug_egui::EguiState;
 use std::sync::Arc;
 
 /// Plugin parameters exposed to the DAW for automation.
@@ -29,7 +30,15 @@ pub struct DrumgenParams {
     /// meter, falling back gracefully if the style has no cell in it.
     #[id = "meter"]
     pub meter: IntParam,
+
+    /// Editor window state (size / open) — persisted with the plugin state.
+    #[persist = "editor-state"]
+    pub editor_state: Arc<EguiState>,
 }
+
+/// Editor window size (logical px) — 2x a 240x160 virtual screen.
+pub const EDITOR_WIDTH: u32 = 480;
+pub const EDITOR_HEIGHT: u32 = 320;
 
 /// Meter param index → (numerator, denominator). Index 0 is Auto = (0,0).
 pub const METERS: [(i32, i32); 7] = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
@@ -88,6 +97,8 @@ impl DrumgenParams {
 
             meter: IntParam::new("Meter", 0, IntRange::Linear { min: 0, max: (METERS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(meter_label)),
+
+            editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
         }
     }
 }
