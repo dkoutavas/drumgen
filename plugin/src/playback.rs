@@ -1,178 +1,155 @@
-use std::collections::HashSet;
-use crate::engine::humanizer::Event;
-use crate::engine::midi_math::{self, TimeSigEntry, PPQ, NOTE_DURATION};
+//! Stateless, allocation-free event scanning over an immutable `Pattern`.
+//!
+//! The audio thread calls [`scan`] once per buffer into a reused scratch `Vec`.
+//! Event timings are computed **pattern-relative** to the buffer's start position
+//! `p0`, so they stay correct on every loop (the old code subtracted the absolute
+//! sample position and collapsed all offsets to 0 after the first loop).
 
-/// A single MIDI event at an absolute tick position within the pattern.
-#[derive(Debug, Clone)]
-pub struct MidiEvent {
-    /// Absolute tick position within the pattern (0-based).
-    pub tick: i64,
-    /// MIDI note number (GM drum map).
+use crate::pattern::Pattern;
+
+/// An event ready to emit: sample offset within the current buffer.
+pub struct Emit {
+    pub timing: u32,
     pub note: u8,
-    /// MIDI velocity (0-127). 0 is used for note-off events.
     pub velocity: u8,
-    /// True for note-on, false for note-off.
     pub is_note_on: bool,
 }
 
-/// Manages the event buffer and playback state for the drum pattern.
-pub struct PlaybackEngine {
-    /// All events in the pattern, sorted by tick.
-    events: Vec<MidiEvent>,
-    /// Total pattern length in ticks.
-    pub total_ticks: i64,
-    /// Currently sounding MIDI notes.
-    active_notes: HashSet<u8>,
-    /// DAW sample rate.
-    pub sample_rate: f32,
-    /// Pulses per quarter note (always 480).
-    pub ppq: i64,
+/// Scan the pattern for events in the tick window `[p0, p0 + buffer_ticks)`,
+/// wrapping at `total_ticks`, appending `Emit`s to `out` (which the caller
+/// clears and reuses — no allocation once its capacity has stabilized).
+///
+/// `p0` is the fractional pattern-relative tick at the buffer's first sample.
+pub fn scan(
+    pattern: &Pattern,
+    p0: f64,
+    buffer_ticks: f64,
+    samples_per_tick: f64,
+    num_samples: i64,
+    out: &mut Vec<Emit>,
+) {
+    let t = pattern.total_ticks;
+    if t <= 0 || num_samples <= 0 || buffer_ticks <= 0.0 {
+        return;
+    }
+    let tf = t as f64;
+    let p1 = p0 + buffer_ticks;
+
+    // First (possibly only) range: [p0, min(p1, tf)), offset base = p0.
+    collect(pattern, p0, p1.min(tf), p0, samples_per_tick, num_samples, out);
+
+    // Wrapped range: [0, p1 - tf), offset base = p0 - tf so delta = et + (tf - p0).
+    if p1 > tf {
+        // ponytail: single-wrap only. A buffer longer than the whole pattern
+        // (tiny loop + huge block at slow tempo) would need multiple wraps;
+        // clamped here and left as an upgrade path — never happens live.
+        let end2 = (p1 - tf).min(tf);
+        collect(pattern, 0.0, end2, p0 - tf, samples_per_tick, num_samples, out);
+    }
 }
 
-impl PlaybackEngine {
-    /// Create a PlaybackEngine from assembler events and time signatures.
-    pub fn from_events(events: &[Event], time_signatures: &[TimeSigEntry]) -> Self {
-        let total_bars = time_signatures.last()
-            .map(|ts| ts.bar_end)
-            .unwrap_or(4);
-        let total_ticks = midi_math::total_pattern_ticks(total_bars, time_signatures, PPQ);
-
-        let mut midi_events = Vec::new();
-
-        for event in events {
-            let note = event.instrument.midi_note();
-            let velocity = event.velocity.clamp(1, 127) as u8;
-
-            // Note on
-            midi_events.push(MidiEvent {
-                tick: event.tick,
-                note,
-                velocity,
-                is_note_on: true,
-            });
-
-            // Note off (clamped to pattern boundary)
-            let off_tick = (event.tick + NOTE_DURATION).min(total_ticks);
-            midi_events.push(MidiEvent {
-                tick: off_tick,
-                note,
-                velocity: 0,
-                is_note_on: false,
-            });
-        }
-
-        // Sort: by tick, then note-off before note-on at same tick
-        midi_events.sort_by(|a, b| {
-            a.tick.cmp(&b.tick)
-                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
-        });
-
-        PlaybackEngine {
-            events: midi_events,
-            total_ticks,
-            active_notes: HashSet::new(),
-            sample_rate: 44100.0,
-            ppq: PPQ,
-        }
+fn collect(
+    pattern: &Pattern,
+    lo: f64,
+    hi: f64,
+    base: f64,
+    samples_per_tick: f64,
+    num_samples: i64,
+    out: &mut Vec<Emit>,
+) {
+    if hi <= lo {
+        return;
     }
-
-    /// Create a new PlaybackEngine with a hardcoded test pattern (Phase 1 fallback).
-    pub fn new() -> Self {
-        let num_bars: i64 = 4;
-        let beats_per_bar: i64 = 4;
-        let total_ticks = num_bars * beats_per_bar * PPQ;
-
-        let mut events = Vec::new();
-
-        for bar in 0..num_bars {
-            let bar_offset = bar * beats_per_bar * PPQ;
-
-            for beat in 0..beats_per_bar {
-                let beat_tick = bar_offset + beat * PPQ;
-
-                // Kick on beats 1, 3
-                if beat == 0 || beat == 2 {
-                    events.push(MidiEvent { tick: beat_tick, note: 36, velocity: 100, is_note_on: true });
-                    events.push(MidiEvent { tick: beat_tick + NOTE_DURATION, note: 36, velocity: 0, is_note_on: false });
-                }
-
-                // Snare on beats 2, 4
-                if beat == 1 || beat == 3 {
-                    events.push(MidiEvent { tick: beat_tick, note: 38, velocity: 110, is_note_on: true });
-                    events.push(MidiEvent { tick: beat_tick + NOTE_DURATION, note: 38, velocity: 0, is_note_on: false });
-                }
-
-                // Hi-hat on every 8th
-                for sub in 0..2 {
-                    let hh_tick = beat_tick + sub * (PPQ / 2);
-                    let hh_vel = if sub == 0 { 90 } else { 75 };
-                    events.push(MidiEvent { tick: hh_tick, note: 42, velocity: hh_vel, is_note_on: true });
-                    events.push(MidiEvent { tick: hh_tick + NOTE_DURATION, note: 42, velocity: 0, is_note_on: false });
-                }
-            }
+    let first = pattern.events.partition_point(|e| (e.tick as f64) < lo);
+    let max_timing = (num_samples - 1).max(0) as f64;
+    for e in &pattern.events[first..] {
+        let etf = e.tick as f64;
+        if etf >= hi {
+            break;
         }
+        let timing = ((etf - base) * samples_per_tick).round().clamp(0.0, max_timing) as u32;
+        out.push(Emit { timing, note: e.note, velocity: e.velocity, is_note_on: e.is_note_on });
+    }
+}
 
-        events.sort_by(|a, b| a.tick.cmp(&b.tick).then_with(|| a.is_note_on.cmp(&b.is_note_on)));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pattern::{MidiEvent, Pattern};
+    use crate::engine::midi_math::TimeSigEntry;
 
-        PlaybackEngine {
+    /// One-bar 4/4 pattern (1920 ticks) with a note-on at each quarter.
+    fn one_bar() -> Pattern {
+        let events = vec![
+            MidiEvent { tick: 0, note: 36, velocity: 100, is_note_on: true },
+            MidiEvent { tick: 480, note: 38, velocity: 100, is_note_on: true },
+            MidiEvent { tick: 960, note: 36, velocity: 100, is_note_on: true },
+            MidiEvent { tick: 1440, note: 38, velocity: 100, is_note_on: true },
+        ];
+        Pattern {
             events,
-            total_ticks,
-            active_notes: HashSet::new(),
-            sample_rate: 44100.0,
-            ppq: PPQ,
+            total_ticks: 1920,
+            bar_starts: vec![0, 1920],
+            time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 1, numerator: 4, denominator: 4 }],
+            generation: 0,
+            seed: 0,
+            style_name: String::new(),
+            cell_name: String::new(),
         }
     }
 
-    /// Scan for events in the tick range [start_tick, end_tick).
-    /// Handles loop wrap-around.
-    pub fn scan_events(&mut self, start_tick: i64, end_tick: i64) -> Vec<MidiEvent> {
-        let mut result = Vec::new();
+    // samples_per_tick at 120 BPM, 48kHz: 60*48000 / (120*480) = 500.
+    const SPT: f64 = 500.0;
+    const TPS: f64 = 1.0 / SPT;
 
-        if end_tick <= start_tick || self.total_ticks <= 0 {
-            return result;
-        }
-
-        let start = start_tick % self.total_ticks;
-        let end = end_tick % self.total_ticks;
-
-        if start < end {
-            self.collect_events_in_range(start, end, &mut result);
-        } else {
-            // Wrap-around
-            self.collect_events_in_range(start, self.total_ticks, &mut result);
-            self.collect_events_in_range(0, end, &mut result);
-        }
-
-        // Update active note tracking
-        for event in &result {
-            if event.is_note_on {
-                self.active_notes.insert(event.note);
-            } else {
-                self.active_notes.remove(&event.note);
-            }
-        }
-
-        result
+    #[test]
+    fn offset_is_pattern_relative_on_first_loop() {
+        let p = one_bar();
+        let mut out = Vec::new();
+        // Buffer covering ticks [480, 960): the note at 480 must land at offset 0.
+        let buffer_ticks = 480.0;
+        scan(&p, 480.0, buffer_ticks, SPT, (buffer_ticks * SPT) as i64, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].note, 38);
+        assert_eq!(out[0].timing, 0);
     }
 
-    fn collect_events_in_range(&self, start: i64, end: i64, out: &mut Vec<MidiEvent>) {
-        let first = self.events.partition_point(|e| e.tick < start);
-        for event in &self.events[first..] {
-            if event.tick >= end {
-                break;
-            }
-            out.push(event.clone());
-        }
+    #[test]
+    fn offset_does_not_collapse_after_looping() {
+        // The verified bug: past the first loop, offsets collapsed to 0.
+        // Here p0 is pattern-relative (already wrapped), so the offset must be
+        // the same as loop 0 for the same in-pattern position.
+        let p = one_bar();
+        // Buffer of 240 ticks starting 120 ticks before the note at 480.
+        let buffer_ticks = 240.0;
+        let num_samples = (buffer_ticks * SPT) as i64;
+        let mut out = Vec::new();
+        scan(&p, 360.0, buffer_ticks, SPT, num_samples, &mut out);
+        assert_eq!(out.len(), 1);
+        // note at 480 is 120 ticks into the buffer → 120 * 500 = 60000 samples.
+        assert_eq!(out[0].timing, 60000);
+        let _ = TPS;
     }
 
-    /// Returns currently active MIDI notes and clears the tracking set.
-    pub fn all_notes_off(&mut self) -> Vec<u8> {
-        let notes: Vec<u8> = self.active_notes.iter().copied().collect();
-        self.active_notes.clear();
-        notes
+    #[test]
+    fn scan_wraps_across_loop_boundary() {
+        let p = one_bar();
+        // Window [1800, 2040) wraps: covers tick 1800..1920 then 0..120.
+        // Events in range: note at 0 (== 1920), landing 120 ticks in.
+        let buffer_ticks = 240.0;
+        let num_samples = (buffer_ticks * SPT) as i64;
+        let mut out = Vec::new();
+        scan(&p, 1800.0, buffer_ticks, SPT, num_samples, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].note, 36); // the tick-0 event, seen at the wrap
+        assert_eq!(out[0].timing, 120 * 500);
     }
 
-    pub fn set_sample_rate(&mut self, rate: f32) {
-        self.sample_rate = rate;
+    #[test]
+    fn empty_when_no_events_in_window() {
+        let p = one_bar();
+        let mut out = Vec::new();
+        scan(&p, 1.0, 100.0, SPT, (100.0 * SPT) as i64, &mut out);
+        assert!(out.is_empty());
     }
 }

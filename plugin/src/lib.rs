@@ -2,53 +2,158 @@ use nih_plug::prelude::*;
 use std::sync::Arc;
 
 pub mod engine;
-mod params;
-mod playback;
 mod generation;
+mod params;
+mod pattern;
+mod playback;
+mod worker;
 
-use params::DrumgenParams;
-use playback::PlaybackEngine;
 use generation::GenerationManager;
+use params::DrumgenParams;
+use pattern::Pattern;
+use worker::{GenRequest, GenWorker};
 
-/// drumgen VST3 plugin — algorithmic drum pattern generator.
+use engine::midi_math::PPQ;
+
+const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
+const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
+
+/// Snapshot of the generation-affecting params, for change detection.
+#[derive(Clone, Copy)]
+struct ParamSnapshot {
+    style: i32,
+    humanize: f32,
+    bars: i32,
+    seed: i32,
+    swing: f32,
+}
+
+impl ParamSnapshot {
+    fn changed(&self, o: &ParamSnapshot) -> bool {
+        self.style != o.style
+            || self.bars != o.bars
+            || self.seed != o.seed
+            || (self.humanize - o.humanize).abs() > 1e-4
+            || (self.swing - o.swing).abs() > 1e-4
+    }
+
+    fn to_request(self, generation: u64) -> GenRequest {
+        GenRequest {
+            style: self.style,
+            humanize: self.humanize as f64,
+            bars: self.bars,
+            seed: self.seed as u64,
+            swing: self.swing as f64,
+            generation,
+        }
+    }
+}
+
+/// drumgen — algorithmic drum-pattern MIDI generator (VST3 + CLAP).
 ///
-/// Architecture: this plugin is a MIDI generator (no audio processing). It reads the
-/// DAW transport position and emits MIDI note events that drive a drum sampler on
-/// another track (e.g. Ugritone, Addictive Drums, or any GM-mapped drum plugin).
-///
-/// MIDI routing in Ableton:
-///   drumgen (MIDI track) → MIDI To: drum sampler track
+/// No audio processing: it reads the DAW transport and emits MIDI notes that
+/// drive a drum sampler on another track. Generation runs on a background
+/// worker thread; the audio thread only reads the current immutable pattern.
 struct Drumgen {
     params: Arc<DrumgenParams>,
-    playback: PlaybackEngine,
-    generation: GenerationManager,
-    /// Tracks whether transport was playing in the previous buffer.
+    /// The pattern currently playing (owned by the audio thread).
+    current: Arc<Pattern>,
+    /// A newer pattern awaiting a bar-boundary swap.
+    pending: Option<Arc<Pattern>>,
+    /// Manager parked here between `default()` and `initialize()` (then moved
+    /// into the worker so the cell library is parsed exactly once).
+    gen_manager: Option<GenerationManager>,
+    worker: Option<GenWorker>,
+
+    /// Reused scan scratch — allocation-free after warmup.
+    scratch: Vec<playback::Emit>,
+    /// Currently-sounding notes, one bit per MIDI note (0..127).
+    active: u128,
+
+    // ── change detection / debounce ──
+    gen_counter: u64,
+    last_desired: ParamSnapshot,
+    requested: ParamSnapshot,
+    settle_remaining: i64,
+    settle_samples: i64,
+
+    // ── transport bookkeeping ──
     was_playing: bool,
-    /// Last known param state — used to detect changes and trigger regeneration.
-    last_style: i32,
-    last_humanize: f32,
-    last_bars: i32,
-    last_seed: i32,
-    last_swing: f32,
+    last_end_samples: Option<i64>,
+    last_bar_index: Option<usize>,
+    sample_rate: f32,
 }
 
 impl Default for Drumgen {
     fn default() -> Self {
+        let params = Arc::new(DrumgenParams::default());
+        let snap = ParamSnapshot {
+            style: params.style.value(),
+            humanize: params.humanize.value(),
+            bars: params.bars.value(),
+            seed: params.seed.value(),
+            swing: params.swing.value(),
+        };
+
+        // Parse the cell library and generate an initial pattern so the plugin
+        // is valid before `initialize()`; the manager is then handed to the worker.
         let gen = GenerationManager::new();
-        let initial_pattern = gen.generate(0, 0.35, 4, 0, 0.0, false);
-        let playback = PlaybackEngine::from_events(&initial_pattern.events, &initial_pattern.time_signatures);
+        let res = gen.generate(snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64, false);
+        let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
+        let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
 
         Self {
-            params: Arc::new(DrumgenParams::default()),
-            playback,
-            generation: gen,
+            params,
+            current,
+            pending: None,
+            gen_manager: Some(gen),
+            worker: None,
+            scratch: Vec::with_capacity(4096),
+            active: 0,
+            gen_counter: 0,
+            last_desired: snap,
+            requested: snap,
+            settle_remaining: 0,
+            settle_samples: 0,
             was_playing: false,
-            last_style: 0,
-            last_humanize: 0.35,
-            last_bars: 4,
-            last_seed: 0,
-            last_swing: 0.0,
+            last_end_samples: None,
+            last_bar_index: None,
+            sample_rate: 44100.0,
         }
+    }
+}
+
+impl Drumgen {
+    fn snapshot_params(&self) -> ParamSnapshot {
+        ParamSnapshot {
+            style: self.params.style.value(),
+            humanize: self.params.humanize.value(),
+            bars: self.params.bars.value(),
+            seed: self.params.seed.value(),
+            swing: self.params.swing.value(),
+        }
+    }
+
+    fn next_gen(&mut self) -> u64 {
+        self.gen_counter += 1;
+        self.gen_counter
+    }
+
+    /// Emit note-offs for every sounding note and clear the active set.
+    fn flush(active: &mut u128, context: &mut impl ProcessContext<Self>, timing: u32) {
+        let mut a = *active;
+        while a != 0 {
+            let note = a.trailing_zeros() as u8;
+            context.send_event(NoteEvent::NoteOff {
+                timing,
+                voice_id: None,
+                channel: MIDI_CHANNEL,
+                note,
+                velocity: 0.0,
+            });
+            a &= a - 1;
+        }
+        *active = 0;
     }
 }
 
@@ -62,8 +167,8 @@ impl Plugin for Drumgen {
     const MIDI_INPUT: MidiConfig = MidiConfig::None;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
 
-    // Some DAWs (including Ableton) require audio I/O for a plugin to load,
-    // even if it's purely a MIDI effect. Dummy stereo output passes silence.
+    // Some DAWs require audio I/O for a plugin to load even if it is purely a
+    // MIDI effect. Dummy stereo output passes silence.
     const AUDIO_IO_LAYOUTS: &'static [AudioIOLayout] = &[AudioIOLayout {
         main_input_channels: None,
         main_output_channels: NonZeroU32::new(2),
@@ -85,11 +190,36 @@ impl Plugin for Drumgen {
         buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        self.playback.set_sample_rate(buffer_config.sample_rate);
-        nih_log!("drumgen v{} initialized (sample rate: {}, {} cells, {} styles)",
-            Self::VERSION, buffer_config.sample_rate,
-            self.generation.num_cells(), self.generation.num_styles());
+        self.sample_rate = buffer_config.sample_rate;
+        self.settle_samples = (SETTLE_SECS * buffer_config.sample_rate) as i64;
+
+        // Spawn the worker once, moving the parsed manager into it. Then do ONE
+        // synchronous generation from the (possibly host-restored) param values
+        // so playback starts on the correct pattern with no first-buffer regen.
+        if self.worker.is_none() {
+            if let Some(gen) = self.gen_manager.take() {
+                let worker = GenWorker::spawn(gen);
+                let desired = self.snapshot_params();
+                let g = self.next_gen();
+                worker.request(desired.to_request(g));
+                if let Some(p) = worker.recv_blocking() {
+                    self.current = p;
+                }
+                self.requested = desired;
+                self.last_desired = desired;
+                self.worker = Some(worker);
+            }
+        }
+
+        nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
         true
+    }
+
+    fn reset(&mut self) {
+        self.active = 0;
+        self.was_playing = false;
+        self.last_end_samples = None;
+        self.last_bar_index = None;
     }
 
     fn process(
@@ -98,115 +228,139 @@ impl Plugin for Drumgen {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        // Check for parameter changes and regenerate if needed
-        let style = self.params.style.value();
-        let humanize = self.params.humanize.value();
-        let bars = self.params.bars.value();
-        let seed = self.params.seed.value();
-        let swing = self.params.swing.value();
-
-        if style != self.last_style
-            || (humanize - self.last_humanize).abs() > 0.001
-            || bars != self.last_bars
-            || seed != self.last_seed
-            || (swing - self.last_swing).abs() > 0.001
-        {
-            let result = self.generation.generate(
-                style, humanize as f64, bars, seed as u64, swing as f64, false,
-            );
-            self.playback = PlaybackEngine::from_events(&result.events, &result.time_signatures);
-            // Sample rate from transport (always available)
-            let sr = context.transport().sample_rate;
-            self.playback.set_sample_rate(sr);
-
-            self.last_style = style;
-            self.last_humanize = humanize;
-            self.last_bars = bars;
-            self.last_seed = seed;
-            self.last_swing = swing;
+        // 1. Pick up any freshly generated pattern (audio-thread safe, drains to newest).
+        if let Some(w) = &self.worker {
+            if let Some(p) = w.try_recv_latest() {
+                self.pending = Some(p);
+            }
         }
 
-        // Read transport state — copy values before calling send_event
-        let transport = context.transport();
-        let playing = transport.playing;
-        let tempo = transport.tempo.unwrap_or(120.0);
-        let pos_samples = transport.pos_samples().unwrap_or(0);
-        let sample_rate = transport.sample_rate;
-        let _ = transport;
+        // 2. Snapshot transport (scope the borrow so it releases before emitting).
+        let (playing, tempo, sample_rate, pos_beats, pos_samples) = {
+            let transport = context.transport();
+            let t = transport.tempo.unwrap_or(120.0);
+            (
+                transport.playing,
+                if t <= 0.0 { 120.0 } else { t },
+                transport.sample_rate as f64,
+                transport.pos_beats(),
+                transport.pos_samples(),
+            )
+        };
+        let num_samples = buffer.samples() as i64;
 
-        // Handle transport stop
+        // 3. Param-change detection + settle debounce (runs whether or not playing).
+        let desired = self.snapshot_params();
+        if desired.changed(&self.last_desired) {
+            self.settle_remaining = self.settle_samples;
+            self.last_desired = desired;
+        }
+        if desired.changed(&self.requested) {
+            if self.settle_remaining <= 0 {
+                let g = self.next_gen();
+                if let Some(w) = &self.worker {
+                    w.request(desired.to_request(g));
+                }
+                self.requested = desired;
+            } else {
+                self.settle_remaining -= num_samples;
+            }
+        }
+
+        // 4. Stopped: flush once, apply any pending swap immediately, silence.
         if !playing {
             if self.was_playing {
-                let active = self.playback.all_notes_off();
-                for note in active {
-                    context.send_event(NoteEvent::NoteOff {
-                        timing: 0,
-                        voice_id: None,
-                        channel: 9,
-                        note,
-                        velocity: 0.0,
-                    });
-                }
+                Self::flush(&mut self.active, context, 0);
                 self.was_playing = false;
             }
+            if let Some(p) = self.pending.take() {
+                self.current = p;
+                self.last_bar_index = None;
+            }
+            self.last_end_samples = None;
             silence_buffer(buffer);
             return ProcessStatus::Normal;
         }
 
+        // 5. Musical position from the DAW beat clock (falls back to samples).
+        let ppq = PPQ as f64;
+        let ticks_per_sample = tempo * ppq / (60.0 * sample_rate);
+        let samples_per_tick = if ticks_per_sample > 0.0 { 1.0 / ticks_per_sample } else { 0.0 };
+        let abs_tick_start = match pos_beats {
+            Some(b) => b * ppq,
+            None => pos_samples.unwrap_or(0) as f64 * ticks_per_sample,
+        };
+        let buffer_ticks = num_samples as f64 * ticks_per_sample;
+
+        // 6. Discontinuity (locate / loop jump): expected start == last buffer's end.
+        let just_started = !self.was_playing;
         self.was_playing = true;
+        let discontinuity = match (pos_samples, self.last_end_samples) {
+            (Some(cur), Some(prev)) => (cur - prev).abs() > 8,
+            _ => false,
+        };
 
-        // Convert sample range to tick range
-        let num_samples = buffer.samples() as i64;
-        let ppq = self.playback.ppq as f64;
+        // 7. Swap the pending pattern at a bar boundary (buffer granularity).
+        // ponytail: swaps within one buffer (~ms) of the true boundary — the
+        // exact-sample mid-buffer split is the upgrade path if that slop ever shows.
+        let t_old = self.current.total_ticks.max(1);
+        let cur_bar = self.current.bar_index_at(abs_tick_start.rem_euclid(t_old as f64) as i64);
+        let bar_changed = self.last_bar_index.map_or(true, |b| b != cur_bar);
+        let mut need_flush = discontinuity && !just_started;
+        if self.pending.is_some() && (bar_changed || discontinuity || just_started) {
+            self.current = self.pending.take().unwrap();
+            need_flush = true;
+        }
+        if need_flush {
+            Self::flush(&mut self.active, context, 0);
+        }
 
-        let samples_per_tick = (sample_rate as f64 * 60.0) / (tempo * ppq);
-        let start_tick = (pos_samples as f64 / samples_per_tick) as i64;
-        let end_tick = ((pos_samples + num_samples) as f64 / samples_per_tick) as i64;
+        // 8. Compute the buffer's pattern window against the (possibly new) pattern.
+        let total_ticks = self.current.total_ticks.max(1);
+        let p0 = abs_tick_start.rem_euclid(total_ticks as f64);
+        self.last_bar_index = Some(self.current.bar_index_at(p0 as i64));
 
-        // Scan for events
-        let events = self.playback.scan_events(start_tick, end_tick);
+        // 9. Scan events into the reused scratch (no allocation after warmup).
+        self.scratch.clear();
+        playback::scan(&self.current, p0, buffer_ticks, samples_per_tick, num_samples, &mut self.scratch);
 
-        // Emit MIDI events
-        for event in &events {
-            let event_tick_in_range = if self.playback.total_ticks > 0 {
-                let pattern_start = start_tick % self.playback.total_ticks;
-                if event.tick >= pattern_start {
-                    event.tick
-                } else {
-                    event.tick + self.playback.total_ticks
+        // 10. Emit and track active notes.
+        for e in &self.scratch {
+            if e.is_note_on {
+                context.send_event(NoteEvent::NoteOn {
+                    timing: e.timing,
+                    voice_id: None,
+                    channel: MIDI_CHANNEL,
+                    note: e.note,
+                    velocity: e.velocity as f32 / 127.0,
+                });
+                if e.note < 128 {
+                    self.active |= 1u128 << e.note;
                 }
             } else {
-                event.tick
-            };
-            let event_sample = (event_tick_in_range as f64 * samples_per_tick) as i64;
-            let offset = (event_sample - pos_samples).max(0) as u32;
-            let timing = offset.min((num_samples - 1).max(0) as u32);
-
-            if event.is_note_on {
-                context.send_event(NoteEvent::NoteOn {
-                    timing,
-                    voice_id: None,
-                    channel: 9,
-                    note: event.note,
-                    velocity: event.velocity as f32 / 127.0,
-                });
-            } else {
                 context.send_event(NoteEvent::NoteOff {
-                    timing,
+                    timing: e.timing,
                     voice_id: None,
-                    channel: 9,
-                    note: event.note,
+                    channel: MIDI_CHANNEL,
+                    note: e.note,
                     velocity: 0.0,
                 });
+                if e.note < 128 {
+                    self.active &= !(1u128 << e.note);
+                }
             }
         }
 
+        self.last_end_samples = pos_samples.map(|s| s + num_samples);
         silence_buffer(buffer);
         ProcessStatus::Normal
     }
 
     fn deactivate(&mut self) {
-        self.playback.all_notes_off();
+        if let Some(worker) = self.worker.take() {
+            worker.shutdown();
+        }
+        self.active = 0;
         nih_log!("drumgen deactivated");
     }
 }
