@@ -22,7 +22,7 @@ const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
 // No user-facing toggle — see design §3.
 const GENERATIVE: bool = true;
 
-/// Snapshot of the generation-affecting params, for change detection.
+/// Snapshot of everything that determines the pattern, for change detection.
 #[derive(Clone, Copy)]
 struct ParamSnapshot {
     style: i32,
@@ -30,6 +30,8 @@ struct ParamSnapshot {
     bars: i32,
     seed: i32,
     swing: f32,
+    meter: i32,
+    tempo: f32,
 }
 
 impl ParamSnapshot {
@@ -37,8 +39,11 @@ impl ParamSnapshot {
         self.style != o.style
             || self.bars != o.bars
             || self.seed != o.seed
+            || self.meter != o.meter
             || (self.humanize - o.humanize).abs() > 1e-4
             || (self.swing - o.swing).abs() > 1e-4
+            // Tempo affects ms-based humanization; regenerate past a 1 BPM step.
+            || (self.tempo - o.tempo).abs() > 1.0
     }
 
     fn to_request(self, generation: u64) -> GenRequest {
@@ -49,6 +54,8 @@ impl ParamSnapshot {
             seed: self.seed as u64,
             swing: self.swing as f64,
             generative: GENERATIVE,
+            tempo: self.tempo as f64,
+            meter: params::meter_of(self.meter),
             generation,
         }
     }
@@ -100,11 +107,16 @@ impl Default for Drumgen {
             bars: params.bars.value(),
             seed: params.seed.value(),
             swing: params.swing.value(),
+            meter: params.meter.value(),
+            tempo: 120.0,
         };
 
         // Generate an initial pattern so the plugin is valid before `initialize()`;
         // the manager is then handed to the worker.
-        let res = gen.generate(snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64, GENERATIVE);
+        let res = gen.generate(
+            snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64,
+            GENERATIVE, snap.tempo as f64, params::meter_of(snap.meter),
+        );
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
         let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
 
@@ -130,13 +142,15 @@ impl Default for Drumgen {
 }
 
 impl Drumgen {
-    fn snapshot_params(&self) -> ParamSnapshot {
+    fn inputs(&self, tempo: f32) -> ParamSnapshot {
         ParamSnapshot {
             style: self.params.style.value(),
             humanize: self.params.humanize.value(),
             bars: self.params.bars.value(),
             seed: self.params.seed.value(),
             swing: self.params.swing.value(),
+            meter: self.params.meter.value(),
+            tempo,
         }
     }
 
@@ -205,7 +219,9 @@ impl Plugin for Drumgen {
         if self.worker.is_none() {
             if let Some(gen) = self.gen_manager.take() {
                 let worker = GenWorker::spawn(gen);
-                let desired = self.snapshot_params();
+                // Real transport tempo isn't known yet; first process() will
+                // regenerate if it differs (off the audio thread).
+                let desired = self.inputs(120.0);
                 let g = self.next_gen();
                 worker.request(desired.to_request(g));
                 if let Some(p) = worker.recv_blocking() {
@@ -255,8 +271,8 @@ impl Plugin for Drumgen {
         };
         let num_samples = buffer.samples() as i64;
 
-        // 3. Param-change detection + settle debounce (runs whether or not playing).
-        let desired = self.snapshot_params();
+        // 3. Param/tempo change detection + settle debounce (runs whether or not playing).
+        let desired = self.inputs(tempo as f32);
         if desired.changed(&self.last_desired) {
             self.settle_remaining = self.settle_samples;
             self.last_desired = desired;

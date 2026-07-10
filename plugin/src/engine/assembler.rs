@@ -17,6 +17,12 @@ pub struct AssembleResult {
     pub total_bars: i32,
 }
 
+/// Seed-keyed rotation into a candidate cell list — the "dice" for fixed-cell
+/// styles. Deterministic per seed, so every dice press changes the groove.
+fn rotate_pick<'a>(list: &[&'a Cell], seed: u64) -> &'a Cell {
+    list[(seed as usize) % list.len()]
+}
+
 /// Velocity drift direction per section type.
 fn drift_direction(section_type: &str) -> &'static str {
     match section_type {
@@ -383,8 +389,9 @@ pub fn assemble(
     vary: f64,
     generative: bool,
 ) -> AssembleResult {
-    let (num, den) = time_sig;
-    let requested_ts = time_sig;
+    // Meter (0,0) means "Auto" — no meter filter, take the style's native meter.
+    let meter_filter: Option<(i32, i32)> = if time_sig == (0, 0) { None } else { Some(time_sig) };
+    let meter_ok = |c: &Cell| meter_filter.map_or(true, |m| c.time_sig == m);
 
     // Resolve cell
     let cell = if let Some(name) = cell_name {
@@ -397,32 +404,27 @@ pub fn assemble(
             library.get_pool("screamo").first().copied()
                 .expect("No cells available")
         } else if generative {
-            // Prefer probability cells
-            let prob_match: Vec<&Cell> = pool.iter()
-                .filter(|c| c.is_probability() && c.time_sig == requested_ts)
-                .copied()
-                .collect();
+            // Prefer probability cells (rotate so styles with >1 grid surface all).
+            let prob_match: Vec<&Cell> = pool.iter().filter(|c| c.is_probability() && meter_ok(c)).copied().collect();
             if !prob_match.is_empty() {
-                prob_match[0]
+                rotate_pick(&prob_match, seed)
             } else {
-                let ts_match: Vec<&Cell> = pool.iter()
-                    .filter(|c| c.time_sig == requested_ts)
-                    .copied()
-                    .collect();
-                if !ts_match.is_empty() { ts_match[0] } else { pool[0] }
+                let ts_match: Vec<&Cell> = pool.iter().filter(|c| meter_ok(c)).copied().collect();
+                if !ts_match.is_empty() { rotate_pick(&ts_match, seed) } else { rotate_pick(&pool, seed) }
             }
         } else {
-            let ts_match: Vec<&Cell> = pool.iter()
-                .filter(|c| c.time_sig == requested_ts)
-                .copied()
-                .collect();
-            if !ts_match.is_empty() { ts_match[0] } else { pool[0] }
+            let ts_match: Vec<&Cell> = pool.iter().filter(|c| meter_ok(c)).copied().collect();
+            if !ts_match.is_empty() { rotate_pick(&ts_match, seed) } else { rotate_pick(&pool, seed) }
         }
     } else {
         library.get_pool("screamo").first().copied()
             .expect("No cells available")
     };
 
+    // Meter truth: the loop's time signature is the CHOSEN cell's actual meter,
+    // not the requested one — otherwise the recorded MIDI's bar grid lies when a
+    // fallback picked a different-meter cell.
+    let (num, den) = cell.time_sig;
     let time_signatures = vec![TimeSigEntry {
         bar_start: 1,
         bar_end: bars,
@@ -844,6 +846,42 @@ mod tests {
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
+    }
+
+    #[test]
+    fn test_meter_truth_stamps_chosen_cell_meter() {
+        let lib = CellLibrary::new();
+        // A 7/8 cell requested under 4/4 must still be stamped 7/8 (bar = 7*240),
+        // not the requested meter — otherwise the recorded MIDI's grid lies.
+        let r = assemble(&lib, None, Some("driving_7_8"), 2, 120.0, (4, 4), Some(0.0), 0.0, 0, 0.0, false);
+        assert_eq!(r.time_signatures[0].numerator, 7);
+        assert_eq!(r.time_signatures[0].denominator, 8);
+    }
+
+    #[test]
+    fn test_meter_forced_and_auto() {
+        let lib = CellLibrary::new();
+        // Forcing 7/8 on posthardcore selects a 7/8 cell.
+        let forced = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (7, 8), Some(0.0), 0.0, 0, 0.0, true);
+        assert_eq!((forced.time_signatures[0].numerator, forced.time_signatures[0].denominator), (7, 8));
+        // Auto (0,0) uses the style's native meter and must not overshoot.
+        let auto = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, 0.0, true);
+        assert!(auto.time_signatures[0].denominator == 4 || auto.time_signatures[0].denominator == 8);
+    }
+
+    #[test]
+    fn test_dice_rotation_changes_groove() {
+        // Non-generative fixed-cell style: different seeds must be able to select
+        // different cells (the dice for fixed-cell styles). Collect the event
+        // signature across seeds and assert not all identical.
+        let lib = CellLibrary::new();
+        let sig = |seed: u64| -> Vec<(i64, Instrument)> {
+            assemble(&lib, Some("screamo"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, seed, 0.0, false)
+                .events.iter().map(|e| (e.tick, e.instrument)).collect()
+        };
+        let base = sig(0);
+        let differs = (1..8).any(|s| sig(s) != base);
+        assert!(differs, "dice (seed rotation) should change the groove across seeds");
     }
 
     #[test]

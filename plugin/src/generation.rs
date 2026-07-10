@@ -28,6 +28,7 @@ impl GenerationManager {
     /// - `seed`: RNG seed
     /// - `swing`: 0.0-1.0
     /// - `generative`: prefer probability grid cells
+    #[allow(clippy::too_many_arguments)]
     pub fn generate(
         &self,
         style_index: i32,
@@ -36,6 +37,8 @@ impl GenerationManager {
         seed: u64,
         swing: f64,
         generative: bool,
+        tempo: f64,
+        meter: (i32, i32),
     ) -> AssembleResult {
         let style_name = self.library.style_by_index(style_index as usize)
             .unwrap_or("screamo");
@@ -45,8 +48,8 @@ impl GenerationManager {
             Some(style_name),
             None,
             bars,
-            120.0,  // Tempo doesn't affect tick positions — only timing humanization
-            (4, 4),
+            tempo, // real transport tempo — ms-based humanization scales with it
+            meter, // (0,0) = Auto (style's native meter)
             Some(humanize),
             swing,
             seed,
@@ -118,7 +121,7 @@ mod tests {
         let n = gen.num_styles();
         for i in 0..n as i32 {
             let t = Instant::now();
-            let res = gen.generate(i, 0.7, 16, 3, 0.0, true);
+            let res = gen.generate(i, 0.7, 16, 3, 0.0, true, 160.0, (0, 0));
             let ms = t.elapsed().as_secs_f64() * 1000.0;
             assert!(!res.events.is_empty() || res.total_bars == 16);
             assert!(ms < 50.0, "style {} took {:.2}ms to generate", i, ms);

@@ -24,6 +24,25 @@ pub struct DrumgenParams {
     /// Swing amount (0.0 = straight, 1.0 = full triplet swing).
     #[id = "swing"]
     pub swing: FloatParam,
+
+    /// Time signature. 0 = Auto (the style's native meter); otherwise forces a
+    /// meter, falling back gracefully if the style has no cell in it.
+    #[id = "meter"]
+    pub meter: IntParam,
+}
+
+/// Meter param index → (numerator, denominator). Index 0 is Auto = (0,0).
+pub const METERS: [(i32, i32); 7] = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
+
+pub fn meter_of(index: i32) -> (i32, i32) {
+    *METERS.get(index as usize).unwrap_or(&(0, 0))
+}
+
+fn meter_label(index: i32) -> String {
+    match meter_of(index) {
+        (0, 0) => "Auto".to_string(),
+        (n, d) => format!("{}/{}", n, d),
+    }
 }
 
 impl DrumgenParams {
@@ -66,6 +85,9 @@ impl DrumgenParams {
                 .with_unit("%")
                 .with_value_to_string(formatters::v2s_f32_percentage(0))
                 .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            meter: IntParam::new("Meter", 0, IntRange::Linear { min: 0, max: (METERS.len() - 1) as i32 })
+                .with_value_to_string(Arc::new(meter_label)),
         }
     }
 }
