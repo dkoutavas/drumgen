@@ -93,7 +93,6 @@ struct Drumgen {
     // ── transport bookkeeping ──
     was_playing: bool,
     last_end_samples: Option<i64>,
-    last_bar_index: Option<usize>,
     sample_rate: f32,
 
     /// Number of styles, for the editor's Style picker wrap-around.
@@ -141,7 +140,6 @@ impl Default for Drumgen {
             settle_samples: 0,
             was_playing: false,
             last_end_samples: None,
-            last_bar_index: None,
             sample_rate: 44100.0,
             n_styles,
         }
@@ -252,7 +250,6 @@ impl Plugin for Drumgen {
         self.active = 0;
         self.was_playing = false;
         self.last_end_samples = None;
-        self.last_bar_index = None;
     }
 
     fn process(
@@ -282,23 +279,40 @@ impl Plugin for Drumgen {
         };
         let num_samples = buffer.samples() as i64;
 
-        // 3. Param/tempo change detection + settle debounce (runs whether or not playing).
+        // 3. Change detection (runs whether or not playing).
+        // Discrete params (style/bars/seed/meter) regenerate IMMEDIATELY so the
+        // dice and pickers feel instant. Only the continuous knobs (humanize/
+        // swing) and tempo use the settle debounce to avoid a regen storm on drag.
         let desired = self.inputs(tempo as f32);
-        if desired.changed(&self.last_desired) {
-            self.settle_remaining = self.settle_samples;
-            self.last_desired = desired;
-        }
-        if desired.changed(&self.requested) {
+        let discrete_changed = desired.style != self.requested.style
+            || desired.bars != self.requested.bars
+            || desired.seed != self.requested.seed
+            || desired.meter != self.requested.meter;
+        let continuous_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
+            || (desired.swing - self.requested.swing).abs() > 1e-4
+            || (desired.tempo - self.requested.tempo).abs() > 1.0;
+
+        if discrete_changed {
+            let g = self.next_gen();
+            if let Some(w) = &self.worker {
+                w.request(desired.to_request(g));
+            }
+            self.requested = desired;
+            self.settle_remaining = 0;
+        } else if continuous_changed {
+            if desired.changed(&self.last_desired) {
+                self.settle_remaining = self.settle_samples;
+            }
+            self.settle_remaining -= num_samples;
             if self.settle_remaining <= 0 {
                 let g = self.next_gen();
                 if let Some(w) = &self.worker {
                     w.request(desired.to_request(g));
                 }
                 self.requested = desired;
-            } else {
-                self.settle_remaining -= num_samples;
             }
         }
+        self.last_desired = desired;
 
         // 4. Stopped: flush once, apply any pending swap immediately, silence.
         if !playing {
@@ -308,7 +322,6 @@ impl Plugin for Drumgen {
             }
             if let Some(p) = self.pending.take() {
                 self.current = p;
-                self.last_bar_index = None;
             }
             self.last_end_samples = None;
             silence_buffer(buffer);
@@ -333,15 +346,15 @@ impl Plugin for Drumgen {
             _ => false,
         };
 
-        // 7. Swap the pending pattern at a bar boundary (buffer granularity).
-        // ponytail: swaps within one buffer (~ms) of the true boundary — the
-        // exact-sample mid-buffer split is the upgrade path if that slop ever shows.
-        let t_old = self.current.total_ticks.max(1);
-        let cur_bar = self.current.bar_index_at(abs_tick_start.rem_euclid(t_old as f64) as i64);
-        let bar_changed = self.last_bar_index.map_or(true, |b| b != cur_bar);
+        // 7. Swap in a pending pattern immediately (with a note flush) so style/
+        // dice/meter changes are heard right away. A mid-bar swap is fine — the
+        // new pattern is anchored to the same absolute transport position.
+        // ponytail: immediate swap over bar-boundary gating — the gating could
+        // strand a pending pattern on 1-bar/looping material. Bar-quantized swap
+        // is a musical nicety to revisit, not a correctness need.
         let mut need_flush = discontinuity && !just_started;
-        if self.pending.is_some() && (bar_changed || discontinuity || just_started) {
-            self.current = self.pending.take().unwrap();
+        if let Some(p) = self.pending.take() {
+            self.current = p;
             need_flush = true;
         }
         if need_flush {
@@ -351,7 +364,6 @@ impl Plugin for Drumgen {
         // 8. Compute the buffer's pattern window against the (possibly new) pattern.
         let total_ticks = self.current.total_ticks.max(1);
         let p0 = abs_tick_start.rem_euclid(total_ticks as f64);
-        self.last_bar_index = Some(self.current.bar_index_at(p0 as i64));
 
         // 9. Scan events into the reused scratch (no allocation after warmup).
         self.scratch.clear();
