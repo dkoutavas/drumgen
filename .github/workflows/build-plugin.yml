@@ -1,0 +1,114 @@
+name: Build plugin
+
+# Builds the drumgen VST3 + CLAP on NATIVE runners for every OS we ship.
+# This is the recommended path to a Windows/macOS build: no local cross-compile
+# toolchain, no mingw, no Mac hardware needed. Artifacts are downloadable from
+# the run page; pushing a v* tag also cuts a GitHub Release.
+
+on:
+  push:
+    branches: [main, plugin-hardening]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch: # lets you build on demand from the Actions tab
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugin
+      - name: Install Linux GUI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcb1-dev libx11-xcb-dev \
+            libxcursor-dev libxkbcommon-dev libgl1-mesa-dev \
+            libxcb-icccm4-dev libxcb-dri2-0-dev
+      - name: cargo test
+        working-directory: plugin
+        run: cargo test --release
+
+  build:
+    name: build (${{ matrix.name }})
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            bundle: bundle
+          - name: windows-x86_64
+            os: windows-latest
+            bundle: bundle
+          # macOS universal (Intel + Apple Silicon in one bundle).
+          # This repo is public, so all runners (incl. macOS) are free.
+          - name: macos-universal
+            os: macos-latest
+            bundle: bundle-universal
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Add macOS targets
+        if: matrix.os == 'macos-latest'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugin
+
+      # baseview/egui need X11 + GL headers to build on Linux.
+      - name: Install Linux GUI deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcb1-dev libx11-xcb-dev \
+            libxcursor-dev libxkbcommon-dev libgl1-mesa-dev \
+            libxcb-icccm4-dev libxcb-dri2-0-dev
+
+      # Windows uses the MSVC toolchain that ships on the runner — no mingw.
+      - name: Bundle
+        working-directory: plugin
+        run: cargo xtask ${{ matrix.bundle }} drumgen-vst --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: drumgen-${{ matrix.name }}
+          path: |
+            plugin/target/bundled/drumgen-vst.vst3
+            plugin/target/bundled/drumgen-vst.clap
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Zip per-platform bundles
+        run: |
+          cd dist
+          for d in */; do
+            (cd "$d" && zip -r "../${d%/}.zip" .)
+          done
+          ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

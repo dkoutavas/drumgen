@@ -38,6 +38,13 @@ rm -rf "$VST3_DEST/drumgen-vst.vst3"
 cp -r "$VST3_SRC" "$VST3_DEST/"
 cp -f "$CLAP_SRC" "$CLAP_DEST/"
 
+# `cargo xtask bundle` reuses target/bundled/ across targets, so a previous
+# ./build-windows.sh run leaves an x86_64-win/ dir inside the VST3 bundle.
+# Harmless (hosts pick their own arch) but it drags a 4MB Windows DLL into the
+# Linux install — drop any non-Linux arch dirs.
+find "$VST3_DEST/drumgen-vst.vst3/Contents" -mindepth 1 -maxdepth 1 -type d \
+    ! -name "x86_64-linux" -exec rm -rf {} +
+
 echo ""
 echo "=== INSTALLED ==="
 echo "  VST3 -> $VST3_DEST/drumgen-vst.vst3"

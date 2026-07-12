@@ -8,5 +8,6 @@ output/
 user_cells/
 extracted/
 plugin/target/
+plugin/dist/
 target/
 graphify-out/

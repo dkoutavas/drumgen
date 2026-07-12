@@ -1,3 +1,11 @@
 # nih-plug bundler alias: `cargo xtask bundle drumgen-vst --release`
 [alias]
 xtask = "run --release --package xtask --"
+
+# Cross-compile a Windows VST3/CLAP from Linux.
+# Requires: rustup target add x86_64-pc-windows-gnu
+#           openSUSE: sudo zypper in mingw64-cross-gcc
+#           Debian/WSL: sudo apt install gcc-mingw-w64-x86-64
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+ar = "x86_64-w64-mingw32-ar"
