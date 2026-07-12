@@ -387,7 +387,9 @@ pub fn assemble(
     swing: f64,
     seed: u64,
     vary: f64,
-    generative: bool,
+    // Kept for Python-signature parity; selection no longer prefers prob cells
+    // (see the rotation comment below) and realization keys off the cell type.
+    _generative: bool,
 ) -> AssembleResult {
     // Meter (0,0) means "Auto" — no meter filter, take the style's native meter.
     let meter_filter: Option<(i32, i32)> = if time_sig == (0, 0) { None } else { Some(time_sig) };
@@ -403,16 +405,15 @@ pub fn assemble(
         if pool.is_empty() {
             library.get_pool("screamo").first().copied()
                 .expect("No cells available")
-        } else if generative {
-            // Prefer probability cells (rotate so styles with >1 grid surface all).
-            let prob_match: Vec<&Cell> = pool.iter().filter(|c| c.is_probability() && meter_ok(c)).copied().collect();
-            if !prob_match.is_empty() {
-                rotate_pick(&prob_match, seed)
-            } else {
-                let ts_match: Vec<&Cell> = pool.iter().filter(|c| meter_ok(c)).copied().collect();
-                if !ts_match.is_empty() { rotate_pick(&ts_match, seed) } else { rotate_pick(&pool, seed) }
-            }
         } else {
+            // Rotate over the FULL meter-matched pool — deliberately ignoring
+            // `generative` here (Python's assemble prefers prob_match[0]; the
+            // rotation is plugin dice semantics, divergent since Phase 4b).
+            // The old prob-only filter collapsed styles onto shared single
+            // probability cells: rotate_pick over a 1-element list is
+            // seed-invariant, which made 13 of 31 styles bit-identical.
+            // Probability cells still re-realize per seed when rotation lands
+            // on one (is_probability path below).
             let ts_match: Vec<&Cell> = pool.iter().filter(|c| meter_ok(c)).copied().collect();
             if !ts_match.is_empty() { rotate_pick(&ts_match, seed) } else { rotate_pick(&pool, seed) }
         }

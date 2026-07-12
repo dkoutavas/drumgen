@@ -57,9 +57,15 @@ impl GenWorker {
     }
 
     /// Audio-thread safe: never blocks. On a full queue the request is dropped
-    /// (process() will resend current params next buffer — latest-wins).
+    /// (process() will resend current params next buffer — latest-wins). A
+    /// Disconnected error means the worker died — log it, because a dead worker
+    /// presents as "the pattern is frozen", which is easy to misdiagnose.
     pub fn request(&self, req: GenRequest) {
-        let _ = self.req_tx.try_send(Msg::Generate(req));
+        if let Err(crossbeam_channel::TrySendError::Disconnected(_)) =
+            self.req_tx.try_send(Msg::Generate(req))
+        {
+            nih_plug::nih_log!("drumgen: generation worker is gone — pattern updates are frozen");
+        }
     }
 
     /// Audio-thread safe: drains the publish slot to the newest pattern.

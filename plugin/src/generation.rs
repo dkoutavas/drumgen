@@ -1,7 +1,15 @@
 use crate::engine::assembler::{self, AssembleResult};
 use crate::engine::cell_library::CellLibrary;
-use crate::engine::midi_math::TimeSigEntry;
-use crate::engine::humanizer::Event;
+
+/// FNV-1a 64-bit — tiny deterministic hash for the style-name seed salt.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
 
 /// Manages pattern generation using the cell library.
 ///
@@ -43,6 +51,12 @@ impl GenerationManager {
         let style_name = self.library.style_by_index(style_index as usize)
             .unwrap_or("screamo");
 
+        // Salt the seed with the style name so two styles never share an RNG
+        // stream (or a rotation index). Without this, styles whose pools share
+        // a cell produced byte-identical MIDI at the same seed. Plugin-boundary
+        // only — the engine stays a faithful port that takes a raw seed.
+        let salted = seed ^ fnv1a(style_name.as_bytes());
+
         assembler::assemble(
             &self.library,
             Some(style_name),
@@ -52,7 +66,7 @@ impl GenerationManager {
             meter, // (0,0) = Auto (style's native meter)
             Some(humanize),
             swing,
-            seed,
+            salted,
             0.0,
             generative,
         )
@@ -110,6 +124,45 @@ impl GenerationManager {
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn test_all_styles_produce_distinct_patterns() {
+        // THE user-facing bug: "changing styles produces the same beat".
+        // Pre-fix, 13 of 31 styles emitted bit-identical MIDI to another style
+        // (26 identical pairs at seed 0) because generative selection collapsed
+        // to a shared single probability cell and the RNG seed carried no style
+        // component. Every style must produce a distinct event stream at the
+        // plugin defaults (humanize 0.40, bars 4, seed 0, meter Auto).
+        //
+        // Known content gap (separate task): faraquet/math, atdi/blood_brothers,
+        // dry_cleaning/preoccupations have byte-identical pools in builtin.json;
+        // the style-salted seed still separates them here via realization/feel,
+        // but at humanize=0 with the same picked fixed cell they'd alias.
+        let gen = GenerationManager::new();
+        let n = gen.num_styles();
+        let streams: Vec<(String, Vec<(i64, crate::engine::cell::Instrument, i32)>)> = (0..n as i32)
+            .map(|i| {
+                let name = gen.style_name(i as usize).unwrap_or("?").to_string();
+                let res = gen.generate(i, 0.40, 4, 0, 0.0, true, 120.0, (0, 0));
+                (name, res.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect())
+            })
+            .collect();
+
+        let mut collisions = Vec::new();
+        for a in 0..streams.len() {
+            for b in (a + 1)..streams.len() {
+                if streams[a].1 == streams[b].1 {
+                    collisions.push(format!("{} == {}", streams[a].0, streams[b].0));
+                }
+            }
+        }
+        assert!(
+            collisions.is_empty(),
+            "{} identical style pairs at seed 0:\n{}",
+            collisions.len(),
+            collisions.join("\n")
+        );
+    }
 
     #[test]
     fn generate_is_fast_enough_to_stay_off_the_audio_thread() {

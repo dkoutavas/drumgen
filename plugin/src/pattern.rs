@@ -20,6 +20,10 @@ pub struct MidiEvent {
 }
 
 /// A baked, immutable pattern ready for playback.
+// dead_code: bar_starts/time_signatures/generation/seed/style_name/cell_name are
+// not read yet — they feed the planned GUI status line, step-grid preview, and
+// SAVE .MID export. Remove the allow when those land.
+#[allow(dead_code)]
 pub struct Pattern {
     /// All events, sorted by (tick, note-off before note-on).
     pub events: Vec<MidiEvent>,
@@ -85,43 +89,4 @@ impl Pattern {
         }
     }
 
-    /// Zero-based bar index containing `tick` (clamped into the pattern).
-    pub fn bar_index_at(&self, tick: i64) -> usize {
-        // bar_starts is ascending; last valid bar index is bar_starts.len()-2.
-        let n = self.bar_starts.len();
-        if n < 2 {
-            return 0;
-        }
-        let idx = self.bar_starts.partition_point(|&b| b <= tick);
-        idx.saturating_sub(1).min(n - 2)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn p() -> Pattern {
-        // 4 bars of 4/4 → total 7680, bars at 0,1920,3840,5760,(7680).
-        Pattern {
-            events: vec![],
-            total_ticks: 7680,
-            bar_starts: vec![0, 1920, 3840, 5760, 7680],
-            time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 4, numerator: 4, denominator: 4 }],
-            generation: 0,
-            seed: 0,
-            style_name: String::new(),
-            cell_name: String::new(),
-        }
-    }
-
-    #[test]
-    fn bar_index_maps_ticks_to_bars() {
-        let pat = p();
-        assert_eq!(pat.bar_index_at(0), 0);
-        assert_eq!(pat.bar_index_at(1919), 0);
-        assert_eq!(pat.bar_index_at(1920), 1);
-        assert_eq!(pat.bar_index_at(5760), 3);
-        assert_eq!(pat.bar_index_at(7679), 3); // clamped to last bar
-    }
 }
