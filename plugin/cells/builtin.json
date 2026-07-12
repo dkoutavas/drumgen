@@ -10745,11 +10745,6 @@
       "blast_3_4",
       "prob_blast_4_4"
     ],
-    "blood_brothers": [
-      "postpunk_busy",
-      "athletic_angular",
-      "prob_angular_athletic_4_4"
-    ],
     "city_of_caterpillar": [
       "city_of_caterpillar_build",
       "emoviolence_blast_crash",
@@ -10774,11 +10769,6 @@
       "postpunk_busy",
       "slint_explosion",
       "prob_angular_athletic_4_4"
-    ],
-    "dry_cleaning": [
-      "postpunk_machine",
-      "motorik_pulse",
-      "prob_postpunk_4_4"
     ],
     "emoviolence": [
       "emoviolence_blast_crash",
@@ -10810,13 +10800,6 @@
     ],
     "liturgy": [
       "liturgy_burst_beat"
-    ],
-    "math": [
-      "faraquet_displaced_4_4",
-      "faraquet_7_8",
-      "faraquet_5_4",
-      "prob_faraquet_4_4",
-      "prob_faraquet_7_8"
     ],
     "noise_rock": [
       "shellac_floor_tom_drive",

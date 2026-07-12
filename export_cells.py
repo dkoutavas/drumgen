@@ -47,13 +47,32 @@ def export(output_path):
             continue
         builtin_cells[name] = _serialize_cell(cell)
 
+    # Styles whose pools are byte-identical to another style's. In the plugin's
+    # Style picker they read as duplicates (same cells = same beats), so only the
+    # canonical name is exported. The CLI keeps the aliases (--style math etc.).
+    # If a pool ever diverges from its canonical twin, remove it from this map.
+    style_aliases = {
+        "math": "faraquet",
+        "blood_brothers": "atdi",
+        "dry_cleaning": "preoccupations",
+    }
+
     # Prune style pools to cells that actually ship in the plugin. STYLE_POOLS
     # picks up user-imported cell names at import time (via tag-to-pool mapping),
     # but those bodies are excluded above — leaving dangling names that inflate
     # pool sizes and would never resolve in the plugin. Keep only resolvable ones.
     pruned_pools = {}
     dropped = 0
+    aliased = []
     for style, names in sorted(STYLE_POOLS.items()):
+        if style in style_aliases:
+            canonical = style_aliases[style]
+            if sorted(names) == sorted(STYLE_POOLS.get(canonical, [])):
+                aliased.append(f"{style} -> {canonical}")
+                continue
+            # Pool diverged from its twin — export it and warn loudly.
+            print(f"WARNING: {style} no longer matches {canonical}; exporting both. "
+                  f"Remove it from style_aliases in export_cells.py.")
         keep = [n for n in names if n in builtin_cells]
         dropped += len(names) - len(keep)
         if keep:
@@ -83,6 +102,8 @@ def export(output_path):
     print(f"  {n_styles} style pools, {n_sections} section preferences")
     if dropped:
         print(f"  pruned {dropped} dangling pool entries (user-imported cells not shipped)")
+    if aliased:
+        print(f"  skipped {len(aliased)} alias styles (identical pools): " + ", ".join(aliased))
     print(f"  -> {output_path}")
 
 
