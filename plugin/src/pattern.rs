@@ -37,6 +37,7 @@ pub struct Pattern {
     pub generation: u64,
     // ── metadata (status line / export) ──
     pub seed: u64,
+    pub tempo: f64,
     pub style_name: String,
     pub cell_name: String,
 }
@@ -84,6 +85,7 @@ impl Pattern {
             time_signatures: res.time_signatures.clone(),
             generation,
             seed: res.seed,
+            tempo: res.tempo,
             style_name,
             cell_name,
         }

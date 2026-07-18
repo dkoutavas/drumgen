@@ -93,6 +93,7 @@ mod tests {
             time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 1, numerator: 4, denominator: 4 }],
             generation: 0,
             seed: 0,
+            tempo: 120.0,
             style_name: String::new(),
             cell_name: String::new(),
         }

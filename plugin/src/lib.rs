@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub mod engine;
 mod editor;
@@ -73,6 +73,11 @@ struct Drumgen {
     current: Arc<Pattern>,
     /// A newer pattern awaiting a bar-boundary swap.
     pending: Option<Arc<Pattern>>,
+    /// GUI-readable snapshot of the newest pattern. The audio thread publishes
+    /// with try_lock (never blocks); the editor locks briefly once per frame.
+    pattern_view: Arc<Mutex<Arc<Pattern>>>,
+    /// Set when a new pattern arrived but the view lock was contended.
+    view_dirty: bool,
     /// Manager parked here between `default()` and `initialize()` (then moved
     /// into the worker so the cell library is parsed exactly once).
     gen_manager: Option<GenerationManager>,
@@ -125,10 +130,14 @@ impl Default for Drumgen {
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
         let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
 
+        let pattern_view = Arc::new(Mutex::new(current.clone()));
+
         Self {
             params,
             current,
             pending: None,
+            pattern_view,
+            view_dirty: false,
             gen_manager: Some(gen),
             worker: None,
             scratch: Vec::with_capacity(4096),
@@ -210,7 +219,7 @@ impl Plugin for Drumgen {
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        editor::create(self.params.clone(), self.n_styles)
+        editor::create(self.params.clone(), self.n_styles, self.pattern_view.clone())
     }
 
     fn initialize(
@@ -235,6 +244,8 @@ impl Plugin for Drumgen {
                 worker.request(desired.to_request(g));
                 if let Some(p) = worker.recv_blocking() {
                     self.current = p;
+                    // Not the audio thread yet — a plain lock is fine here.
+                    *self.pattern_view.lock().unwrap() = self.current.clone();
                 }
                 self.requested = desired;
                 self.last_desired = desired;
@@ -262,6 +273,16 @@ impl Plugin for Drumgen {
         if let Some(w) = &self.worker {
             if let Some(p) = w.try_recv_latest() {
                 self.pending = Some(p);
+                self.view_dirty = true;
+            }
+        }
+        // Publish the newest pattern for the GUI. try_lock so the audio thread
+        // never blocks on the editor; a contended frame retries next buffer
+        // (view_dirty), falling back to `current` once pending was swapped in.
+        if self.view_dirty {
+            if let Ok(mut view) = self.pattern_view.try_lock() {
+                *view = self.pending.as_ref().unwrap_or(&self.current).clone();
+                self.view_dirty = false;
             }
         }
 
