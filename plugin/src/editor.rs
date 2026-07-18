@@ -101,7 +101,7 @@ fn step_int(setter: &ParamSetter, p: &IntParam, cur: i32, delta: i32, count: i32
 }
 
 /// A labelled ◀ value ▶ stepper. Returns the chosen delta (-1/0/+1).
-fn stepper(ui: &mut egui::Ui, label: &str, value: &str) -> i32 {
+fn stepper(ui: &mut egui::Ui, label: &str, value: &str, value_width: f32) -> i32 {
     let mut delta = 0;
     ui.vertical(|ui| {
         ui.label(egui::RichText::new(label).color(DIM));
@@ -109,7 +109,10 @@ fn stepper(ui: &mut egui::Ui, label: &str, value: &str) -> i32 {
             if ui.button("◀").clicked() {
                 delta = -1;
             }
-            ui.add_sized([96.0, 24.0], egui::Label::new(egui::RichText::new(value).color(TEXT)));
+            ui.add_sized(
+                [value_width, 24.0],
+                egui::Label::new(egui::RichText::new(value).color(TEXT)),
+            );
             if ui.button("▶").clicked() {
                 delta = 1;
             }
@@ -381,9 +384,9 @@ pub fn create(
                     ui.horizontal_top(|ui| {
                         pixel_knob(ui, setter, "HUMANIZE", &params.humanize);
                         pixel_knob(ui, setter, "SWING", &params.swing);
-                        ui.add_space(8.0);
+                        ui.add_space(4.0);
 
-                        let db = stepper(ui, "BARS", &params.bars.value().to_string());
+                        let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0);
                         if db != 0 {
                             let next = (params.bars.value() + db).clamp(1, 16);
                             setter.begin_set_parameter(&params.bars);
@@ -391,51 +394,54 @@ pub fn create(
                             setter.end_set_parameter(&params.bars);
                         }
 
-                        let dm = stepper(ui, "METER", &params.meter.to_string());
+                        let dm = stepper(ui, "METER", &params.meter.to_string(), 40.0);
                         if dm != 0 {
                             step_int(setter, &params.meter, params.meter.value(), dm, params::METERS.len() as i32);
                         }
 
-                        ui.add_space(8.0);
-
-                        // DICE hero + SAVE, stacked beside the steppers.
-                        ui.vertical(|ui| {
-                            let dice = ui
-                                .add_sized(
-                                    [96.0, 40.0],
-                                    egui::Button::new(egui::RichText::new("⚄ DICE").color(BG)).fill(ACCENT_A),
-                                )
-                                .on_hover_text("new groove (seed +1)");
-                            if dice.clicked() {
-                                let next = (params.seed.value() + 1) % 10000;
-                                setter.begin_set_parameter(&params.seed);
-                                setter.set_parameter(&params.seed, next);
-                                setter.end_set_parameter(&params.seed);
-                            }
-                            let save = ui
-                                .button("SAVE .MID")
-                                .on_hover_text("write pattern to ~/drumgen_output");
-                            if save.clicked() {
-                                ui_state.save_msg = match export::save_pattern(&pattern, params.seed.value()) {
-                                    Ok(path) => format!(
-                                        "SAVED {}",
-                                        path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-                                    ),
-                                    Err(e) => format!("SAVE FAILED: {e}"),
-                                };
-                            }
-                        });
+                        let df = stepper(ui, "FILL", &params.fill.to_string(), 56.0);
+                        if df != 0 {
+                            step_int(setter, &params.fill, params.fill.value(), df, params::FILLS.len() as i32);
+                        }
                     });
 
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
+
+                    // DICE hero + SAVE + last save result.
+                    ui.horizontal(|ui| {
+                        let dice = ui
+                            .add_sized(
+                                [96.0, 40.0],
+                                egui::Button::new(egui::RichText::new("⚄ DICE").color(BG)).fill(ACCENT_A),
+                            )
+                            .on_hover_text("new groove (seed +1)");
+                        if dice.clicked() {
+                            let next = (params.seed.value() + 1) % 10000;
+                            setter.begin_set_parameter(&params.seed);
+                            setter.set_parameter(&params.seed, next);
+                            setter.end_set_parameter(&params.seed);
+                        }
+                        let save = ui
+                            .button("SAVE .MID")
+                            .on_hover_text("write pattern to ~/drumgen_output");
+                        if save.clicked() {
+                            ui_state.save_msg = match export::save_pattern(&pattern, params.seed.value()) {
+                                Ok(path) => format!(
+                                    "SAVED {}",
+                                    path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+                                ),
+                                Err(e) => format!("SAVE FAILED: {e}"),
+                            };
+                        }
+                        if !ui_state.save_msg.is_empty() {
+                            ui.label(egui::RichText::new(&ui_state.save_msg).color(DIM));
+                        }
+                    });
+
+                    ui.add_space(4.0);
 
                     // Step grid: what bar 1 actually plays.
                     step_grid(ui, &pattern, params.seed.value());
-
-                    if !ui_state.save_msg.is_empty() {
-                        ui.add_space(2.0);
-                        ui.label(egui::RichText::new(&ui_state.save_msg).color(DIM));
-                    }
                 });
         },
     )

@@ -230,6 +230,20 @@ impl CellLibrary {
         self.get_pool(style).into_iter().next()
     }
 
+    /// All fill-role cells (mirrors Python `get_fill_cells`). Sorted by name so
+    /// the RNG tie-break is deterministic (the backing map is a HashMap).
+    pub fn get_fill_cells(&self) -> Vec<&Cell> {
+        let mut fills: Vec<&Cell> = self.cells.values().filter(|c| c.role == "fill").collect();
+        fills.sort_by(|a, b| a.name.cmp(&b.name));
+        fills
+    }
+
+    /// True if the style's pool contains at least one probability cell (i.e.
+    /// the style already varies per seed without help).
+    pub fn style_has_prob(&self, style: &str) -> bool {
+        self.get_pool(style).iter().any(|c| c.is_probability())
+    }
+
     /// Get all available style names.
     pub fn style_names(&self) -> &[String] {
         &self.style_names

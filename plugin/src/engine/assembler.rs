@@ -385,6 +385,7 @@ pub fn assemble(
     time_sig: (i32, i32),
     humanize: Option<f64>,
     swing: f64,
+    fill_every: i32,
     seed: u64,
     vary: f64,
     // Kept for Python-signature parity; selection no longer prefers prob cells
@@ -441,11 +442,34 @@ pub fn assemble(
     let beat_ticks = ppq * 4 / den as i64;
 
     let is_prob = cell.is_probability();
+
+    // Fill selection mirrors Python assemble(): tag-overlap score against the
+    // chosen cell, RNG tie-break among the top scorers. This consumes the RNG
+    // before grid realization, same as Python's ordering.
+    let fill_cell: Option<&Cell> = if fill_every > 0 {
+        let fills = library.get_fill_cells();
+        if fills.is_empty() {
+            None
+        } else {
+            let scored: Vec<(usize, &Cell)> = fills
+                .iter()
+                .map(|f| (f.tags.iter().filter(|t| cell.tags.contains(t)).count(), *f))
+                .collect();
+            let best = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
+            let top: Vec<&Cell> =
+                scored.into_iter().filter(|(s, _)| *s == best).map(|(_, c)| c).collect();
+            Some(top[rng.gen_range(0..top.len())])
+        }
+    } else {
+        None
+    };
+
     let cell_hits = if is_prob {
         realize_probability_grid(cell, bars, &mut rng)
     } else {
         cell.hits.clone()
     };
+    let fill_hits: Vec<Hit> = fill_cell.map(|f| f.hits.clone()).unwrap_or_default();
 
     let mut events = Vec::new();
     let mut seen_cell_bars = std::collections::HashSet::new();
@@ -454,21 +478,29 @@ pub fn assemble(
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
 
-        let cell_bar = if is_prob {
-            bar_number
+        let is_fill = fill_cell.is_some() && bar_number % fill_every.max(1) == 0;
+
+        let (mut active_hits, active_cell, cell_bar) = if is_fill {
+            let f = fill_cell.unwrap();
+            (fill_hits.clone(), f, (bar_idx % f.num_bars) + 1)
+        } else if is_prob {
+            // Probability hits already carry correct output bar numbers.
+            (cell_hits.clone(), cell, bar_number)
         } else {
-            (bar_idx % cell.num_bars) + 1
+            (cell_hits.clone(), cell, (bar_idx % cell.num_bars) + 1)
         };
 
-        let mut current_hits = cell_hits.clone();
+        // Vary mutations on repeated cell bars (skip for probability cells).
+        // time_sig for vary is the RESOLVED meter, not the requested one
+        // ((0,0) = Auto must never reach vary_hits).
         if !is_prob && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
-            current_hits = vary_hits(&cell_hits, cell_bar, vary, &mut rng, time_sig);
+            active_hits = vary_hits(&active_hits, cell_bar, vary, &mut rng, (num, den));
         }
         seen_cell_bars.insert(cell_bar);
 
         let drift_ms = humanizer.compute_section_drift_ms(section_type, bar_idx, bars);
         let bar_events = process_bar(
-            bar_number, cell_bar, &current_hits, cell, &mut humanizer,
+            bar_number, cell_bar, &active_hits, active_cell, &mut humanizer,
             tempo, &time_signatures, ppq, beat_ticks, swing, humanize,
             0, drift_ms,
         );
@@ -848,7 +880,7 @@ mod tests {
     #[test]
     fn test_assemble_basic() {
         let lib = CellLibrary::new();
-        let result = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let result = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
@@ -859,7 +891,7 @@ mod tests {
         let lib = CellLibrary::new();
         // A 7/8 cell requested under 4/4 must still be stamped 7/8 (bar = 7*240),
         // not the requested meter — otherwise the recorded MIDI's grid lies.
-        let r = assemble(&lib, None, Some("driving_7_8"), 2, 120.0, (4, 4), Some(0.0), 0.0, 0, 0.0, false);
+        let r = assemble(&lib, None, Some("driving_7_8"), 2, 120.0, (4, 4), Some(0.0), 0.0, 0, 0, 0.0, false);
         assert_eq!(r.time_signatures[0].numerator, 7);
         assert_eq!(r.time_signatures[0].denominator, 8);
     }
@@ -868,10 +900,10 @@ mod tests {
     fn test_meter_forced_and_auto() {
         let lib = CellLibrary::new();
         // Forcing 7/8 on posthardcore selects a 7/8 cell.
-        let forced = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (7, 8), Some(0.0), 0.0, 0, 0.0, true);
+        let forced = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (7, 8), Some(0.0), 0.0, 0, 0, 0.0, true);
         assert_eq!((forced.time_signatures[0].numerator, forced.time_signatures[0].denominator), (7, 8));
         // Auto (0,0) uses the style's native meter and must not overshoot.
-        let auto = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, 0.0, true);
+        let auto = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, 0, 0.0, true);
         assert!(auto.time_signatures[0].denominator == 4 || auto.time_signatures[0].denominator == 8);
     }
 
@@ -882,7 +914,7 @@ mod tests {
         // signature across seeds and assert not all identical.
         let lib = CellLibrary::new();
         let sig = |seed: u64| -> Vec<(i64, Instrument)> {
-            assemble(&lib, Some("screamo"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, seed, 0.0, false)
+            assemble(&lib, Some("screamo"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, seed, 0.0, false)
                 .events.iter().map(|e| (e.tick, e.instrument)).collect()
         };
         let base = sig(0);
@@ -901,12 +933,12 @@ mod tests {
             r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
         };
         let first = key(&assemble(
-            &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 7, 0.0, true,
+            &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 0, 7, 0.0, true,
         ));
         assert!(!first.is_empty());
         for _ in 0..20 {
             let again = key(&assemble(
-                &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 7, 0.0, true,
+                &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 0, 7, 0.0, true,
             ));
             assert_eq!(first, again, "same seed must yield identical MIDI every run");
         }
@@ -915,15 +947,46 @@ mod tests {
     #[test]
     fn test_assemble_by_cell_name() {
         let lib = CellLibrary::new();
-        let result = assemble(&lib, None, Some("blast_traditional"), 2, 200.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let result = assemble(&lib, None, Some("blast_traditional"), 2, 200.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert!(!result.events.is_empty());
+    }
+
+    #[test]
+    fn test_fill_every_swaps_only_fill_bars() {
+        // Fixed cell + humanize 0 => fully deterministic except the fill swap.
+        // With fill_every=4 over 4 bars, bars 1-3 must be identical to the
+        // no-fill run and bar 4 must differ (the tag-matched fill takes over).
+        let lib = CellLibrary::new();
+        assert!(!lib.get_fill_cells().is_empty(), "builtin.json must ship fill-role cells");
+        let run = |fill_every: i32| {
+            assemble(&lib, None, Some("blast_traditional"), 4, 120.0, (4, 4), Some(0.0), 0.0, fill_every, 42, 0.0, false)
+        };
+        let no_fill = run(0);
+        let with_fill = run(4);
+        let bar4_start = 3 * 4 * PPQ;
+        let split = |r: &AssembleResult| {
+            // The bar-1 auto-crash is excluded: its velocity is drawn from the
+            // humanizer RNG *after* the bar loop, so its stream position (and
+            // thus the value) legitimately shifts when bar 4's content changes.
+            // Same ordering as Python.
+            let head: Vec<_> = r.events.iter()
+                .filter(|e| e.tick < bar4_start && e.instrument != Instrument::Crash1)
+                .map(|e| (e.tick, e.instrument, e.velocity)).collect();
+            let tail: Vec<_> = r.events.iter().filter(|e| e.tick >= bar4_start)
+                .map(|e| (e.tick, e.instrument, e.velocity)).collect();
+            (head, tail)
+        };
+        let (head_a, tail_a) = split(&no_fill);
+        let (head_b, tail_b) = split(&with_fill);
+        assert_eq!(head_a, head_b, "non-fill bars must be untouched by fill_every");
+        assert_ne!(tail_a, tail_b, "the fill bar must actually change");
     }
 
     #[test]
     fn test_assemble_deterministic() {
         let lib = CellLibrary::new();
-        let r1 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
-        let r2 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let r1 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
+        let r2 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert_eq!(r1.events.len(), r2.events.len(), "Same seed should produce same event count");
         for (a, b) in r1.events.iter().zip(r2.events.iter()) {
             assert_eq!(a.tick, b.tick);

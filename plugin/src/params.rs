@@ -31,6 +31,11 @@ pub struct DrumgenParams {
     #[id = "meter"]
     pub meter: IntParam,
 
+    /// Fill frequency — index into FILLS. A tag-matched fill cell replaces the
+    /// groove every N bars (0 = off).
+    #[id = "fill"]
+    pub fill: IntParam,
+
     /// Editor window state (size / open) — persisted with the plugin state.
     #[persist = "editor-state"]
     pub editor_state: Arc<EguiState>,
@@ -51,6 +56,20 @@ fn meter_label(index: i32) -> String {
     match meter_of(index) {
         (0, 0) => "Auto".to_string(),
         (n, d) => format!("{}/{}", n, d),
+    }
+}
+
+/// Fill param index → fill-every-N-bars (0 = off), ordered by intensity.
+pub const FILLS: [i32; 4] = [0, 8, 4, 2];
+
+pub fn fill_of(index: i32) -> i32 {
+    *FILLS.get(index as usize).unwrap_or(&0)
+}
+
+fn fill_label(index: i32) -> String {
+    match fill_of(index) {
+        0 => "Off".to_string(),
+        n => format!("Every {}", n),
     }
 }
 
@@ -97,6 +116,10 @@ impl DrumgenParams {
 
             meter: IntParam::new("Meter", 0, IntRange::Linear { min: 0, max: (METERS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(meter_label)),
+
+            // Default "Every 4": a tasteful fill closing each 4-bar phrase.
+            fill: IntParam::new("Fill", 2, IntRange::Linear { min: 0, max: (FILLS.len() - 1) as i32 })
+                .with_value_to_string(Arc::new(fill_label)),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
         }

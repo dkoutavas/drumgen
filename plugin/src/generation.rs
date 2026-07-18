@@ -47,6 +47,7 @@ impl GenerationManager {
         generative: bool,
         tempo: f64,
         meter: (i32, i32),
+        fill_every: i32,
     ) -> AssembleResult {
         let style_name = self.library.style_by_index(style_index as usize)
             .unwrap_or("screamo");
@@ -57,6 +58,12 @@ impl GenerationManager {
         // only — the engine stays a faithful port that takes a raw seed.
         let salted = seed ^ fnv1a(style_name.as_bytes());
 
+        // Vary floor: styles with no probability cell would otherwise emit the
+        // identical MIDI every seed (the dice would only re-roll feel). A small
+        // vary gives their repeated bars per-seed motion; styles that already
+        // re-realize per seed are left untouched.
+        let vary = if self.library.style_has_prob(style_name) { 0.0 } else { 0.25 };
+
         assembler::assemble(
             &self.library,
             Some(style_name),
@@ -66,8 +73,9 @@ impl GenerationManager {
             meter, // (0,0) = Auto (style's native meter)
             Some(humanize),
             swing,
+            fill_every,
             salted,
-            0.0,
+            vary,
             generative,
         )
     }
@@ -143,7 +151,7 @@ mod tests {
         let streams: Vec<(String, Vec<(i64, crate::engine::cell::Instrument, i32)>)> = (0..n as i32)
             .map(|i| {
                 let name = gen.style_name(i as usize).unwrap_or("?").to_string();
-                let res = gen.generate(i, 0.40, 4, 0, 0.0, true, 120.0, (0, 0));
+                let res = gen.generate(i, 0.40, 4, 0, 0.0, true, 120.0, (0, 0), 0);
                 (name, res.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect())
             })
             .collect();
@@ -174,7 +182,7 @@ mod tests {
         let n = gen.num_styles();
         for i in 0..n as i32 {
             let t = Instant::now();
-            let res = gen.generate(i, 0.7, 16, 3, 0.0, true, 160.0, (0, 0));
+            let res = gen.generate(i, 0.7, 16, 3, 0.0, true, 160.0, (0, 0), 2);
             let ms = t.elapsed().as_secs_f64() * 1000.0;
             assert!(!res.events.is_empty() || res.total_bars == 16);
             assert!(ms < 50.0, "style {} took {:.2}ms to generate", i, ms);

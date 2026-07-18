@@ -33,6 +33,7 @@ struct ParamSnapshot {
     seed: i32,
     swing: f32,
     meter: i32,
+    fill: i32,
     tempo: f32,
 }
 
@@ -42,6 +43,7 @@ impl ParamSnapshot {
             || self.bars != o.bars
             || self.seed != o.seed
             || self.meter != o.meter
+            || self.fill != o.fill
             || (self.humanize - o.humanize).abs() > 1e-4
             || (self.swing - o.swing).abs() > 1e-4
             // Tempo affects ms-based humanization; regenerate past a 1 BPM step.
@@ -58,6 +60,7 @@ impl ParamSnapshot {
             generative: GENERATIVE,
             tempo: self.tempo as f64,
             meter: params::meter_of(self.meter),
+            fill_every: params::fill_of(self.fill),
             generation,
         }
     }
@@ -119,6 +122,7 @@ impl Default for Drumgen {
             seed: params.seed.value(),
             swing: params.swing.value(),
             meter: params.meter.value(),
+            fill: params.fill.value(),
             tempo: 120.0,
         };
 
@@ -127,6 +131,7 @@ impl Default for Drumgen {
         let res = gen.generate(
             snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64,
             GENERATIVE, snap.tempo as f64, params::meter_of(snap.meter),
+            params::fill_of(snap.fill),
         );
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
         let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
@@ -165,6 +170,7 @@ impl Drumgen {
             seed: self.params.seed.value(),
             swing: self.params.swing.value(),
             meter: self.params.meter.value(),
+            fill: self.params.fill.value(),
             tempo,
         }
     }
@@ -309,7 +315,8 @@ impl Plugin for Drumgen {
         let discrete_changed = desired.style != self.requested.style
             || desired.bars != self.requested.bars
             || desired.seed != self.requested.seed
-            || desired.meter != self.requested.meter;
+            || desired.meter != self.requested.meter
+            || desired.fill != self.requested.fill;
         let continuous_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
             || (desired.swing - self.requested.swing).abs() > 1e-4
             || (desired.tempo - self.requested.tempo).abs() > 1.0;
