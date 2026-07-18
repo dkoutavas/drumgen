@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 
 pub mod engine;
 mod editor;
+mod export;
 mod generation;
 mod params;
 mod pattern;

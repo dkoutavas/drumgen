@@ -8,6 +8,7 @@ use nih_plug_egui::{create_egui_editor, egui};
 use std::sync::{Arc, Mutex};
 
 use crate::engine::midi_math::PPQ;
+use crate::export;
 use crate::params::{self, DrumgenParams};
 use crate::pattern::Pattern;
 
@@ -333,6 +334,12 @@ mod tests {
     }
 }
 
+/// Editor-local UI state (not persisted): the last SAVE .MID outcome.
+#[derive(Default)]
+struct UiState {
+    save_msg: String,
+}
+
 pub fn create(
     params: Arc<DrumgenParams>,
     n_styles: usize,
@@ -341,9 +348,9 @@ pub fn create(
     let egui_state = params.editor_state.clone();
     create_egui_editor(
         egui_state,
-        (),
+        UiState::default(),
         |ctx, _| install_theme(ctx),
-        move |ctx, setter, _| {
+        move |ctx, setter, ui_state| {
             // Patterns arrive asynchronously from the worker; poll so the grid
             // refreshes without needing mouse movement.
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -405,8 +412,18 @@ pub fn create(
                                 setter.set_parameter(&params.seed, next);
                                 setter.end_set_parameter(&params.seed);
                             }
-                            ui.add_enabled(false, egui::Button::new("SAVE .MID"))
-                                .on_disabled_hover_text("coming soon");
+                            let save = ui
+                                .button("SAVE .MID")
+                                .on_hover_text("write pattern to ~/drumgen_output");
+                            if save.clicked() {
+                                ui_state.save_msg = match export::save_pattern(&pattern, params.seed.value()) {
+                                    Ok(path) => format!(
+                                        "SAVED {}",
+                                        path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+                                    ),
+                                    Err(e) => format!("SAVE FAILED: {e}"),
+                                };
+                            }
                         });
                     });
 
@@ -414,6 +431,11 @@ pub fn create(
 
                     // Step grid: what bar 1 actually plays.
                     step_grid(ui, &pattern, params.seed.value());
+
+                    if !ui_state.save_msg.is_empty() {
+                        ui.add_space(2.0);
+                        ui.label(egui::RichText::new(&ui_state.save_msg).color(DIM));
+                    }
                 });
         },
     )
