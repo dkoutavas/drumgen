@@ -142,10 +142,10 @@ mod tests {
         // component. Every style must produce a distinct event stream at the
         // plugin defaults (humanize 0.40, bars 4, seed 0, meter Auto).
         //
-        // Known content gap (separate task): faraquet/math, atdi/blood_brothers,
-        // dry_cleaning/preoccupations have byte-identical pools in builtin.json;
-        // the style-salted seed still separates them here via realization/feel,
-        // but at humanize=0 with the same picked fixed cell they'd alias.
+        // The alias styles (math/blood_brothers/dry_cleaning) are deduped at
+        // export time, and the Phase-7 character pass gave every shipped style
+        // either a probability cell or unique material — so this now asserts
+        // distinctness over genuinely different pools, not just the seed salt.
         let gen = GenerationManager::new();
         let n = gen.num_styles();
         let streams: Vec<(String, Vec<(i64, crate::engine::cell::Instrument, i32)>)> = (0..n as i32)

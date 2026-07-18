@@ -1818,6 +1818,500 @@ def _prob_slint_4_4():
 
 # ── Registry ───────────────────────────────────────────────────────────────────
 
+# ── Phase 7: character pass ──────────────────────────────────────────────────
+# Unique material for styles that previously borrowed everything, plus a
+# probability cell for every style that had none (so the dice re-rolls notes,
+# not just feel). Skramz/post-hardcore weighted.
+
+
+def _liturgy_pillar_stabs():
+    """Liturgy stop-start 'pillars': unison stabs with dead air, answered by a
+    half-bar burst. The tension/release trick from Aesthethica."""
+    hits = []
+    # Bar 1: pillars — kick+snare+crash unison stabs, silence between.
+    for beat, sub in ((1, 0.0), (2, 0.5), (4, 0.0)):
+        hits.append((1, beat, sub, "kick", "accent"))
+        hits.append((1, beat, sub, "snare", "accent"))
+        hits.append((1, beat, sub, "crash_1", "accent"))
+    # Bar 2: two stabs, then the burst floods back in on beats 3-4.
+    for beat, sub in ((1, 0.0), (2, 0.0)):
+        hits.append((2, beat, sub, "kick", "accent"))
+        hits.append((2, beat, sub, "snare", "accent"))
+        hits.append((2, beat, sub, "crash_1", "accent"))
+    for beat in (3, 4):
+        for sub in (0.0, 0.25, 0.5, 0.75):
+            hits.append((2, beat, sub, "kick", "accent"))
+            hits.append((2, beat, sub + 0.02, "snare", "normal"))
+        hits.append((2, beat, 0.0, "hihat_open", "accent"))
+    return {
+        "name": "liturgy_pillar_stabs",
+        "tags": ["liturgy", "black_metal", "experimental", "stops", "burst", "intense"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.3,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_liturgy_burst_4_4():
+    """Liturgy burst-beat grid: the burst stutters differently every seed —
+    kick 16ths nearly solid, snare dropping in and out, 3-over-4 accents."""
+    grid = []
+    accent_positions = {0, 3, 6, 9, 12, 15}
+    pos = 0
+    for beat in range(1, 5):
+        for sub in (0.0, 0.25, 0.5, 0.75):
+            grid.append((beat, sub, "kick", 0.92, "accent"))
+            vel = "accent" if pos in accent_positions else "normal"
+            grid.append((beat, sub + 0.02, "snare", 0.78, vel))
+            pos += 1
+        grid.append((beat, 0.0, "hihat_open", 0.75, "accent"))
+    grid.append((1, 0.0, "china", 0.25, "accent"))
+    return {
+        "name": "prob_liturgy_burst_4_4",
+        "type": "probability",
+        "tags": ["liturgy", "black_metal", "blast", "burst", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _raein_octopus_groove():
+    """Raein mid-tempo melodic drive: syncopated kick under straight eighths,
+    ghost pickups, and a tom walk closing bar 2. Il n'y a pas de orchestre."""
+    hits = []
+    for bar in (1, 2):
+        for beat in range(1, 5):
+            lead = "crash_1" if (bar == 2 and beat == 1) else "hihat_closed"
+            hits.append((bar, beat, 0.0, lead, "accent"))
+            if not (bar == 2 and beat == 4):
+                hits.append((bar, beat, 0.5, "hihat_closed", "normal"))
+        hits.append((bar, 1, 0.0, "kick", "accent"))
+        hits.append((bar, 2, 0.75, "kick", "normal"))
+        hits.append((bar, 3, 0.5, "kick", "normal"))
+        hits.append((bar, 2, 0.0, "snare", "accent"))
+        hits.append((bar, 4, 0.0, "snare", "accent"))
+        hits.append((bar, 3, 0.75, "snare_ghost", "ghost"))
+    # Bar 2 closer: open hat bark then a quick mid/floor tom walk.
+    hits.append((2, 4, 0.5, "hihat_open", "accent"))
+    hits.append((2, 4, 0.25, "tom_mid", "normal"))
+    hits.append((2, 4, 0.75, "tom_floor", "accent"))
+    return {
+        "name": "raein_octopus_groove",
+        "tags": ["raein", "euro_screamo", "melodic", "driving", "verse", "syncopated"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.5,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_raein_4_4():
+    """Raein grid: melodic screamo drive whose kick syncopation and ghost
+    texture reshuffle per seed."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.9, "accent"))
+        grid.append((beat, 0.5, "hihat_closed", 0.85, "normal"))
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "accent"),
+        (2, 0.75, "kick", 0.6, "normal"),
+        (3, 0.5, "kick", 0.7, "normal"),
+        (4, 0.25, "kick", 0.3, "normal"),
+        (2, 0.0, "snare", 0.92, "accent"),
+        (4, 0.0, "snare", 0.92, "accent"),
+        (1, 0.75, "snare_ghost", 0.4, "ghost"),
+        (3, 0.25, "snare_ghost", 0.45, "ghost"),
+        (4, 0.75, "tom_floor", 0.3, "accent"),
+        (3, 0.0, "splash", 0.12, "accent"),
+        (1, 0.0, "crash_1", 0.3, "accent"),
+    ])
+    return {
+        "name": "prob_raein_4_4",
+        "type": "probability",
+        "tags": ["raein", "euro_screamo", "melodic", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _deafheaven_shimmer_blast():
+    """Deafheaven wall-of-light: traditional blast under a crash wash, then a
+    half-time shimmer bar. Sunbather's loud-louder dynamic."""
+    hits = []
+    # Bar 1: blast with crash quarters instead of ride.
+    for beat in range(1, 5):
+        hits.append((1, beat, 0.0, "kick", "accent"))
+        hits.append((1, beat, 0.5, "kick", "accent"))
+        hits.append((1, beat, 0.25, "snare", "normal"))
+        hits.append((1, beat, 0.75, "snare", "normal"))
+        hits.append((1, beat, 0.0, "crash_1", "normal"))
+    # Bar 2: halftime shimmer — snare on 3, crash wash keeps ringing.
+    for beat in range(1, 5):
+        hits.append((2, beat, 0.0, "crash_1", "normal"))
+    hits.append((2, 1, 0.0, "kick", "accent"))
+    hits.append((2, 2, 0.75, "kick", "normal"))
+    hits.append((2, 3, 0.0, "snare", "accent"))
+    hits.append((2, 4, 0.5, "ride_bell", "accent"))
+    return {
+        "name": "deafheaven_shimmer_blast",
+        "tags": ["deafheaven", "black_metal", "blast", "atmospheric", "halftime", "climax"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_blackgaze_4_4():
+    """Blackgaze grid: blast density and the halftime flip both ride the seed,
+    so one seed surges and the next one floats."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "kick", 0.85, "accent"))
+        grid.append((beat, 0.5, "kick", 0.8, "accent"))
+        grid.append((beat, 0.25, "snare", 0.75, "normal"))
+        grid.append((beat, 0.75, "snare", 0.7, "normal"))
+        grid.append((beat, 0.0, "crash_1", 0.65, "normal"))
+    grid.extend([
+        (3, 0.0, "snare", 0.35, "accent"),        # halftime anchor some seeds
+        (2, 0.5, "hihat_wide_open", 0.3, "accent"),
+        (4, 0.75, "ride_bell", 0.2, "accent"),
+    ])
+    return {
+        "name": "prob_blackgaze_4_4",
+        "type": "probability",
+        "tags": ["deafheaven", "black_metal", "blast", "atmospheric", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _atdi_relationship_groove():
+    """At the Drive-In verse engine: driving eighths with an open-hat bark on
+    the and-of-4, latin-tinged tom color, urgent kick pickups."""
+    hits = []
+    for bar in (1, 2):
+        for beat in range(1, 5):
+            lead = "crash_1" if (bar == 2 and beat == 1) else "hihat_closed"
+            vel = "accent" if beat in (1, 3) else "normal"
+            hits.append((bar, beat, 0.0, lead, vel))
+            if beat < 4:
+                hits.append((bar, beat, 0.5, "hihat_closed", "normal"))
+        hits.append((bar, 4, 0.5, "hihat_open", "accent"))
+        hits.append((bar, 1, 0.0, "kick", "accent"))
+        hits.append((bar, 1, 0.75, "kick", "normal"))
+        hits.append((bar, 2, 0.5, "kick", "normal"))
+        hits.append((bar, 2, 0.0, "snare", "accent"))
+        hits.append((bar, 4, 0.0, "snare", "accent"))
+        hits.append((bar, 3, 0.25, "snare_ghost", "ghost"))
+    # Bar 2: tom answer replacing the ghost line.
+    hits.append((2, 2, 0.25, "tom_high", "normal"))
+    hits.append((2, 4, 0.25, "tom_mid", "normal"))
+    hits.append((2, 4, 0.75, "tom_floor", "accent"))
+    return {
+        "name": "atdi_relationship_groove",
+        "tags": ["atdi", "posthardcore", "driving", "verse", "syncopated", "toms"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.45,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_atdi_4_4():
+    """ATDI grid: busy post-hardcore with tom accents and open-hat barks that
+    move around per seed; a little china chaos for the Blood Brothers end."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.85, "accent" if beat in (1, 3) else "normal"))
+        grid.append((beat, 0.5, "hihat_closed", 0.7, "normal"))
+    grid.extend([
+        (4, 0.5, "hihat_open", 0.5, "accent"),
+        (1, 0.0, "kick", 0.95, "accent"),
+        (1, 0.75, "kick", 0.6, "normal"),
+        (2, 0.5, "kick", 0.7, "normal"),
+        (3, 0.75, "kick", 0.35, "normal"),
+        (2, 0.0, "snare", 0.9, "accent"),
+        (4, 0.0, "snare", 0.9, "accent"),
+        (3, 0.25, "snare_ghost", 0.4, "ghost"),
+        (2, 0.25, "tom_high", 0.3, "normal"),
+        (4, 0.75, "tom_floor", 0.35, "accent"),
+        (1, 0.0, "crash_1", 0.35, "accent"),
+        (3, 0.0, "china", 0.15, "accent"),
+    ])
+    return {
+        "name": "prob_atdi_4_4",
+        "type": "probability",
+        "tags": ["atdi", "posthardcore", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _qanu_dancepunk():
+    """Q And Not U dance-punk: four-on-the-floor, disco open hats on the
+    off-beat eighths, ghost-note sixteenth pickups. No Kill No Beep Beep."""
+    hits = []
+    for bar in (1, 2):
+        for beat in range(1, 5):
+            hits.append((bar, beat, 0.0, "kick", "accent"))
+            hits.append((bar, beat, 0.0, "hihat_closed", "normal"))
+            hits.append((bar, beat, 0.25, "hihat_closed", "soft"))
+            hits.append((bar, beat, 0.5, "hihat_open", "accent"))
+            hits.append((bar, beat, 0.75, "hihat_closed", "soft"))
+        hits.append((bar, 2, 0.0, "snare", "accent"))
+        hits.append((bar, 4, 0.0, "snare", "accent"))
+        hits.append((bar, 1, 0.75, "snare_ghost", "ghost"))
+        hits.append((bar, 3, 0.75, "snare_ghost", "ghost"))
+    # Bar 2 closer: rim clicks tighten the turnaround.
+    hits.append((2, 4, 0.25, "snare_rim", "normal"))
+    hits.append((2, 4, 0.75, "snare_rim", "normal"))
+    return {
+        "name": "qanu_dancepunk",
+        "tags": ["q_and_not_u", "dancepunk", "posthardcore", "driving", "chorus", "groove"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_qanu_4_4():
+    """Q And Not U grid: the floor stays four-on, everything above it —
+    disco opens, ghosts, splash color — reshuffles per seed."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "kick", 0.92, "accent"))
+        grid.append((beat, 0.0, "hihat_closed", 0.75, "normal"))
+        grid.append((beat, 0.25, "hihat_closed", 0.6, "soft"))
+        grid.append((beat, 0.5, "hihat_open", 0.65, "accent"))
+        grid.append((beat, 0.75, "hihat_closed", 0.6, "soft"))
+    grid.extend([
+        (2, 0.0, "snare", 0.95, "accent"),
+        (4, 0.0, "snare", 0.95, "accent"),
+        (1, 0.75, "snare_ghost", 0.5, "ghost"),
+        (3, 0.75, "snare_ghost", 0.5, "ghost"),
+        (1, 0.0, "splash", 0.15, "accent"),
+        (4, 0.75, "tom_high", 0.2, "normal"),
+    ])
+    return {
+        "name": "prob_qanu_4_4",
+        "type": "probability",
+        "tags": ["q_and_not_u", "dancepunk", "posthardcore", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_screamo_4_4():
+    """Skramz surge grid: galloping kick under a crash-flecked ride wash, with
+    a blast fragment that sometimes erupts across beat 4."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.8, "accent"))
+        grid.append((beat, 0.5, "ride", 0.75, "normal"))
+    grid.extend([
+        (1, 0.0, "crash_1", 0.35, "accent"),
+        (3, 0.0, "china", 0.2, "accent"),
+        (1, 0.0, "kick", 0.9, "accent"),
+        (1, 0.75, "kick", 0.5, "normal"),
+        (2, 0.5, "kick", 0.6, "normal"),
+        (3, 0.0, "kick", 0.8, "accent"),
+        (3, 0.75, "kick", 0.45, "normal"),
+        (2, 0.0, "snare", 0.9, "accent"),
+        (4, 0.0, "snare", 0.9, "accent"),
+        (4, 0.75, "snare", 0.4, "normal"),
+        # Blast fragment across beat 4, some seeds only.
+        (4, 0.25, "snare", 0.3, "normal"),
+        (4, 0.5, "kick", 0.3, "accent"),
+    ])
+    return {
+        "name": "prob_screamo_4_4",
+        "type": "probability",
+        "tags": ["screamo", "skramz", "intense", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_emoviolence_4_4():
+    """Emoviolence grid: half blast fragment, half breakdown — the violence
+    lands somewhere different every seed."""
+    grid = []
+    # Beats 1-2: blast fragment.
+    for beat in (1, 2):
+        grid.append((beat, 0.0, "kick", 0.8, "accent"))
+        grid.append((beat, 0.5, "kick", 0.75, "accent"))
+        grid.append((beat, 0.25, "snare", 0.7, "normal"))
+        grid.append((beat, 0.75, "snare", 0.7, "normal"))
+    grid.append((1, 0.0, "crash_1", 0.6, "accent"))
+    # Beats 3-4: breakdown stabs and tom slams.
+    grid.extend([
+        (3, 0.0, "kick", 0.9, "accent"),
+        (3, 0.0, "china", 0.5, "accent"),
+        (3, 0.5, "tom_floor", 0.5, "accent"),
+        (3, 0.75, "tom_floor", 0.45, "normal"),
+        (4, 0.0, "snare", 0.85, "accent"),
+        (4, 0.5, "kick", 0.4, "accent"),
+        (4, 0.75, "kick", 0.35, "accent"),
+    ])
+    return {
+        "name": "prob_emoviolence_4_4",
+        "type": "probability",
+        "tags": ["emoviolence", "screamo", "chaotic", "intense", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_cityofcat_4_4():
+    """City of Caterpillar grid: brooding ride pings over ghost texture,
+    halftime snare, the occasional swell threatening the eruption."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.85, "normal"))
+        grid.append((beat, 0.5, "ride", 0.7, "soft"))
+    grid.extend([
+        (1, 0.0, "ride_bell", 0.3, "accent"),
+        (1, 0.0, "kick", 0.9, "accent"),
+        (3, 0.5, "kick", 0.5, "normal"),
+        (3, 0.0, "snare", 0.85, "accent"),
+        (2, 0.25, "snare_ghost", 0.5, "ghost"),
+        (2, 0.75, "snare_ghost", 0.45, "ghost"),
+        (4, 0.25, "snare_ghost", 0.5, "ghost"),
+        (4, 0.5, "tom_floor", 0.3, "normal"),
+        (4, 0.75, "crash_1", 0.15, "accent"),
+    ])
+    return {
+        "name": "prob_cityofcat_4_4",
+        "type": "probability",
+        "tags": ["city_of_caterpillar", "screamo", "atmospheric", "build", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_daitro_4_4():
+    """Daitro grid: tremolo-drive ride eighths with pedal-hat quarters, the
+    kick syncopation and tom color drifting per seed."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "ride", 0.95, "accent" if beat == 1 else "normal"))
+        grid.append((beat, 0.5, "ride", 0.9, "normal"))
+        grid.append((beat, 0.0, "hihat_pedal", 0.3, "soft"))
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "accent"),
+        (2, 0.5, "kick", 0.55, "normal"),
+        (4, 0.25, "kick", 0.3, "normal"),
+        (2, 0.0, "snare", 0.9, "accent"),
+        (4, 0.0, "snare", 0.9, "accent"),
+        (3, 0.75, "snare_ghost", 0.45, "ghost"),
+        (4, 0.75, "tom_mid", 0.25, "normal"),
+    ])
+    return {
+        "name": "prob_daitro_4_4",
+        "type": "probability",
+        "tags": ["daitro", "euro_screamo", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_fugazi_4_4():
+    """Fugazi grid: funk-punk pocket — accented eighth hats, a kick that
+    wanders the sixteenths, ghost notes filling the pocket differently each
+    seed. Repeater-era."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.9, "accent"))
+        grid.append((beat, 0.5, "hihat_closed", 0.85, "normal"))
+    grid.extend([
+        (3, 0.5, "hihat_open", 0.4, "accent"),
+        (1, 0.0, "kick", 0.95, "accent"),
+        (2, 0.5, "kick", 0.7, "normal"),
+        (3, 0.75, "kick", 0.5, "normal"),
+        (4, 0.5, "kick", 0.3, "normal"),
+        (2, 0.0, "snare", 0.95, "accent"),
+        (4, 0.0, "snare", 0.95, "accent"),
+        (1, 0.75, "snare_ghost", 0.5, "ghost"),
+        (3, 0.25, "snare_ghost", 0.5, "ghost"),
+        (4, 0.75, "snare_ghost", 0.35, "ghost"),
+    ])
+    return {
+        "name": "prob_fugazi_4_4",
+        "type": "probability",
+        "tags": ["fugazi", "posthardcore", "groove", "verse", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _prob_postrock_6_4():
+    """Post-rock grid in 6/4: bell-flecked ride cycle, midpoint backbeat,
+    long-arc dynamics that breathe differently per seed."""
+    grid = []
+    for beat in range(1, 7):
+        grid.append((beat, 0.0, "ride", 0.85, "normal"))
+        grid.append((beat, 0.5, "ride", 0.7, "soft"))
+    grid.extend([
+        (1, 0.0, "ride_bell", 0.4, "accent"),
+        (4, 0.0, "ride_bell", 0.3, "accent"),
+        (1, 0.0, "kick", 0.9, "accent"),
+        (4, 0.0, "kick", 0.6, "normal"),
+        (5, 0.5, "kick", 0.3, "normal"),
+        (4, 0.0, "snare", 0.8, "accent"),
+        (3, 0.5, "snare_ghost", 0.3, "ghost"),
+        (6, 0.5, "tom_floor", 0.25, "normal"),
+        (1, 0.0, "crash_1", 0.25, "accent"),
+    ])
+    return {
+        "name": "prob_postrock_6_4",
+        "type": "probability",
+        "tags": ["postrock", "atmospheric", "dynamics", "generative"],
+        "time_sig": (6, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -1884,6 +2378,23 @@ CELLS = {cell["name"]: cell for cell in [
     _prob_postpunk_4_4(),
     _prob_angular_athletic_4_4(),
     _prob_slint_4_4(),
+    # Phase 7: character pass
+    _liturgy_pillar_stabs(),
+    _prob_liturgy_burst_4_4(),
+    _raein_octopus_groove(),
+    _prob_raein_4_4(),
+    _deafheaven_shimmer_blast(),
+    _prob_blackgaze_4_4(),
+    _atdi_relationship_groove(),
+    _prob_atdi_4_4(),
+    _qanu_dancepunk(),
+    _prob_qanu_4_4(),
+    _prob_screamo_4_4(),
+    _prob_emoviolence_4_4(),
+    _prob_cityofcat_4_4(),
+    _prob_daitro_4_4(),
+    _prob_fugazi_4_4(),
+    _prob_postrock_6_4(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -1954,10 +2465,11 @@ STYLE_POOLS = {
     "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
     "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
                 "prob_shellac_4_4"],
-    "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4"],
+    "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
+               "prob_fugazi_4_4"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
                  "prob_faraquet_4_4", "prob_faraquet_7_8"],
-    "raein": ["raein_melodic_drive"],
+    "raein": ["raein_melodic_drive", "raein_octopus_groove", "prob_raein_4_4"],
     "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
                      "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
                      "faraquet_7_8", "faraquet_5_4", "waltz_punk",
@@ -1965,16 +2477,19 @@ STYLE_POOLS = {
                      "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
     "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
                    "prob_shellac_4_4", "unwound_dynamics", "prob_postpunk_4_4"],
-    "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional", "city_of_caterpillar_build"],
-    "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional"],
+    "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional", "city_of_caterpillar_build",
+                "prob_screamo_4_4"],
+    "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional",
+                    "prob_emoviolence_4_4"],
     "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
              "prob_faraquet_4_4", "prob_faraquet_7_8"],
     "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive",
                      "prob_euro_screamo_4_4", "city_of_caterpillar_build"],
-    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release"],
-    "liturgy": ["liturgy_burst_beat"],
+    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release", "prob_daitro_4_4"],
+    "liturgy": ["liturgy_burst_beat", "liturgy_pillar_stabs", "prob_liturgy_burst_4_4"],
     "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast", "atmospheric_7_8"],
-    "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric"],
+    "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric", "deafheaven_shimmer_blast",
+                   "prob_blackgaze_4_4"],
     # Phase 3: Style palette expansion
     "sonic_youth": ["motorik_pulse", "motorik_build", "prob_postpunk_4_4"],
     "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4"],
@@ -1984,14 +2499,18 @@ STYLE_POOLS = {
     "dry_cleaning": ["postpunk_machine", "motorik_pulse", "prob_postpunk_4_4"],
     "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
     "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
-    "q_and_not_u": ["athletic_angular", "postpunk_busy", "prob_angular_athletic_4_4"],
-    "atdi": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4"],
-    "blood_brothers": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4"],
+    "q_and_not_u": ["athletic_angular", "postpunk_busy", "prob_angular_athletic_4_4",
+                    "qanu_dancepunk", "prob_qanu_4_4"],
+    "atdi": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
+             "atdi_relationship_groove", "prob_atdi_4_4"],
+    "blood_brothers": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
+                       "atdi_relationship_groove", "prob_atdi_4_4"],
     "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion"],
-    "city_of_caterpillar": ["city_of_caterpillar_build", "emoviolence_blast_crash", "emoviolence_angular_breakdown"],
+    "city_of_caterpillar": ["city_of_caterpillar_build", "emoviolence_blast_crash", "emoviolence_angular_breakdown",
+                            "prob_cityofcat_4_4"],
     "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion"],
     "postrock": ["postrock_6_4", "blackmetal_atmospheric", "city_of_caterpillar_build",
-                 "motorik_build", "slint_explosion"],
+                 "motorik_build", "slint_explosion", "prob_postrock_6_4"],
 }
 
 def _integrate_user_cells_into_pools():
