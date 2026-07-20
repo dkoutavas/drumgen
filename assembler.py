@@ -365,7 +365,11 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
 
     fill_cell = None
     if fill_every > 0:
-        fill_cells = get_fill_cells()
+        # Fills must match the pattern's meter — a 4/4 fill dropped into a 3/4
+        # bar pushes its beat-4 hits past the bar end (hung notes / next-bar
+        # doubling). No matching fill = no fill, gracefully.
+        fill_cells = [f for f in get_fill_cells()
+                      if tuple(f.get("time_sig", (4, 4))) == (num, den)]
         if fill_cells:
             cell_tags = set(cell.get("tags", []))
             scored = [(len(cell_tags & set(f.get("tags", []))), f) for f in fill_cells]

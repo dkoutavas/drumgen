@@ -10,8 +10,7 @@ use std::path::PathBuf;
 
 use crate::engine::midi_math::PPQ;
 use crate::pattern::Pattern;
-
-const DRUM_CHANNEL: u8 = 9; // must match lib.rs MIDI_CHANNEL
+use crate::MIDI_CHANNEL;
 
 /// Append a MIDI variable-length quantity.
 fn push_vlq(out: &mut Vec<u8>, mut v: u64) {
@@ -28,12 +27,12 @@ fn push_vlq(out: &mut Vec<u8>, mut v: u64) {
 }
 
 /// Encode the pattern as a complete format-0 SMF byte stream.
-fn encode_smf(pattern: &Pattern, display_seed: i32) -> Vec<u8> {
+fn encode_smf(pattern: &Pattern) -> Vec<u8> {
     // Collect (tick, bytes) message list: metas first so a stable sort keeps
     // them ahead of notes at the same tick.
     let mut msgs: Vec<(i64, Vec<u8>)> = Vec::with_capacity(pattern.events.len() + 8);
 
-    let name = format!("drumgen {} seed {:04}", pattern.style_name, display_seed);
+    let name = format!("drumgen {} seed {:04}", pattern.style_name, pattern.seed);
     let mut m = vec![0xFF, 0x03, name.len().min(127) as u8];
     m.extend_from_slice(&name.as_bytes()[..name.len().min(127)]);
     msgs.push((0, m));
@@ -53,7 +52,7 @@ fn encode_smf(pattern: &Pattern, display_seed: i32) -> Vec<u8> {
     }
 
     for ev in &pattern.events {
-        let status = if ev.is_note_on { 0x90 } else { 0x80 } | DRUM_CHANNEL;
+        let status = if ev.is_note_on { 0x90 } else { 0x80 } | MIDI_CHANNEL;
         msgs.push((ev.tick.max(0), vec![status, ev.note & 0x7F, ev.velocity & 0x7F]));
     }
 
@@ -88,8 +87,10 @@ fn output_dir() -> PathBuf {
 }
 
 /// Write the pattern to `~/drumgen_output/`, never overwriting an existing
-/// file (auto `_1`, `_2`, ... suffix). Returns the written path.
-pub fn save_pattern(pattern: &Pattern, display_seed: i32) -> std::io::Result<PathBuf> {
+/// file (auto `_1`, `_2`, ... suffix). Returns the written path. All labels
+/// (filename seed, track-name meta) come from the pattern itself, so they
+/// always describe the notes actually written.
+pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
     let dir = output_dir();
     std::fs::create_dir_all(&dir)?;
 
@@ -100,7 +101,7 @@ pub fn save_pattern(pattern: &Pattern, display_seed: i32) -> std::io::Result<Pat
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
     let meter_suffix = if meter == (4, 4) { String::new() } else { format!("_{}_{}", meter.0, meter.1) };
-    let base = format!("{}_{:04}{}_{}bars", pattern.style_name, display_seed, meter_suffix, bars);
+    let base = format!("{}_{:04}{}_{}bars", pattern.style_name, pattern.seed, meter_suffix, bars);
 
     let mut path = dir.join(format!("{base}.mid"));
     let mut n = 0;
@@ -109,7 +110,7 @@ pub fn save_pattern(pattern: &Pattern, display_seed: i32) -> std::io::Result<Pat
         path = dir.join(format!("{base}_{n}.mid"));
     }
 
-    let bytes = encode_smf(pattern, display_seed);
+    let bytes = encode_smf(pattern);
     let mut f = std::fs::File::create(&path)?;
     f.write_all(&bytes)?;
     Ok(path)
@@ -153,7 +154,7 @@ mod tests {
             style_name: "screamo".into(),
             cell_name: String::new(),
         };
-        let bytes = encode_smf(&pattern, 7);
+        let bytes = encode_smf(&pattern);
 
         assert_eq!(&bytes[0..4], b"MThd");
         assert_eq!(u32::from_be_bytes(bytes[4..8].try_into().unwrap()), 6);

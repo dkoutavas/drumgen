@@ -17,7 +17,7 @@ use worker::{GenRequest, GenWorker};
 
 use engine::midi_math::PPQ;
 
-const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
+pub(crate) const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
 const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
 // Generative is always on: the engine re-realizes a probability grid per seed
 // (so the dice re-rolls the groove) and falls back to fixed cells otherwise.
@@ -80,8 +80,6 @@ struct Drumgen {
     /// GUI-readable snapshot of the newest pattern. The audio thread publishes
     /// with try_lock (never blocks); the editor locks briefly once per frame.
     pattern_view: Arc<Mutex<Arc<Pattern>>>,
-    /// Set when a new pattern arrived but the view lock was contended.
-    view_dirty: bool,
     /// Manager parked here between `default()` and `initialize()` (then moved
     /// into the worker so the cell library is parsed exactly once).
     gen_manager: Option<GenerationManager>,
@@ -134,7 +132,9 @@ impl Default for Drumgen {
             params::fill_of(snap.fill),
         );
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
-        let current = Arc::new(Pattern::from_assemble(&res, 0, style_name, String::new()));
+        let current = Arc::new(Pattern::from_assemble(
+            &res, 0, snap.seed as u64, style_name, String::new(),
+        ));
 
         let pattern_view = Arc::new(Mutex::new(current.clone()));
 
@@ -143,7 +143,6 @@ impl Default for Drumgen {
             current,
             pending: None,
             pattern_view,
-            view_dirty: false,
             gen_manager: Some(gen),
             worker: None,
             scratch: Vec::with_capacity(4096),
@@ -252,7 +251,9 @@ impl Plugin for Drumgen {
                 if let Some(p) = worker.recv_blocking() {
                     self.current = p;
                     // Not the audio thread yet — a plain lock is fine here.
-                    *self.pattern_view.lock().unwrap() = self.current.clone();
+                    // A poisoned lock (editor panicked) still yields the slot.
+                    *self.pattern_view.lock().unwrap_or_else(|e| e.into_inner()) =
+                        self.current.clone();
                 }
                 self.requested = desired;
                 self.last_desired = desired;
@@ -280,23 +281,29 @@ impl Plugin for Drumgen {
         if let Some(w) = &self.worker {
             if let Some(p) = w.try_recv_latest() {
                 self.pending = Some(p);
-                self.view_dirty = true;
             }
         }
         // Publish the newest pattern for the GUI. try_lock so the audio thread
-        // never blocks on the editor; a contended frame retries next buffer
-        // (view_dirty), falling back to `current` once pending was swapped in.
-        if self.view_dirty {
-            if let Ok(mut view) = self.pattern_view.try_lock() {
-                *view = self.pending.as_ref().unwrap_or(&self.current).clone();
-                self.view_dirty = false;
+        // never blocks on the editor; a contended buffer just retries next
+        // buffer. Runs unconditionally — an Arc clone when the slot is stale,
+        // effectively a refcount touch when it already holds the newest.
+        {
+            let newest = self.pending.as_ref().unwrap_or(&self.current);
+            match self.pattern_view.try_lock() {
+                Ok(mut view) => *view = newest.clone(),
+                // Editor thread panicked while holding the guard: the data is
+                // just an Arc, still valid — keep publishing instead of dying.
+                Err(std::sync::TryLockError::Poisoned(p)) => *p.into_inner() = newest.clone(),
+                Err(std::sync::TryLockError::WouldBlock) => {}
             }
         }
 
         // 2. Snapshot transport (scope the borrow so it releases before emitting).
         let (playing, tempo, sample_rate, pos_beats, pos_samples) = {
             let transport = context.transport();
-            let t = transport.tempo.unwrap_or(120.0);
+            // Fall back to the last-known tempo (not a hard 120) when the host
+            // reports none, so a stopped-transport SAVE .MID keeps the real BPM.
+            let t = transport.tempo.unwrap_or(self.requested.tempo as f64);
             (
                 transport.playing,
                 if t <= 0.0 { 120.0 } else { t },
@@ -321,13 +328,16 @@ impl Plugin for Drumgen {
             || (desired.swing - self.requested.swing).abs() > 1e-4
             || (desired.tempo - self.requested.tempo).abs() > 1.0;
 
+        // `requested` is only advanced when the worker ACCEPTED the request; a
+        // dropped send (full queue) leaves it stale so the change is re-detected
+        // and re-sent next buffer instead of silently ignored forever.
         if discrete_changed {
             let g = self.next_gen();
-            if let Some(w) = &self.worker {
-                w.request(desired.to_request(g));
+            let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
+            if sent {
+                self.requested = desired;
+                self.settle_remaining = 0;
             }
-            self.requested = desired;
-            self.settle_remaining = 0;
         } else if continuous_changed {
             if desired.changed(&self.last_desired) {
                 self.settle_remaining = self.settle_samples;
@@ -335,10 +345,10 @@ impl Plugin for Drumgen {
             self.settle_remaining -= num_samples;
             if self.settle_remaining <= 0 {
                 let g = self.next_gen();
-                if let Some(w) = &self.worker {
-                    w.request(desired.to_request(g));
+                let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
+                if sent {
+                    self.requested = desired;
                 }
-                self.requested = desired;
             }
         }
         self.last_desired = desired;

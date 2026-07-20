@@ -187,10 +187,10 @@ fn grid_cells(pattern: &Pattern) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
     let mut grid = [[0u8; MAX_COLS]; GRID_LANES];
     let start = *pattern.bar_starts.first().unwrap_or(&0);
     let end = pattern.bar_starts.get(1).copied().unwrap_or(pattern.total_ticks);
-    let sixteenth = (PPQ / 4).max(1);
+    let sixteenth = PPQ / 4;
     let len = (end - start).max(1);
-    // ponytail: 5/4 bars have 20 sixteenths; the view truncates to 16. A bar
-    // pager / horizontal squeeze is polish for later.
+    // ponytail: 5/4 (20) and 6/4 (24) bars exceed 16 sixteenths; the view
+    // truncates to 16. A bar pager / horizontal squeeze is polish for later.
     let ncols = ((len + sixteenth - 1) / sixteenth).clamp(1, MAX_COLS as i64) as usize;
     for ev in &pattern.events {
         if !ev.is_note_on || ev.tick < start || ev.tick >= end {
@@ -207,7 +207,9 @@ fn grid_cells(pattern: &Pattern) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
 }
 
 /// Render the bar-1 step grid with a "what am I hearing" header above it.
-fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, param_seed: i32) {
+/// Everything shown — style, meter, bars, seed — comes from the SAME pattern
+/// snapshot, so the labels always match the notes (no param-vs-snapshot race).
+fn step_grid(ui: &mut egui::Ui, pattern: &Pattern) {
     let (grid, ncols) = grid_cells(pattern);
     let (num, den) = pattern
         .time_signatures
@@ -225,12 +227,14 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, param_seed: i32) {
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.label(
-                egui::RichText::new(format!("BAR 1/{}  SEED {:04}", total_bars, param_seed))
+                egui::RichText::new(format!("BAR 1/{}  SEED {:04}", total_bars, pattern.seed))
                     .color(DIM),
             );
         });
     });
 
+    // Beat-pulse columns: one beat = 4 sixteenths in /4 meters, 2 in /8.
+    let pulse = if den == 8 { 2 } else { 4 };
     let gutter = 30.0;
     let avail = ui.available_width();
     let cell_w = ((avail - gutter) / ncols as f32).floor().clamp(6.0, 27.0);
@@ -255,13 +259,17 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, param_seed: i32) {
                 egui::vec2(cell_w - 2.0, cell_h - 2.0),
             );
             let v = grid[lane][col];
-            let color = match v {
-                96.. => ACCENT_A,
-                56..=95 => GRID_MID,
-                1..=55 => GRID_FAINT,
-                // Empty: mark beat columns so the pulse is readable.
-                0 if col % 4 == 0 => PANEL,
-                _ => BG,
+            let color = if v >= 96 {
+                ACCENT_A
+            } else if v >= 56 {
+                GRID_MID
+            } else if v >= 1 {
+                GRID_FAINT
+            } else if col % pulse == 0 {
+                // Empty beat column — mark it so the pulse is readable.
+                PANEL
+            } else {
+                BG
             };
             painter.rect_filled(cell, 0.0, color);
         }
@@ -311,6 +319,22 @@ mod tests {
     }
 
     #[test]
+    fn lane_of_covers_every_instrument_note() {
+        // lane_of hardcodes note numbers; this pins it to the single source of
+        // truth (Instrument::midi_note) so a kit remap can't silently drop an
+        // instrument from the preview grid.
+        use crate::engine::cell::Instrument;
+        for inst in Instrument::ALL {
+            assert!(
+                lane_of(inst.midi_note()).is_some(),
+                "{:?} (note {}) has no grid lane",
+                inst,
+                inst.midi_note()
+            );
+        }
+    }
+
+    #[test]
     fn grid_cells_odd_meter_column_count() {
         let mut pat = test_pattern(vec![on(0, 36, 100)]);
         // One 7/8 bar = 7 eighths = 14 sixteenths = 7 * PPQ/2 ticks.
@@ -357,7 +381,7 @@ pub fn create(
             // Patterns arrive asynchronously from the worker; poll so the grid
             // refreshes without needing mouse movement.
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
-            let pattern = pattern_view.lock().unwrap().clone();
+            let pattern = pattern_view.lock().unwrap_or_else(|e| e.into_inner()).clone();
 
             egui::CentralPanel::default()
                 .frame(egui::Frame::default().fill(BG).inner_margin(8.0))
@@ -425,7 +449,7 @@ pub fn create(
                             .button("SAVE .MID")
                             .on_hover_text("write pattern to ~/drumgen_output");
                         if save.clicked() {
-                            ui_state.save_msg = match export::save_pattern(&pattern, params.seed.value()) {
+                            ui_state.save_msg = match export::save_pattern(&pattern) {
                                 Ok(path) => format!(
                                     "SAVED {}",
                                     path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
@@ -441,7 +465,7 @@ pub fn create(
                     ui.add_space(4.0);
 
                     // Step grid: what bar 1 actually plays.
-                    step_grid(ui, &pattern, params.seed.value());
+                    step_grid(ui, &pattern);
                 });
         },
     )

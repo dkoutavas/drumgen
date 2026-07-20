@@ -30,8 +30,8 @@ swaps in immediately.
 
 ## 2. Capture a loop as an editable MIDI clip
 
-Bitwig's retrospective capture only records notes from hardware controllers, not
-from plugins — so record it the explicit way:
+Bitwig has no retrospective MIDI capture, and plugin-generated notes aren't
+recorded just by playing — so record them the explicit way:
 
 1. Keep drumgen on Track A (temporarily bypass/remove Ugritone there so you're
    only routing notes).
@@ -69,6 +69,10 @@ Ugritone kits:
 ```bash
 yabridgectl sync        # re-create bridges after (re)installing Windows plugins
 ```
+
+(`yabridgectl` isn't on PATH on this machine — it lives wherever yabridge was
+unpacked, typically `~/.local/share/yabridge/yabridgectl`. Find it with
+`find ~ -name yabridgectl -type f 2>/dev/null` if the plain command errors.)
 
 Then rescan plugins in Bitwig (Settings → Locations → rescan). Sample-heavy kits
 load slowly the first time under Wine — raise the audio buffer if you get xruns

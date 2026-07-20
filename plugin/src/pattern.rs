@@ -36,6 +36,9 @@ pub struct Pattern {
     /// Monotonic generation counter — GUI rebakes its display when this changes.
     pub generation: u64,
     // ── metadata (status line / export) ──
+    /// The raw dice seed (the SEED param value), NOT the style-salted seed the
+    /// engine consumed — this is what the GUI and .mid export display, and it
+    /// always matches the events in THIS pattern (no param-vs-snapshot race).
     pub seed: u64,
     pub tempo: f64,
     pub style_name: String,
@@ -47,6 +50,7 @@ impl Pattern {
     pub fn from_assemble(
         res: &AssembleResult,
         generation: u64,
+        display_seed: u64,
         style_name: String,
         cell_name: String,
     ) -> Self {
@@ -84,7 +88,7 @@ impl Pattern {
             bar_starts,
             time_signatures: res.time_signatures.clone(),
             generation,
-            seed: res.seed,
+            seed: display_seed,
             tempo: res.tempo,
             style_name,
             cell_name,

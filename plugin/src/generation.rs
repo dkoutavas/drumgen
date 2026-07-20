@@ -14,9 +14,8 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// Manages pattern generation using the cell library.
 ///
 /// Owns the cell library and provides a high-level interface for generating
-/// patterns from plugin parameters. Currently synchronous (generation is fast
-/// enough for real-time parameter changes). Phase 3 will add a background
-/// thread with double-buffered pattern swap at bar boundaries.
+/// patterns from plugin parameters. Runs inside the `drumgen-gen` worker
+/// thread (worker.rs); the audio thread only swaps in finished `Pattern`s.
 pub struct GenerationManager {
     library: CellLibrary,
 }
@@ -58,11 +57,11 @@ impl GenerationManager {
         // only — the engine stays a faithful port that takes a raw seed.
         let salted = seed ^ fnv1a(style_name.as_bytes());
 
-        // Vary floor: styles with no probability cell would otherwise emit the
-        // identical MIDI every seed (the dice would only re-roll feel). A small
-        // vary gives their repeated bars per-seed motion; styles that already
-        // re-realize per seed are left untouched.
-        let vary = if self.library.style_has_prob(style_name) { 0.0 } else { 0.25 };
+        // Vary floor: when no probability cell is reachable (none in the pool,
+        // or a forced meter narrows selection to fixed cells only), the dice
+        // would only re-roll feel, never notes. A small vary gives repeated
+        // bars per-seed motion; styles that re-realize per seed are untouched.
+        let vary = if self.library.style_has_prob(style_name, meter) { 0.0 } else { 0.25 };
 
         assembler::assemble(
             &self.library,
@@ -143,15 +142,16 @@ mod tests {
         // plugin defaults (humanize 0.40, bars 4, seed 0, meter Auto).
         //
         // The alias styles (math/blood_brothers/dry_cleaning) are deduped at
-        // export time, and the Phase-7 character pass gave every shipped style
-        // either a probability cell or unique material — so this now asserts
-        // distinctness over genuinely different pools, not just the seed salt.
+        // export time. After the Phase-7 character pass most styles have a
+        // probability cell or unique material; black_metal/oxbow/unwound still
+        // lean on the seed salt + vary floor for their distinctness here.
         let gen = GenerationManager::new();
         let n = gen.num_styles();
         let streams: Vec<(String, Vec<(i64, crate::engine::cell::Instrument, i32)>)> = (0..n as i32)
             .map(|i| {
                 let name = gen.style_name(i as usize).unwrap_or("?").to_string();
-                let res = gen.generate(i, 0.40, 4, 0, 0.0, true, 120.0, (0, 0), 0);
+                // fill_every=4 matches the shipped FILL default ("Every 4").
+                let res = gen.generate(i, 0.40, 4, 0, 0.0, true, 120.0, (0, 0), 4);
                 (name, res.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect())
             })
             .collect();
@@ -169,6 +169,26 @@ mod tests {
             "{} identical style pairs at seed 0:\n{}",
             collisions.len(),
             collisions.join("\n")
+        );
+    }
+
+    #[test]
+    fn forced_meter_still_varies_per_seed() {
+        // Regression: style_has_prob used to ignore the meter, so forcing e.g.
+        // 7/8 on shellac (whose only prob cell is 4/4) selected a single fixed
+        // cell with vary=0.0 — every seed produced byte-identical notes and
+        // the dice only re-rolled feel. The vary floor must engage there.
+        let gen = GenerationManager::new();
+        let idx = gen.style_names().iter().position(|s| s == "shellac").expect("shellac exists") as i32;
+        let key = |seed: u64| -> Vec<(i64, crate::engine::cell::Instrument)> {
+            // humanize 0.0 isolates note content from feel.
+            gen.generate(idx, 0.0, 4, seed, 0.0, true, 120.0, (7, 8), 0)
+                .events.iter().map(|e| (e.tick, e.instrument)).collect()
+        };
+        let base = key(0);
+        assert!(
+            (1..8).any(|s| key(s) != base),
+            "dice must change notes under a forced meter with no matching prob cell"
         );
     }
 

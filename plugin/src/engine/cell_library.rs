@@ -238,10 +238,22 @@ impl CellLibrary {
         fills
     }
 
-    /// True if the style's pool contains at least one probability cell (i.e.
-    /// the style already varies per seed without help).
-    pub fn style_has_prob(&self, style: &str) -> bool {
-        self.get_pool(style).iter().any(|c| c.is_probability())
+    /// True if the style's pool has a probability cell REACHABLE under the
+    /// given meter ((0,0) = Auto = any). Mirrors assemble()'s meter filter:
+    /// when a forced meter narrows selection to fixed cells only, realization
+    /// can't vary notes per seed and the caller's vary floor must engage.
+    pub fn style_has_prob(&self, style: &str, meter: (i32, i32)) -> bool {
+        let pool = self.get_pool(style);
+        if meter == (0, 0) {
+            return pool.iter().any(|c| c.is_probability());
+        }
+        let ts_match: Vec<&&Cell> = pool.iter().filter(|c| c.time_sig == meter).collect();
+        if ts_match.is_empty() {
+            // assemble() falls back to the full pool when nothing matches.
+            pool.iter().any(|c| c.is_probability())
+        } else {
+            ts_match.iter().any(|c| c.is_probability())
+        }
     }
 
     /// Get all available style names.

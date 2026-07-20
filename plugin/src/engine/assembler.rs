@@ -446,8 +446,15 @@ pub fn assemble(
     // Fill selection mirrors Python assemble(): tag-overlap score against the
     // chosen cell, RNG tie-break among the top scorers. This consumes the RNG
     // before grid realization, same as Python's ordering.
+    // Fills must match the RESOLVED meter — a 4/4 fill dropped into a 3/4 bar
+    // pushes its beat-4 hits past the bar end (hung notes / next-bar doubling).
+    // No matching fill = no fill for this pattern, gracefully.
     let fill_cell: Option<&Cell> = if fill_every > 0 {
-        let fills = library.get_fill_cells();
+        let fills: Vec<&Cell> = library
+            .get_fill_cells()
+            .into_iter()
+            .filter(|f| f.time_sig == (num, den))
+            .collect();
         if fills.is_empty() {
             None
         } else {
@@ -478,7 +485,7 @@ pub fn assemble(
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
 
-        let is_fill = fill_cell.is_some() && bar_number % fill_every.max(1) == 0;
+        let is_fill = fill_cell.is_some() && bar_number % fill_every == 0;
 
         let (mut active_hits, active_cell, cell_bar) = if is_fill {
             let f = fill_cell.unwrap();
@@ -980,6 +987,28 @@ mod tests {
         let (head_b, tail_b) = split(&with_fill);
         assert_eq!(head_a, head_b, "non-fill bars must be untouched by fill_every");
         assert_ne!(tail_a, tail_b, "the fill bar must actually change");
+    }
+
+    #[test]
+    fn test_fill_skipped_on_meter_mismatch() {
+        // All shipped fill cells are 4/4. A 3/4 groove must NOT receive one —
+        // a 4/4 fill's beat-4 hits would land at/past the 3/4 bar end (tick >=
+        // total_ticks on the last bar), producing hung notes and next-bar
+        // doubling. With no meter-matched fill the output must be identical to
+        // fill-off (the skipped selection also consumes no RNG).
+        let lib = CellLibrary::new();
+        let run = |fill_every: i32| {
+            assemble(&lib, None, Some("driving_3_4"), 4, 120.0, (3, 4), Some(0.0), 0.0, fill_every, 42, 0.0, false)
+        };
+        let a = run(0);
+        let b = run(4);
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument, i32)> {
+            r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
+        };
+        assert_eq!(key(&a), key(&b), "3/4 groove must skip the 4/4-only fills entirely");
+        // And nothing may sit at/past the loop end regardless.
+        let total = 4 * 3 * PPQ;
+        assert!(b.events.iter().all(|e| e.tick < total), "no event at/past total_ticks");
     }
 
     #[test]

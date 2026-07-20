@@ -57,15 +57,19 @@ impl GenWorker {
         Self { req_tx, pat_rx, handle: Some(handle) }
     }
 
-    /// Audio-thread safe: never blocks. On a full queue the request is dropped
-    /// (process() will resend current params next buffer — latest-wins). A
-    /// Disconnected error means the worker died — log it, because a dead worker
-    /// presents as "the pattern is frozen", which is easy to misdiagnose.
-    pub fn request(&self, req: GenRequest) {
-        if let Err(crossbeam_channel::TrySendError::Disconnected(_)) =
-            self.req_tx.try_send(Msg::Generate(req))
-        {
-            nih_plug::nih_log!("drumgen: generation worker is gone — pattern updates are frozen");
+    /// Audio-thread safe: never blocks. Returns whether the request was
+    /// accepted — on a full queue (or dead worker) it is dropped and the caller
+    /// must NOT record it as sent, so change detection re-sends next buffer.
+    /// A Disconnected error means the worker died — log it, because a dead
+    /// worker presents as "the pattern is frozen", easy to misdiagnose.
+    pub fn request(&self, req: GenRequest) -> bool {
+        match self.req_tx.try_send(Msg::Generate(req)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_)) => false,
+            Err(TrySendError::Disconnected(_)) => {
+                nih_plug::nih_log!("drumgen: generation worker is gone — pattern updates are frozen");
+                false
+            }
         }
     }
 
@@ -117,7 +121,9 @@ fn worker_loop(
             req.meter, req.fill_every,
         );
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
-        let pattern = Arc::new(Pattern::from_assemble(&res, req.generation, style_name, String::new()));
+        let pattern = Arc::new(Pattern::from_assemble(
+            &res, req.generation, req.seed, style_name, String::new(),
+        ));
 
         // Publish latest-wins: on a full slot, evict the stale pattern and retry.
         let mut to_send = pattern;

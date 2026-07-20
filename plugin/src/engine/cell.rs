@@ -37,6 +37,17 @@ pub enum Instrument {
 }
 
 impl Instrument {
+    /// Every variant — for exhaustive iteration (e.g. the GUI's lane-map sync
+    /// test, which pins that no instrument's note falls off the step grid).
+    pub const ALL: [Instrument; 25] = [
+        Self::Kick, Self::Snare, Self::SnareRim, Self::SnareGhost,
+        Self::TomHigh, Self::TomMidHigh, Self::TomMid, Self::TomLow, Self::TomFloor,
+        Self::HihatClosed, Self::HihatOpen, Self::HihatWideOpen, Self::HihatPedal,
+        Self::Crash1, Self::Crash1Choke, Self::Crash2, Self::Crash2Choke,
+        Self::Ride, Self::RideBell, Self::RideCrash,
+        Self::China, Self::China2, Self::Splash, Self::FxCymbal1, Self::FxCymbal2,
+    ];
+
     /// Parse from a snake_case string (matching Python instrument names).
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
