@@ -162,11 +162,44 @@ fn pixel_knob(ui: &mut egui::Ui, setter: &ParamSetter, label: &str, p: &FloatPar
     });
 }
 
+/// Draggable seed readout: horizontal/vertical drag scrubs the SEED param.
+/// `acc` carries sub-pixel drag remainder across frames (slow drags register).
+fn seed_drag(ui: &mut egui::Ui, setter: &ParamSetter, p: &IntParam, acc: &mut f32) {
+    ui.vertical(|ui| {
+        ui.label(egui::RichText::new("SEED").color(DIM));
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(64.0, 24.0), egui::Sense::drag());
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, PANEL);
+        painter.rect_stroke(rect, 0.0, egui::Stroke::new(2.0f32, TEXT), egui::StrokeKind::Inside);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{:04}", p.value()),
+            egui::FontId::proportional(8.0),
+            TEXT,
+        );
+        if resp.dragged() {
+            *acc += resp.drag_delta().x - resp.drag_delta().y;
+            let steps = *acc as i32;
+            if steps != 0 {
+                *acc -= steps as f32;
+                let next = (p.value() + steps).rem_euclid(10000);
+                setter.begin_set_parameter(p);
+                setter.set_parameter(p, next);
+                setter.end_set_parameter(p);
+            }
+        } else {
+            *acc = 0.0;
+        }
+        resp.on_hover_text("drag to scrub seed");
+    });
+}
+
 // ── Step-grid pattern preview ──
 
 const GRID_LANES: usize = 6;
 const LANE_LABELS: [&str; GRID_LANES] = ["CRA", "RID", "HAT", "TOM", "SNR", "KCK"];
-const MAX_COLS: usize = 16;
+const MAX_COLS: usize = 24; // covers every shipped meter (6/4 = 24 sixteenths)
 
 /// GM drum note → grid lane (top to bottom: crash, ride, hats, toms, snare, kick).
 fn lane_of(note: u8) -> Option<usize> {
@@ -189,8 +222,6 @@ fn grid_cells(pattern: &Pattern) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
     let end = pattern.bar_starts.get(1).copied().unwrap_or(pattern.total_ticks);
     let sixteenth = PPQ / 4;
     let len = (end - start).max(1);
-    // ponytail: 5/4 (20) and 6/4 (24) bars exceed 16 sixteenths; the view
-    // truncates to 16. A bar pager / horizontal squeeze is polish for later.
     let ncols = ((len + sixteenth - 1) / sixteenth).clamp(1, MAX_COLS as i64) as usize;
     for ev in &pattern.events {
         if !ev.is_note_on || ev.tick < start || ev.tick >= end {
@@ -226,10 +257,7 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern) {
                 .color(ACCENT_B),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(format!("BAR 1/{}  SEED {:04}", total_bars, pattern.seed))
-                    .color(DIM),
-            );
+            ui.label(egui::RichText::new(format!("BAR 1/{}", total_bars)).color(DIM));
         });
     });
 
@@ -343,6 +371,21 @@ mod tests {
             vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 7, denominator: 8 }];
         let (_, ncols) = grid_cells(&pat);
         assert_eq!(ncols, 14);
+
+        // 5/4 = 20 sixteenths and 6/4 = 24 must fit without truncation.
+        let mut pat = test_pattern(vec![on(0, 36, 100)]);
+        pat.bar_starts = vec![0, 5 * PPQ, 10 * PPQ];
+        pat.time_signatures =
+            vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 5, denominator: 4 }];
+        let (_, ncols) = grid_cells(&pat);
+        assert_eq!(ncols, 20);
+
+        let mut pat = test_pattern(vec![on(0, 36, 100)]);
+        pat.bar_starts = vec![0, 6 * PPQ, 12 * PPQ];
+        pat.time_signatures =
+            vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 6, denominator: 4 }];
+        let (_, ncols) = grid_cells(&pat);
+        assert_eq!(ncols, 24);
     }
 
     #[test]
@@ -361,10 +404,13 @@ mod tests {
     }
 }
 
-/// Editor-local UI state (not persisted): the last SAVE .MID outcome.
+/// Editor-local UI state (not persisted).
 #[derive(Default)]
 struct UiState {
+    /// Last SAVE .MID outcome.
     save_msg: String,
+    /// Sub-pixel remainder for the SEED drag widget.
+    seed_acc: f32,
 }
 
 pub fn create(
@@ -445,6 +491,7 @@ pub fn create(
                             setter.set_parameter(&params.seed, next);
                             setter.end_set_parameter(&params.seed);
                         }
+                        seed_drag(ui, setter, &params.seed, &mut ui_state.seed_acc);
                         let save = ui
                             .button("SAVE .MID")
                             .on_hover_text("write pattern to ~/drumgen_output");

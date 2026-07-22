@@ -26,8 +26,9 @@ pub struct DrumgenParams {
     #[id = "swing"]
     pub swing: FloatParam,
 
-    /// Time signature. 0 = Auto (the style's native meter); otherwise forces a
-    /// meter, falling back gracefully if the style has no cell in it.
+    /// Time signature. 0 = Auto (follows the HOST's time signature, falling
+    /// back to the style's native meter when the host reports none); otherwise
+    /// forces a meter, falling back gracefully if the style has no cell in it.
     #[id = "meter"]
     pub meter: IntParam,
 
@@ -50,6 +51,13 @@ pub const METERS: [(i32, i32); 7] = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6,
 
 pub fn meter_of(index: i32) -> (i32, i32) {
     *METERS.get(index as usize).unwrap_or(&(0, 0))
+}
+
+/// Resolve the METER param to an effective meter: Auto (index 0) follows the
+/// host time signature; a forced index wins outright. (0,0) still means
+/// "style's native meter" downstream.
+pub fn effective_meter(index: i32, host_meter: (i32, i32)) -> (i32, i32) {
+    if index == 0 { host_meter } else { meter_of(index) }
 }
 
 fn meter_label(index: i32) -> String {

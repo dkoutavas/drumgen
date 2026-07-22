@@ -25,6 +25,9 @@ const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
 const GENERATIVE: bool = true;
 
 /// Snapshot of everything that determines the pattern, for change detection.
+/// `meter` is the EFFECTIVE meter: a forced param value, or — when the param
+/// is Auto — the host's time signature ((0,0) when the host reports none,
+/// which the engine treats as "style's native meter").
 #[derive(Clone, Copy)]
 struct ParamSnapshot {
     style: i32,
@@ -32,7 +35,7 @@ struct ParamSnapshot {
     bars: i32,
     seed: i32,
     swing: f32,
-    meter: i32,
+    meter: (i32, i32),
     fill: i32,
     tempo: f32,
 }
@@ -59,7 +62,7 @@ impl ParamSnapshot {
             swing: self.swing as f64,
             generative: GENERATIVE,
             tempo: self.tempo as f64,
-            meter: params::meter_of(self.meter),
+            meter: self.meter,
             fill_every: params::fill_of(self.fill),
             generation,
         }
@@ -119,7 +122,8 @@ impl Default for Drumgen {
             bars: params.bars.value(),
             seed: params.seed.value(),
             swing: params.swing.value(),
-            meter: params.meter.value(),
+            // Host meter unknown before process(); Auto resolves to (0,0).
+            meter: params::effective_meter(params.meter.value(), (0, 0)),
             fill: params.fill.value(),
             tempo: 120.0,
         };
@@ -128,7 +132,7 @@ impl Default for Drumgen {
         // the manager is then handed to the worker.
         let res = gen.generate(
             snap.style, snap.humanize as f64, snap.bars, snap.seed as u64, snap.swing as f64,
-            GENERATIVE, snap.tempo as f64, params::meter_of(snap.meter),
+            GENERATIVE, snap.tempo as f64, snap.meter,
             params::fill_of(snap.fill),
         );
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
@@ -161,14 +165,14 @@ impl Default for Drumgen {
 }
 
 impl Drumgen {
-    fn inputs(&self, tempo: f32) -> ParamSnapshot {
+    fn inputs(&self, tempo: f32, host_meter: (i32, i32)) -> ParamSnapshot {
         ParamSnapshot {
             style: self.params.style.value(),
             humanize: self.params.humanize.value(),
             bars: self.params.bars.value(),
             seed: self.params.seed.value(),
             swing: self.params.swing.value(),
-            meter: self.params.meter.value(),
+            meter: params::effective_meter(self.params.meter.value(), host_meter),
             fill: self.params.fill.value(),
             tempo,
         }
@@ -245,7 +249,7 @@ impl Plugin for Drumgen {
                 let worker = GenWorker::spawn(gen);
                 // Real transport tempo isn't known yet; first process() will
                 // regenerate if it differs (off the audio thread).
-                let desired = self.inputs(120.0);
+                let desired = self.inputs(120.0, (0, 0));
                 let g = self.next_gen();
                 worker.request(desired.to_request(g));
                 if let Some(p) = worker.recv_blocking() {
@@ -299,17 +303,24 @@ impl Plugin for Drumgen {
         }
 
         // 2. Snapshot transport (scope the borrow so it releases before emitting).
-        let (playing, tempo, sample_rate, pos_beats, pos_samples) = {
+        let (playing, tempo, sample_rate, pos_beats, pos_samples, host_meter) = {
             let transport = context.transport();
             // Fall back to the last-known tempo (not a hard 120) when the host
             // reports none, so a stopped-transport SAVE .MID keeps the real BPM.
             let t = transport.tempo.unwrap_or(self.requested.tempo as f64);
+            // Host time signature — drives METER Auto so the pattern follows
+            // the project's meter changes live.
+            let hm = match (transport.time_sig_numerator, transport.time_sig_denominator) {
+                (Some(n), Some(d)) if n > 0 && d > 0 => (n, d),
+                _ => (0, 0),
+            };
             (
                 transport.playing,
                 if t <= 0.0 { 120.0 } else { t },
                 transport.sample_rate as f64,
                 transport.pos_beats(),
                 transport.pos_samples(),
+                hm,
             )
         };
         let num_samples = buffer.samples() as i64;
@@ -318,7 +329,7 @@ impl Plugin for Drumgen {
         // Discrete params (style/bars/seed/meter) regenerate IMMEDIATELY so the
         // dice and pickers feel instant. Only the continuous knobs (humanize/
         // swing) and tempo use the settle debounce to avoid a regen storm on drag.
-        let desired = self.inputs(tempo as f32);
+        let desired = self.inputs(tempo as f32, host_meter);
         let discrete_changed = desired.style != self.requested.style
             || desired.bars != self.requested.bars
             || desired.seed != self.requested.seed
