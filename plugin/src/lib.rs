@@ -141,7 +141,7 @@ impl Default for Drumgen {
         );
         let style_name = gen.style_name(snap.style as usize).unwrap_or("").to_string();
         let current = Arc::new(Pattern::from_assemble(
-            &res, 0, snap.seed as u64, style_name, String::new(),
+            &res, 0, snap.seed as u64, style_name, String::new(), Vec::new(),
         ));
 
         let pattern_view = Arc::new(Mutex::new(current.clone()));

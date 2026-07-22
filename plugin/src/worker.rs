@@ -121,7 +121,7 @@ fn worker_loop(
         let res = if req.song > 0 {
             gen.generate_arrangement(
                 req.style, crate::params::song_str(req.song), req.humanize, req.seed,
-                req.swing, req.generative, req.tempo,
+                req.swing, req.generative, req.tempo, req.meter,
             )
         } else {
             gen.generate(
@@ -130,15 +130,26 @@ fn worker_loop(
             )
         };
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
-        // Song label rides in cell_name (unused by the GUI until the section
-        // display lands; stays empty in loop mode).
-        let song_name = if req.song > 0 {
-            crate::params::SONGS.get(req.song as usize).map(|(n, _)| n.to_string()).unwrap_or_default()
+        // Song label rides in cell_name; the section map lets the GUI name the
+        // viewed bar. Both stay empty in loop mode.
+        let (song_name, sections) = if req.song > 0 {
+            let name = crate::params::SONGS
+                .get(req.song as usize)
+                .map(|(n, _)| n.to_string())
+                .unwrap_or_default();
+            let home = if req.meter == (0, 0) { (4, 4) } else { req.meter };
+            let secs = crate::engine::assembler::parse_arrangement(
+                crate::params::song_str(req.song), home,
+            )
+            .into_iter()
+            .map(|sec| (sec.section_type, sec.bars))
+            .collect();
+            (name, secs)
         } else {
-            String::new()
+            (String::new(), Vec::new())
         };
         let pattern = Arc::new(Pattern::from_assemble(
-            &res, req.generation, req.seed, style_name, song_name,
+            &res, req.generation, req.seed, style_name, song_name, sections,
         ));
 
         // Publish latest-wins: on a full slot, evict the stale pattern and retry.

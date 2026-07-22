@@ -2684,6 +2684,213 @@ def _euclid_skramz_surge_4_4():
     }
 
 
+# ── Song Mode Phase A: the fill language ─────────────────────────────────────
+# Real-drummer fill vocabulary: dynamic arcs INTO the downbeat, drag/ruff
+# rudiments as ghost-pairs before accents, kit-navigation shapes (descending,
+# ascending, circular), the stop-fill (a hole before the eruption), and the
+# understated pickup. `into_*` tags are inert metadata for a future
+# next-section-aware picker. Rule: no cymbals mid-fill (china/crash only as
+# the final onset), no snare+tom on the same tick.
+
+
+def _fill_drag_crescendo_4_4():
+    """Ghost-pair drags into each beat, whole bar one crescendo ghost->accent."""
+    return {
+        "name": "fill_drag_crescendo_4_4",
+        "tags": ["fill", "drag", "rudiment", "snare", "posthardcore", "screamo", "into_chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (1, 0.5, "snare_ghost", "ghost"),
+            (1, 0.75, "snare_ghost", "ghost"),
+            (2, 0.0, "snare", "soft"),
+            (2, 0.5, "snare_ghost", "ghost"),
+            (2, 0.75, "snare_ghost", "ghost"),
+            (3, 0.0, "snare", "normal"),
+            (3, 0.25, "kick", "normal"),
+            (3, 0.5, "snare_ghost", "ghost"),
+            (3, 0.75, "snare_ghost", "ghost"),
+            (4, 0.0, "snare", "normal"),
+            (4, 0.25, "snare", "normal"),
+            (4, 0.5, "snare", "accent"),
+            (4, 0.75, "snare", "accent"),
+        ],
+    }
+
+
+def _fill_herta_tumble_4_4():
+    """Three-sixteenth herta groups (the 0.75 rest is the limp) tumbling
+    high tom to floor."""
+    return {
+        "name": "fill_herta_tumble_4_4",
+        "tags": ["fill", "herta", "toms", "descending", "math", "faraquet", "into_drive"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (1, 0.25, "snare", "soft"),
+            (1, 0.5, "snare", "soft"),
+            (2, 0.0, "tom_high", "soft"),
+            (2, 0.25, "tom_high", "normal"),
+            (2, 0.5, "tom_high", "normal"),
+            (3, 0.0, "tom_mid", "normal"),
+            (3, 0.25, "tom_mid", "normal"),
+            (3, 0.5, "tom_mid", "accent"),
+            (4, 0.0, "tom_floor", "accent"),
+            (4, 0.25, "tom_floor", "accent"),
+            (4, 0.5, "tom_floor", "accent"),
+            (4, 0.75, "kick", "accent"),
+        ],
+    }
+
+
+def _fill_stop_eruption_4_4():
+    """One big hit, a SILENT hole across beats 2-3, last-beat eruption.
+    Low humanize is load-bearing: ghost clustering must not refill the hole."""
+    return {
+        "name": "fill_stop_eruption_4_4",
+        "tags": ["fill", "stop", "dynamics", "screamo", "emoviolence", "into_blast"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.3,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (1, 0.0, "snare", "accent"),
+            (4, 0.0, "snare", "soft"),
+            (4, 0.25, "snare", "soft"),
+            (4, 0.5, "snare", "normal"),
+            (4, 0.75, "snare", "accent"),
+        ],
+    }
+
+
+def _fill_pickup_2beat_4_4():
+    """Groove holds beats 1-2, understated two-beat tom pickup."""
+    return {
+        "name": "fill_pickup_2beat_4_4",
+        "tags": ["fill", "pickup", "subtle", "verse", "posthardcore", "into_verse"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (2, 0.0, "snare", "accent"),
+            (2, 0.5, "kick", "normal"),
+            (3, 0.0, "snare", "soft"),
+            (3, 0.5, "snare", "soft"),
+            (4, 0.0, "tom_mid", "normal"),
+            (4, 0.25, "tom_mid", "normal"),
+            (4, 0.5, "tom_floor", "accent"),
+            (4, 0.75, "tom_floor", "accent"),
+        ],
+    }
+
+
+def _fill_circular_4_4():
+    """Four orbits snare->high->mid->floor, crescendo across the orbits —
+    the City of Caterpillar wall-of-toms."""
+    hits = []
+    orbit_vels = ["soft", "normal", "normal", "accent"]
+    for beat in range(1, 5):
+        vel = orbit_vels[beat - 1]
+        hits.append((beat, 0.0, "snare", vel))
+        hits.append((beat, 0.25, "tom_high", vel if beat > 1 else "soft"))
+        hits.append((beat, 0.5, "tom_mid", "accent" if beat >= 3 else vel))
+        hits.append((beat, 0.75, "tom_floor", "accent" if beat >= 3 else "normal"))
+    return {
+        "name": "fill_circular_4_4",
+        "tags": ["fill", "circular", "toms", "wall", "screamo", "city_of_caterpillar", "into_chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_ascending_lift_4_4():
+    """Rising pitch floor->high = rising tension into a bright section."""
+    return {
+        "name": "fill_ascending_lift_4_4",
+        "tags": ["fill", "ascending", "toms", "lift", "euro_screamo", "raein", "into_chorus", "into_build"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (2, 0.0, "snare", "soft"),
+            (2, 0.5, "kick", "normal"),
+            (3, 0.0, "tom_floor", "soft"),
+            (3, 0.25, "tom_floor", "soft"),
+            (3, 0.5, "tom_low", "normal"),
+            (3, 0.75, "tom_low", "normal"),
+            (4, 0.0, "tom_mid", "normal"),
+            (4, 0.25, "tom_mid", "normal"),
+            (4, 0.5, "tom_high", "accent"),
+            (4, 0.75, "tom_high", "accent"),
+        ],
+    }
+
+
+def _fill_decrescendo_ebb_4_4():
+    """REVERSE arc accent->ghost: thins out and ends near-silent so the next
+    quiet section enters exposed. Low humanize keeps clustering off."""
+    return {
+        "name": "fill_decrescendo_ebb_4_4",
+        "tags": ["fill", "decrescendo", "release", "dynamics", "atmospheric", "into_quiet", "into_breakdown"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.25,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "snare", "accent"),
+            (1, 0.25, "snare", "accent"),
+            (1, 0.5, "tom_floor", "normal"),
+            (2, 0.0, "snare", "normal"),
+            (2, 0.5, "snare_ghost", "ghost"),
+            (3, 0.0, "snare", "soft"),
+            (3, 0.5, "snare_ghost", "ghost"),
+            (4, 0.0, "snare_ghost", "ghost"),
+            (4, 0.5, "snare_ghost", "ghost"),
+        ],
+    }
+
+
+def _fill_ghost_ruff_snare_4_4():
+    """Ruff (two ghosts into an accent) on every beat, terminal china."""
+    return {
+        "name": "fill_ghost_ruff_snare_4_4",
+        "tags": ["fill", "ruff", "rudiment", "blast", "emoviolence", "screamo", "into_blast"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "fill",
+        "hits": [
+            (1, 0.0, "kick", "accent"),
+            (1, 0.5, "snare_ghost", "ghost"),
+            (1, 0.75, "snare_ghost", "ghost"),
+            (2, 0.0, "snare", "soft"),
+            (2, 0.5, "snare_ghost", "ghost"),
+            (2, 0.75, "snare_ghost", "ghost"),
+            (3, 0.0, "snare", "normal"),
+            (3, 0.5, "snare_ghost", "ghost"),
+            (3, 0.75, "snare_ghost", "ghost"),
+            (4, 0.0, "snare", "accent"),
+            (4, 0.25, "kick", "accent"),
+            (4, 0.5, "snare", "accent"),
+            (4, 0.75, "china", "accent"),
+        ],
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -2782,6 +2989,15 @@ CELLS = {cell["name"]: cell for cell in [
     _euclid_blackmetal_pulse_4_4(),
     _euclid_noise_polymeter_4_4(),
     _euclid_skramz_surge_4_4(),
+    # Song Mode Phase A: the fill language
+    _fill_drag_crescendo_4_4(),
+    _fill_herta_tumble_4_4(),
+    _fill_stop_eruption_4_4(),
+    _fill_pickup_2beat_4_4(),
+    _fill_circular_4_4(),
+    _fill_ascending_lift_4_4(),
+    _fill_decrescendo_ebb_4_4(),
+    _fill_ghost_ruff_snare_4_4(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")

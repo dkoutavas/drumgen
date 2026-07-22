@@ -80,8 +80,10 @@ impl GenerationManager {
     }
 
     /// Generate an arranged song pattern (Song Mode). Same style-name seed
-    /// salt as generate(). The default meter is 4/4 — song strings carry their
-    /// own per-section meters via @N/M, and the METER param is ignored here.
+    /// salt and vary floor as generate(). `meter` is the HOME meter for
+    /// sections without an @N/M override; (0,0) = Auto maps to 4/4 (the
+    /// engine divides by the denominator, so a real meter is mandatory).
+    #[allow(clippy::too_many_arguments)]
     pub fn generate_arrangement(
         &self,
         style_index: i32,
@@ -91,21 +93,25 @@ impl GenerationManager {
         swing: f64,
         generative: bool,
         tempo: f64,
+        meter: (i32, i32),
     ) -> AssembleResult {
         let style_name = self.library.style_by_index(style_index as usize)
             .unwrap_or("screamo");
         let salted = seed ^ fnv1a(style_name.as_bytes());
+        let home = if meter == (0, 0) { (4, 4) } else { meter };
+        // Vary floor mirrors generate(): pool-wide check (sections roam meters).
+        let vary = if self.library.style_has_prob(style_name, (0, 0)) { 0.0 } else { 0.25 };
 
         assembler::assemble_arrangement(
             &self.library,
             style_name,
             arrangement_str,
             tempo,
-            (4, 4),
+            home,
             Some(humanize),
             swing,
             salted,
-            0.0,
+            vary,
             generative,
         )
     }
@@ -208,11 +214,11 @@ mod tests {
             .map(|n| gen.style_names().iter().position(|s| s == n).expect("style exists") as i32)
             .collect();
         // (preset index, expected bars) — keep in sync with params::SONGS.
-        let expected = [(1, 20), (2, 16), (3, 16)];
+        let expected = [(1, 20), (2, 16), (3, 16), (4, 20), (5, 16), (6, 32), (7, 24)];
         for &(song, bars) in &expected {
             for &style in &styles {
                 let run = |seed: u64| {
-                    gen.generate_arrangement(style, song_str(song), 0.0, seed, 0.0, true, 120.0)
+                    gen.generate_arrangement(style, song_str(song), 0.0, seed, 0.0, true, 120.0, (0, 0))
                 };
                 let r = run(0);
                 assert!(!r.events.is_empty(), "song {} empty for style {}", song, style);
@@ -230,7 +236,7 @@ mod tests {
             }
         }
         // Stop/Go silence bars (3, 6, 9) must contain zero events at humanize 0.
-        let stopgo = gen.generate_arrangement(styles[0], song_str(3), 0.0, 0, 0.0, true, 120.0);
+        let stopgo = gen.generate_arrangement(styles[0], song_str(3), 0.0, 0, 0.0, true, 120.0, (0, 0));
         let bar_ticks = 4 * 480i64;
         for silent_bar in [3i64, 6, 9] {
             let (lo, hi) = ((silent_bar - 1) * bar_ticks, silent_bar * bar_ticks);
@@ -238,6 +244,22 @@ mod tests {
             assert_eq!(count, 0, "silence bar {} must be empty", silent_bar);
         }
         assert_eq!(SONGS[0].1, "", "index 0 must stay Off");
+    }
+
+    #[test]
+    fn song_sections_match_engine_output() {
+        // The GUI's section map (parse_arrangement) must agree with the bars
+        // the engine actually renders for every preset.
+        use crate::engine::assembler::parse_arrangement;
+        use crate::params::{song_str, SONGS};
+        let gen = GenerationManager::new();
+        let style = gen.style_names().iter().position(|s| s == "posthardcore").unwrap() as i32;
+        for song in 1..SONGS.len() as i32 {
+            let secs = parse_arrangement(song_str(song), (4, 4));
+            let sum: i32 = secs.iter().map(|x| x.bars).sum();
+            let r = gen.generate_arrangement(style, song_str(song), 0.0, 0, 0.0, true, 120.0, (0, 0));
+            assert_eq!(sum, r.total_bars, "preset {} section sum vs engine bars", song);
+        }
     }
 
     #[test]

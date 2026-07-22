@@ -251,15 +251,30 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize) {
         *view_bar = 0;
     }
     let (grid, ncols) = grid_cells(pattern, *view_bar);
+    // Meter of the VIEWED bar — song sections change meter mid-pattern.
+    let bar_number = (*view_bar + 1) as i32;
     let (num, den) = pattern
         .time_signatures
-        .first()
+        .iter()
+        .find(|ts| ts.bar_start <= bar_number && bar_number <= ts.bar_end)
+        .or(pattern.time_signatures.first())
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
+    // Section name of the viewed bar (song mode only; empty in loop mode).
+    let section = {
+        let mut cum = 0;
+        pattern
+            .sections
+            .iter()
+            .find(|(_, bars)| {
+                cum += bars;
+                bar_number <= cum
+            })
+            .map(|(name, _)| name.to_uppercase())
+    };
 
-    // Header states the *generated truth*: style + resolved meter (even when
-    // the METER param says Auto). BAR n/N is a pager — click to see the next
-    // bar of the pattern.
+    // Header states the *generated truth*: style + the VIEWED bar's meter and
+    // section. BAR n/N is a pager — click to see the next bar.
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(format!("{} {}/{}", pattern.style_name.to_uppercase(), num, den))
@@ -271,6 +286,9 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize) {
                 .on_hover_text("click: view next bar");
             if pager.clicked() {
                 *view_bar = (*view_bar + 1) % total_bars;
+            }
+            if let Some(sec) = section {
+                ui.label(egui::RichText::new(sec).color(DIM));
             }
         });
     });
@@ -335,6 +353,7 @@ mod tests {
             tempo: 120.0,
             style_name: "test".into(),
             cell_name: String::new(),
+            sections: Vec::new(),
         }
     }
 
@@ -477,23 +496,31 @@ pub fn create(
                         pixel_knob(ui, setter, "SWING", &params.swing);
                         ui.add_space(4.0);
 
-                        let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0);
-                        if db != 0 {
-                            let next = (params.bars.value() + db).clamp(1, 16);
-                            setter.begin_set_parameter(&params.bars);
-                            setter.set_parameter(&params.bars, next);
-                            setter.end_set_parameter(&params.bars);
-                        }
+                        // In song mode the arrangement string owns length and
+                        // fills; BARS and FILL go dead. METER stays live as
+                        // the song's home meter.
+                        let song_off = params::song_str(params.song.value()).is_empty();
+                        ui.add_enabled_ui(song_off, |ui| {
+                            let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0);
+                            if db != 0 {
+                                let next = (params.bars.value() + db).clamp(1, 16);
+                                setter.begin_set_parameter(&params.bars);
+                                setter.set_parameter(&params.bars, next);
+                                setter.end_set_parameter(&params.bars);
+                            }
+                        });
 
                         let dm = stepper(ui, "METER", &params.meter.to_string(), 40.0);
                         if dm != 0 {
                             step_int(setter, &params.meter, params.meter.value(), dm, params::METERS.len() as i32);
                         }
 
-                        let df = stepper(ui, "FILL", &params.fill.to_string(), 56.0);
-                        if df != 0 {
-                            step_int(setter, &params.fill, params.fill.value(), df, params::FILLS.len() as i32);
-                        }
+                        ui.add_enabled_ui(song_off, |ui| {
+                            let df = stepper(ui, "FILL", &params.fill.to_string(), 56.0);
+                            if df != 0 {
+                                step_int(setter, &params.fill, params.fill.value(), df, params::FILLS.len() as i32);
+                            }
+                        });
                     });
 
                     ui.add_space(4.0);

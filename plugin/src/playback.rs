@@ -96,6 +96,7 @@ mod tests {
             tempo: 120.0,
             style_name: String::new(),
             cell_name: String::new(),
+            sections: Vec::new(),
         }
     }
 

@@ -153,6 +153,7 @@ mod tests {
             tempo: 160.0,
             style_name: "screamo".into(),
             cell_name: String::new(),
+            sections: Vec::new(),
         };
         let bytes = encode_smf(&pattern);
 

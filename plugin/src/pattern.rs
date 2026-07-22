@@ -43,6 +43,9 @@ pub struct Pattern {
     pub tempo: f64,
     pub style_name: String,
     pub cell_name: String,
+    /// Song-mode section map: (section_type, bars) in order. Empty in loop
+    /// mode. The GUI walks this to label the viewed bar.
+    pub sections: Vec<(String, i32)>,
 }
 
 impl Pattern {
@@ -53,6 +56,7 @@ impl Pattern {
         display_seed: u64,
         style_name: String,
         cell_name: String,
+        sections: Vec<(String, i32)>,
     ) -> Self {
         let total_bars = res
             .time_signatures
@@ -92,6 +96,7 @@ impl Pattern {
             tempo: res.tempo,
             style_name,
             cell_name,
+            sections,
         }
     }
 

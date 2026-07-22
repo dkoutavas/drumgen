@@ -6843,6 +6843,95 @@
         ]
       ]
     },
+    "fill_ascending_lift_4_4": {
+      "name": "fill_ascending_lift_4_4",
+      "tags": [
+        "fill",
+        "ascending",
+        "toms",
+        "lift",
+        "euro_screamo",
+        "raein",
+        "into_chorus",
+        "into_build"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          3,
+          0.25,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "tom_low",
+          "normal"
+        ],
+        [
+          3,
+          0.75,
+          "tom_low",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.25,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "tom_high",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "tom_high",
+          "accent"
+        ]
+      ]
+    },
     "fill_blast_stutter_4_4": {
       "name": "fill_blast_stutter_4_4",
       "tags": [
@@ -7041,6 +7130,306 @@
         ]
       ]
     },
+    "fill_circular_4_4": {
+      "name": "fill_circular_4_4",
+      "tags": [
+        "fill",
+        "circular",
+        "toms",
+        "wall",
+        "screamo",
+        "city_of_caterpillar",
+        "into_chorus"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          1,
+          0.25,
+          "tom_high",
+          "soft"
+        ],
+        [
+          1,
+          0.5,
+          "tom_mid",
+          "soft"
+        ],
+        [
+          1,
+          0.75,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.25,
+          "tom_high",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          3,
+          0.25,
+          "tom_high",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "tom_mid",
+          "accent"
+        ],
+        [
+          3,
+          0.75,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "tom_high",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_mid",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "fill_decrescendo_ebb_4_4": {
+      "name": "fill_decrescendo_ebb_4_4",
+      "tags": [
+        "fill",
+        "decrescendo",
+        "release",
+        "dynamics",
+        "atmospheric",
+        "into_quiet",
+        "into_breakdown"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.25,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          1,
+          0.25,
+          "snare",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          4,
+          0.0,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ]
+      ]
+    },
+    "fill_drag_crescendo_4_4": {
+      "name": "fill_drag_crescendo_4_4",
+      "tags": [
+        "fill",
+        "drag",
+        "rudiment",
+        "snare",
+        "posthardcore",
+        "screamo",
+        "into_chorus"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          1,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          2,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          3,
+          0.25,
+          "kick",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          4,
+          0.25,
+          "snare",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "snare",
+          "accent"
+        ]
+      ]
+    },
     "fill_floor_tom_sparse": {
       "name": "fill_floor_tom_sparse",
       "tags": [
@@ -7147,6 +7536,206 @@
           6,
           0.5,
           "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "fill_ghost_ruff_snare_4_4": {
+      "name": "fill_ghost_ruff_snare_4_4",
+      "tags": [
+        "fill",
+        "ruff",
+        "rudiment",
+        "blast",
+        "emoviolence",
+        "screamo",
+        "into_blast"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          1,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          2,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "kick",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "china",
+          "accent"
+        ]
+      ]
+    },
+    "fill_herta_tumble_4_4": {
+      "name": "fill_herta_tumble_4_4",
+      "tags": [
+        "fill",
+        "herta",
+        "toms",
+        "descending",
+        "math",
+        "faraquet",
+        "into_drive"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.25,
+          "snare",
+          "soft"
+        ],
+        [
+          1,
+          0.5,
+          "snare",
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "tom_high",
+          "soft"
+        ],
+        [
+          2,
+          0.25,
+          "tom_high",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_high",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          3,
+          0.25,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "tom_mid",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "kick",
           "accent"
         ]
       ]
@@ -7261,6 +7850,81 @@
           4,
           0.75,
           "kick",
+          "accent"
+        ]
+      ]
+    },
+    "fill_pickup_2beat_4_4": {
+      "name": "fill_pickup_2beat_4_4",
+      "tags": [
+        "fill",
+        "pickup",
+        "subtle",
+        "verse",
+        "posthardcore",
+        "into_verse"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "snare",
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.25,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "tom_floor",
           "accent"
         ]
       ]
@@ -7498,6 +8162,63 @@
           0.5,
           "snare",
           "accent"
+        ],
+        [
+          4,
+          0.75,
+          "snare",
+          "accent"
+        ]
+      ]
+    },
+    "fill_stop_eruption_4_4": {
+      "name": "fill_stop_eruption_4_4",
+      "tags": [
+        "fill",
+        "stop",
+        "dynamics",
+        "screamo",
+        "emoviolence",
+        "into_blast"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.3,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          4,
+          0.25,
+          "snare",
+          "soft"
+        ],
+        [
+          4,
+          0.5,
+          "snare",
+          "normal"
         ],
         [
           4,

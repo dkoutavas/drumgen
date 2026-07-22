@@ -1789,6 +1789,22 @@ class TestStage1ShapedRandomness:
         b = assemble(style="posthardcore", bars=4, tempo=155, seed=11, generative=True)
         assert a["events"] == b["events"]
 
+    def test_fill_cells_no_stick_collisions(self):
+        # A fill must never ask one right hand to be in two places: no
+        # snare-family + tom-family hit on the same (bar, beat, sub).
+        snares = {"snare", "snare_rim", "snare_ghost"}
+        toms = {"tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor"}
+        from assembler import _normalize_hits
+        for name, cell in CELLS.items():
+            if cell.get("role") != "fill" or cell.get("type") in ("probability", "euclidean"):
+                continue
+            positions = {}
+            for bar, beat, sub, inst, _vel in _normalize_hits(cell):
+                positions.setdefault((bar, beat, sub), set()).add(inst)
+            for pos, insts in positions.items():
+                assert not (insts & snares and insts & toms), \
+                    f"fill '{name}' has snare+tom at {pos}: {insts}"
+
     def test_fills_exist_for_every_shipped_meter(self):
         from cell_library import CELLS as all_cells
         fill_meters = {tuple(c["time_sig"]) for c in all_cells.values() if c["role"] == "fill"}
