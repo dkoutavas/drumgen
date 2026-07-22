@@ -557,20 +557,19 @@ pub fn assemble(
     let is_prob = cell.is_probability();
     let is_euclid = cell.is_euclidean();
 
-    // Fill selection mirrors Python assemble(): tag-overlap score against the
-    // chosen cell, RNG tie-break among the top scorers. This consumes the RNG
-    // before grid realization, same as Python's ordering.
-    // Fills must match the RESOLVED meter — a 4/4 fill dropped into a 3/4 bar
-    // pushes its beat-4 hits past the bar end (hung notes / next-bar doubling).
-    // No matching fill = no fill for this pattern, gracefully.
-    let fill_cell: Option<&Cell> = if fill_every > 0 {
+    // Fill candidates mirror Python assemble(): meter-matched (a 4/4 fill in a
+    // 3/4 bar overflows the bar), tag-scored against the groove. The actual
+    // fill is drawn PER FILL BAR inside the loop so consecutive fill bars
+    // alternate; a single-cell top set falls back to all meter-matched fills.
+    // Scoring consumes no RNG, so toggling FILL no longer shifts realization.
+    let fill_candidates: Vec<&Cell> = if fill_every > 0 {
         let fills: Vec<&Cell> = library
             .get_fill_cells()
             .into_iter()
             .filter(|f| f.time_sig == (num, den))
             .collect();
         if fills.is_empty() {
-            None
+            Vec::new()
         } else {
             let scored: Vec<(usize, &Cell)> = fills
                 .iter()
@@ -578,11 +577,11 @@ pub fn assemble(
                 .collect();
             let best = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
             let top: Vec<&Cell> =
-                scored.into_iter().filter(|(s, _)| *s == best).map(|(_, c)| c).collect();
-            Some(top[rng.gen_range(0..top.len())])
+                scored.iter().filter(|(s, _)| *s == best).map(|(_, c)| *c).collect();
+            if top.len() > 1 { top } else { fills }
         }
     } else {
-        None
+        Vec::new()
     };
 
     let cell_hits = if is_prob {
@@ -592,20 +591,26 @@ pub fn assemble(
     } else {
         cell.hits.clone()
     };
-    let fill_hits: Vec<Hit> = fill_cell.map(|f| f.hits.clone()).unwrap_or_default();
 
     let mut events = Vec::new();
     let mut seen_cell_bars = std::collections::HashSet::new();
     let section_type = infer_section_type(&cell.tags);
+    let mut last_fill: Option<usize> = None;
 
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
 
-        let is_fill = fill_cell.is_some() && bar_number % fill_every == 0;
+        let is_fill = !fill_candidates.is_empty() && bar_number % fill_every.max(1) == 0;
 
         let (mut active_hits, active_cell, cell_bar) = if is_fill {
-            let f = fill_cell.unwrap();
-            (fill_hits.clone(), f, (bar_idx % f.num_bars) + 1)
+            let mut pick = rng.gen_range(0..fill_candidates.len());
+            // Avoid the same fill twice in a row when there is a choice.
+            if fill_candidates.len() > 1 && Some(pick) == last_fill {
+                pick = rng.gen_range(0..fill_candidates.len());
+            }
+            last_fill = Some(pick);
+            let f = fill_candidates[pick];
+            (f.hits.clone(), f, (bar_idx % f.num_bars) + 1)
         } else if is_prob || is_euclid {
             // Realized hits already carry correct output bar numbers.
             (cell_hits.clone(), cell, bar_number)

@@ -495,11 +495,13 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     is_prob = cell.get("type") == "probability"
     is_euclid = cell.get("type") == "euclidean"
 
-    fill_cell = None
+    # Fill candidates: meter-matched (a 4/4 fill dropped into a 3/4 bar pushes
+    # its beat-4 hits past the bar end), tag-scored against the groove. The
+    # actual fill is drawn PER FILL BAR inside the loop so consecutive fill
+    # bars alternate instead of repeating one choice; when the top-scored set
+    # is a single cell, fall back to all meter-matched fills for variety.
+    fill_candidates = []
     if fill_every > 0:
-        # Fills must match the pattern's meter — a 4/4 fill dropped into a 3/4
-        # bar pushes its beat-4 hits past the bar end (hung notes / next-bar
-        # doubling). No matching fill = no fill, gracefully.
         fill_cells = [f for f in get_fill_cells()
                       if tuple(f.get("time_sig", (4, 4))) == (num, den)]
         if fill_cells:
@@ -507,7 +509,7 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             scored = [(len(cell_tags & set(f.get("tags", []))), f) for f in fill_cells]
             best_score = max(s for s, _ in scored)
             top_fills = [f for s, f in scored if s == best_score]
-            fill_cell = rng.choice(top_fills)
+            fill_candidates = top_fills if len(top_fills) > 1 else fill_cells
 
     if is_prob:
         cell_hits = realize_probability_grid(cell, bars, rng)
@@ -515,19 +517,24 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         cell_hits = realize_euclidean(cell, bars, seed)
     else:
         cell_hits = _normalize_hits(cell)
-    fill_hits = _normalize_hits(fill_cell) if fill_cell else []
 
     events = []
     seen_cell_bars = set()
     section_type = infer_section_type(cell)
+    last_fill = None
 
     for bar_idx in range(bars):
         bar_number = bar_idx + 1
 
-        is_fill = fill_every > 0 and fill_cell and (bar_number % fill_every == 0)
+        is_fill = fill_every > 0 and fill_candidates and (bar_number % fill_every == 0)
 
         if is_fill:
-            active_hits = fill_hits
+            fill_cell = fill_candidates[rng.randrange(len(fill_candidates))]
+            # Avoid the same fill twice in a row when there is a choice.
+            if len(fill_candidates) > 1 and fill_cell is last_fill:
+                fill_cell = fill_candidates[rng.randrange(len(fill_candidates))]
+            last_fill = fill_cell
+            active_hits = _normalize_hits(fill_cell)
             active_cell = fill_cell
             cell_bar = (bar_idx % active_cell["num_bars"]) + 1
         elif is_prob or is_euclid:
