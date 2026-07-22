@@ -28,6 +28,8 @@ pub struct GenRequest {
     pub tempo: f64,
     pub meter: (i32, i32),
     pub fill_every: i32,
+    /// SONGS index; 0 = Off (loop mode), >0 = arranged song skeleton.
+    pub song: i32,
     pub generation: u64,
 }
 
@@ -116,13 +118,27 @@ fn worker_loop(
             }
         }
 
-        let res = gen.generate(
-            req.style, req.humanize, req.bars, req.seed, req.swing, req.generative, req.tempo,
-            req.meter, req.fill_every,
-        );
+        let res = if req.song > 0 {
+            gen.generate_arrangement(
+                req.style, crate::params::song_str(req.song), req.humanize, req.seed,
+                req.swing, req.generative, req.tempo,
+            )
+        } else {
+            gen.generate(
+                req.style, req.humanize, req.bars, req.seed, req.swing, req.generative,
+                req.tempo, req.meter, req.fill_every,
+            )
+        };
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
+        // Song label rides in cell_name (unused by the GUI until the section
+        // display lands; stays empty in loop mode).
+        let song_name = if req.song > 0 {
+            crate::params::SONGS.get(req.song as usize).map(|(n, _)| n.to_string()).unwrap_or_default()
+        } else {
+            String::new()
+        };
         let pattern = Arc::new(Pattern::from_assemble(
-            &res, req.generation, req.seed, style_name, String::new(),
+            &res, req.generation, req.seed, style_name, song_name,
         ));
 
         // Publish latest-wins: on a full slot, evict the stale pattern and retry.

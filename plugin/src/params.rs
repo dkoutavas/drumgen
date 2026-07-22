@@ -37,6 +37,11 @@ pub struct DrumgenParams {
     #[id = "fill"]
     pub fill: IntParam,
 
+    /// Song structure — index into SONGS. 0 = Off (loop mode); otherwise the
+    /// pattern is a whole arranged song skeleton (sections, dynamics, stops).
+    #[id = "song"]
+    pub song: IntParam,
+
     /// Editor window state (size / open) — persisted with the plugin state.
     #[persist = "editor-state"]
     pub editor_state: Arc<EguiState>,
@@ -79,6 +84,29 @@ fn fill_label(index: i32) -> String {
         0 => "Off".to_string(),
         n => format!("Every {}", n),
     }
+}
+
+/// Song structure presets: (stepper label, arrangement string). Index 0 = Off
+/// (loop mode). Strings use the engine's section vocabulary and were verified
+/// against SECTION_PREFERENCES + the style pools (see the Song Mode design).
+/// All 4/4 and fill-token-free until the fill-section engine change lands.
+pub const SONGS: [(&str, &str); 4] = [
+    ("Off", ""),
+    // 20 bars — the workhorse Fugazi/ATDI verse-chorus skeleton.
+    ("Verse/Chor", "2:intro 4:verse 4:chorus 4:verse 4:chorus 2:outro"),
+    // 16 bars — Daitro/City of Caterpillar: 8-bar crescendo (matches the
+    // 8-bar build cells) erupting into blast, heavy landing.
+    ("Skramz Arc", "2:intro 8:build 4:blast 2:breakdown"),
+    // 16 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
+    ("Stop/Go", "2:blast 1:silence 2:blast 1:silence 2:blast 1:silence 4:breakdown 3:chorus"),
+];
+
+pub fn song_str(index: i32) -> &'static str {
+    SONGS.get(index as usize).map(|(_, s)| *s).unwrap_or("")
+}
+
+fn song_label(index: i32) -> String {
+    SONGS.get(index as usize).map(|(n, _)| n.to_string()).unwrap_or_else(|| "Off".to_string())
 }
 
 impl DrumgenParams {
@@ -128,6 +156,9 @@ impl DrumgenParams {
             // Default "Every 4": a tasteful fill closing each 4-bar phrase.
             fill: IntParam::new("Fill", 2, IntRange::Linear { min: 0, max: (FILLS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(fill_label)),
+
+            song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: (SONGS.len() - 1) as i32 })
+                .with_value_to_string(Arc::new(song_label)),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
         }

@@ -37,6 +37,7 @@ struct ParamSnapshot {
     swing: f32,
     meter: (i32, i32),
     fill: i32,
+    song: i32,
     tempo: f32,
 }
 
@@ -47,6 +48,7 @@ impl ParamSnapshot {
             || self.seed != o.seed
             || self.meter != o.meter
             || self.fill != o.fill
+            || self.song != o.song
             || (self.humanize - o.humanize).abs() > 1e-4
             || (self.swing - o.swing).abs() > 1e-4
             // Tempo affects ms-based humanization; regenerate past a 1 BPM step.
@@ -64,6 +66,7 @@ impl ParamSnapshot {
             tempo: self.tempo as f64,
             meter: self.meter,
             fill_every: params::fill_of(self.fill),
+            song: self.song,
             generation,
         }
     }
@@ -125,6 +128,7 @@ impl Default for Drumgen {
             // Host meter unknown before process(); Auto resolves to (0,0).
             meter: params::effective_meter(params.meter.value(), (0, 0)),
             fill: params.fill.value(),
+            song: params.song.value(),
             tempo: 120.0,
         };
 
@@ -174,6 +178,7 @@ impl Drumgen {
             swing: self.params.swing.value(),
             meter: params::effective_meter(self.params.meter.value(), host_meter),
             fill: self.params.fill.value(),
+            song: self.params.song.value(),
             tempo,
         }
     }
@@ -334,7 +339,8 @@ impl Plugin for Drumgen {
             || desired.bars != self.requested.bars
             || desired.seed != self.requested.seed
             || desired.meter != self.requested.meter
-            || desired.fill != self.requested.fill;
+            || desired.fill != self.requested.fill
+            || desired.song != self.requested.song;
         let continuous_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
             || (desired.swing - self.requested.swing).abs() > 1e-4
             || (desired.tempo - self.requested.tempo).abs() > 1.0;

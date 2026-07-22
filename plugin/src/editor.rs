@@ -498,8 +498,12 @@ pub fn create(
 
                     ui.add_space(4.0);
 
-                    // DICE hero + SAVE + last save result.
+                    // SONG structure + DICE hero + SAVE + last save result.
                     ui.horizontal(|ui| {
+                        let ds = stepper(ui, "SONG", &params.song.to_string(), 80.0);
+                        if ds != 0 {
+                            step_int(setter, &params.song, params.song.value(), ds, params::SONGS.len() as i32);
+                        }
                         let dice = ui
                             .add_sized(
                                 [96.0, 40.0],
