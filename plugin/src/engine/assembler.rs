@@ -17,6 +17,12 @@ pub struct AssembleResult {
     pub total_bars: i32,
 }
 
+/// Seed-keyed rotation into a candidate cell list — the "dice" for fixed-cell
+/// styles. Deterministic per seed, so every dice press changes the groove.
+fn rotate_pick<'a>(list: &[&'a Cell], seed: u64) -> &'a Cell {
+    list[(seed as usize) % list.len()]
+}
+
 /// Velocity drift direction per section type.
 fn drift_direction(section_type: &str) -> &'static str {
     match section_type {
@@ -42,9 +48,12 @@ fn drift_offset(bar_index: i32, total_bars: i32, direction: &str) -> i32 {
 /// Validate physical constraints at each position in a bar.
 /// Keeps highest-priority cymbal, highest-priority stick, and all feet.
 fn validate_physical_constraints(bar_hits: &[Hit]) -> Vec<Hit> {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    let mut positions: HashMap<(i32, i64), Vec<&Hit>> = HashMap::new();
+    // BTreeMap (not HashMap): group iteration order must be deterministic because
+    // the surviving hits feed the per-hit humanize RNG stream downstream. With a
+    // random HashMap order the same seed produced different MIDI across runs.
+    let mut positions: BTreeMap<(i32, i64), Vec<&Hit>> = BTreeMap::new();
     for hit in bar_hits {
         // Use integer sub for grouping (avoid float comparison issues)
         let sub_key = (hit.sub * 1000.0) as i64;
@@ -90,29 +99,90 @@ fn validate_physical_constraints(bar_hits: &[Hit]) -> Vec<Hit> {
     filtered
 }
 
-/// Realize a probability grid into concrete hits.
+// ── Stage 1: shaped randomness (mirrors assembler.py) ──────────────────────
+// Syncopation guard rails (Witek et al. 2014: groove pleasure peaks at MEDIUM
+// syncopation). If a bar's kick/snare offbeat ratio falls outside the band the
+// bar is re-rolled once; the second roll is kept regardless.
+const SYNC_LO: f64 = 0.10;
+const SYNC_HI: f64 = 0.60;
+// Tension envelope: mid-band probabilities ramp across the pattern so later
+// bars run slightly hotter — a shaped arc instead of a flat texture.
+const TENSION_START: f64 = 0.88;
+const TENSION_END: f64 = 1.10;
+
+fn syncopation_ok(bar_hits: &[Hit]) -> bool {
+    let core: Vec<&Hit> = bar_hits
+        .iter()
+        .filter(|h| matches!(h.instrument, Instrument::Kick | Instrument::Snare))
+        .collect();
+    if core.len() < 3 {
+        return true;
+    }
+    let off = core.iter().filter(|h| h.sub != 0.0).count() as f64 / core.len() as f64;
+    (SYNC_LO..=SYNC_HI).contains(&off)
+}
+
+/// One realization attempt for one bar of a probability grid.
+#[allow(clippy::too_many_arguments)]
+fn roll_bar(
+    cell: &Cell,
+    cell_bar: i32,
+    output_bar: i32,
+    pass_num: i32,
+    total_passes: i32,
+    tension: f64,
+    rng: &mut ChaCha8Rng,
+) -> Vec<Hit> {
+    let mut bar_hits = Vec::new();
+    let mut prev_fired = false;
+    for entry in &cell.grid {
+        if entry.bar != cell_bar {
+            continue;
+        }
+        if !entry.condition.allows(pass_num, total_passes, prev_fired) {
+            prev_fired = false;
+            continue;
+        }
+        let p = if entry.probability > 0.15 && entry.probability < 0.85 {
+            (entry.probability * tension).min(1.0)
+        } else {
+            entry.probability
+        };
+        let fired = rng.gen::<f64>() < p;
+        prev_fired = fired;
+        if fired {
+            bar_hits.push(Hit {
+                bar: output_bar,
+                beat: entry.beat,
+                sub: entry.sub,
+                instrument: entry.instrument,
+                velocity_level: entry.velocity_level,
+            });
+        }
+    }
+    bar_hits
+}
+
+/// Realize a probability grid into concrete hits. Trig conditions gate
+/// entries by cell pass, a tension envelope ramps mid-band probabilities, and
+/// a syncopation guard re-rolls a bar once when kick/snare leave the sweet
+/// spot. Mirrors Python realize_probability_grid.
 fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec<Hit> {
     let cell_num_bars = cell.num_bars;
+    let total_passes = (bars + cell_num_bars - 1) / cell_num_bars;
     let mut all_hits = Vec::new();
 
     for bar_idx in 0..bars {
         let output_bar = bar_idx + 1;
         let cell_bar = (bar_idx % cell_num_bars) + 1;
+        let pass_num = bar_idx / cell_num_bars + 1;
+        let tension = TENSION_START
+            + (TENSION_END - TENSION_START) * (bar_idx as f64 / (bars - 1).max(1) as f64);
 
-        let mut bar_hits = Vec::new();
-        for entry in &cell.grid {
-            if entry.bar != cell_bar {
-                continue;
-            }
-            if rng.gen::<f64>() < entry.probability {
-                bar_hits.push(Hit {
-                    bar: output_bar,
-                    beat: entry.beat,
-                    sub: entry.sub,
-                    instrument: entry.instrument,
-                    velocity_level: entry.velocity_level,
-                });
-            }
+        let mut bar_hits =
+            roll_bar(cell, cell_bar, output_bar, pass_num, total_passes, tension, rng);
+        if !syncopation_ok(&bar_hits) {
+            bar_hits = roll_bar(cell, cell_bar, output_bar, pass_num, total_passes, tension, rng);
         }
 
         bar_hits = validate_physical_constraints(&bar_hits);
@@ -122,11 +192,65 @@ fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec
     all_hits
 }
 
+/// Euclidean rhythm, downbeat-anchored: slot i is an onset iff
+/// (i * pulses) mod steps < pulses. Equivalent to Bjorklund up to rotation,
+/// with slot 0 always an onset (E(3,8) -> x..x..x.). Mirrors Python.
+fn euclid_pattern(pulses: i32, steps: i32) -> Vec<bool> {
+    (0..steps).map(|i| (i * pulses) % steps < pulses).collect()
+}
+
+/// Realize a Euclidean cell's per-limb patterns over the whole output.
+/// Each limb tiles its own `steps`-slot cycle across the pattern with NO bar
+/// reset (polymeter). `dice_rotate` limbs add a seed-derived rotation; anchor
+/// limbs stay put. Slots are sixteenths: 4 per beat in /4 meters, 2 per
+/// (eighth-)beat in /8. Deterministic — consumes no RNG. Mirrors Python.
+fn realize_euclidean(cell: &Cell, bars: i32, seed: u64) -> Vec<Hit> {
+    let (num, den) = cell.time_sig;
+    let slots_per_beat: i32 = if den == 8 { 2 } else { 4 };
+    let spb = num * slots_per_beat;
+    let mut hits = Vec::new();
+
+    for (li, limb) in cell.limbs.iter().enumerate() {
+        let steps = limb.steps;
+        let pattern = euclid_pattern(limb.pulses, steps);
+        let mut rot = limb.rotation;
+        if limb.dice_rotate {
+            rot += ((seed >> li) % steps as u64) as i32;
+        }
+        for g in 0..(bars * spb) {
+            if pattern[((g + rot).rem_euclid(steps)) as usize] {
+                let bar = g / spb + 1;
+                let within = g % spb;
+                let beat = within / slots_per_beat + 1;
+                let sub = (within % slots_per_beat) as f64
+                    * if den == 8 { 0.5 } else { 0.25 };
+                hits.push(Hit {
+                    bar,
+                    beat,
+                    sub,
+                    instrument: limb.instrument,
+                    velocity_level: limb.velocity_level,
+                });
+            }
+        }
+    }
+
+    let mut all_hits = Vec::new();
+    for bar_number in 1..=bars {
+        let bar_hits: Vec<Hit> =
+            hits.iter().filter(|h| h.bar == bar_number).cloned().collect();
+        all_hits.extend(validate_physical_constraints(&bar_hits));
+    }
+    all_hits
+}
+
 /// Resolve conflicts in merged layer hits.
 fn resolve_layer_conflicts(merged_hits: &[Hit]) -> Vec<Hit> {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
-    let mut positions: HashMap<(i32, i32, i64), Vec<&Hit>> = HashMap::new();
+    // BTreeMap for deterministic group and instrument iteration (see the note in
+    // validate_physical_constraints — same seed must give the same MIDI).
+    let mut positions: BTreeMap<(i32, i32, i64), Vec<&Hit>> = BTreeMap::new();
     for hit in merged_hits {
         let sub_key = (hit.sub * 1000.0) as i64;
         positions.entry((hit.bar, hit.beat, sub_key)).or_default().push(hit);
@@ -136,7 +260,7 @@ fn resolve_layer_conflicts(merged_hits: &[Hit]) -> Vec<Hit> {
 
     for (_, hits) in &positions {
         // Deduplicate by instrument — keep highest velocity rank
-        let mut by_inst: HashMap<Instrument, &Hit> = HashMap::new();
+        let mut by_inst: BTreeMap<Instrument, &Hit> = BTreeMap::new();
         for &hit in hits {
             let existing = by_inst.get(&hit.instrument);
             if existing.is_none()
@@ -374,12 +498,16 @@ pub fn assemble(
     time_sig: (i32, i32),
     humanize: Option<f64>,
     swing: f64,
+    fill_every: i32,
     seed: u64,
     vary: f64,
-    generative: bool,
+    // Kept for Python-signature parity; selection no longer prefers prob cells
+    // (see the rotation comment below) and realization keys off the cell type.
+    _generative: bool,
 ) -> AssembleResult {
-    let (num, den) = time_sig;
-    let requested_ts = time_sig;
+    // Meter (0,0) means "Auto" — no meter filter, take the style's native meter.
+    let meter_filter: Option<(i32, i32)> = if time_sig == (0, 0) { None } else { Some(time_sig) };
+    let meter_ok = |c: &Cell| meter_filter.map_or(true, |m| c.time_sig == m);
 
     // Resolve cell
     let cell = if let Some(name) = cell_name {
@@ -391,33 +519,27 @@ pub fn assemble(
         if pool.is_empty() {
             library.get_pool("screamo").first().copied()
                 .expect("No cells available")
-        } else if generative {
-            // Prefer probability cells
-            let prob_match: Vec<&Cell> = pool.iter()
-                .filter(|c| c.is_probability() && c.time_sig == requested_ts)
-                .copied()
-                .collect();
-            if !prob_match.is_empty() {
-                prob_match[0]
-            } else {
-                let ts_match: Vec<&Cell> = pool.iter()
-                    .filter(|c| c.time_sig == requested_ts)
-                    .copied()
-                    .collect();
-                if !ts_match.is_empty() { ts_match[0] } else { pool[0] }
-            }
         } else {
-            let ts_match: Vec<&Cell> = pool.iter()
-                .filter(|c| c.time_sig == requested_ts)
-                .copied()
-                .collect();
-            if !ts_match.is_empty() { ts_match[0] } else { pool[0] }
+            // Rotate over the FULL meter-matched pool — deliberately ignoring
+            // `generative` here (Python's assemble prefers prob_match[0]; the
+            // rotation is plugin dice semantics, divergent since Phase 4b).
+            // The old prob-only filter collapsed styles onto shared single
+            // probability cells: rotate_pick over a 1-element list is
+            // seed-invariant, which made 13 of 31 styles bit-identical.
+            // Probability cells still re-realize per seed when rotation lands
+            // on one (is_probability path below).
+            let ts_match: Vec<&Cell> = pool.iter().filter(|c| meter_ok(c)).copied().collect();
+            if !ts_match.is_empty() { rotate_pick(&ts_match, seed) } else { rotate_pick(&pool, seed) }
         }
     } else {
         library.get_pool("screamo").first().copied()
             .expect("No cells available")
     };
 
+    // Meter truth: the loop's time signature is the CHOSEN cell's actual meter,
+    // not the requested one — otherwise the recorded MIDI's bar grid lies when a
+    // fallback picked a different-meter cell.
+    let (num, den) = cell.time_sig;
     let time_signatures = vec![TimeSigEntry {
         bar_start: 1,
         bar_end: bars,
@@ -433,8 +555,39 @@ pub fn assemble(
     let beat_ticks = ppq * 4 / den as i64;
 
     let is_prob = cell.is_probability();
+    let is_euclid = cell.is_euclidean();
+
+    // Fill candidates mirror Python assemble(): meter-matched (a 4/4 fill in a
+    // 3/4 bar overflows the bar), tag-scored against the groove. The actual
+    // fill is drawn PER FILL BAR inside the loop so consecutive fill bars
+    // alternate; a single-cell top set falls back to all meter-matched fills.
+    // Scoring consumes no RNG, so toggling FILL no longer shifts realization.
+    let fill_candidates: Vec<&Cell> = if fill_every > 0 {
+        let fills: Vec<&Cell> = library
+            .get_fill_cells()
+            .into_iter()
+            .filter(|f| f.time_sig == (num, den))
+            .collect();
+        if fills.is_empty() {
+            Vec::new()
+        } else {
+            let scored: Vec<(usize, &Cell)> = fills
+                .iter()
+                .map(|f| (f.tags.iter().filter(|t| cell.tags.contains(t)).count(), *f))
+                .collect();
+            let best = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
+            let top: Vec<&Cell> =
+                scored.iter().filter(|(s, _)| *s == best).map(|(_, c)| *c).collect();
+            if top.len() > 1 { top } else { fills }
+        }
+    } else {
+        Vec::new()
+    };
+
     let cell_hits = if is_prob {
         realize_probability_grid(cell, bars, &mut rng)
+    } else if is_euclid {
+        realize_euclidean(cell, bars, seed)
     } else {
         cell.hits.clone()
     };
@@ -442,25 +595,41 @@ pub fn assemble(
     let mut events = Vec::new();
     let mut seen_cell_bars = std::collections::HashSet::new();
     let section_type = infer_section_type(&cell.tags);
+    let mut last_fill: Option<usize> = None;
 
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
 
-        let cell_bar = if is_prob {
-            bar_number
+        let is_fill = !fill_candidates.is_empty() && bar_number % fill_every.max(1) == 0;
+
+        let (mut active_hits, active_cell, cell_bar) = if is_fill {
+            let mut pick = rng.gen_range(0..fill_candidates.len());
+            // Avoid the same fill twice in a row when there is a choice.
+            if fill_candidates.len() > 1 && Some(pick) == last_fill {
+                pick = rng.gen_range(0..fill_candidates.len());
+            }
+            last_fill = Some(pick);
+            let f = fill_candidates[pick];
+            (f.hits.clone(), f, (bar_idx % f.num_bars) + 1)
+        } else if is_prob || is_euclid {
+            // Realized hits already carry correct output bar numbers.
+            (cell_hits.clone(), cell, bar_number)
         } else {
-            (bar_idx % cell.num_bars) + 1
+            (cell_hits.clone(), cell, (bar_idx % cell.num_bars) + 1)
         };
 
-        let mut current_hits = cell_hits.clone();
-        if !is_prob && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
-            current_hits = vary_hits(&cell_hits, cell_bar, vary, &mut rng, time_sig);
+        // Vary mutations on repeated cell bars (skip for generative cells —
+        // prob re-realizes per seed and euclidean phasing never repeats).
+        // time_sig for vary is the RESOLVED meter, not the requested one
+        // ((0,0) = Auto must never reach vary_hits).
+        if !(is_prob || is_euclid) && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
+            active_hits = vary_hits(&active_hits, cell_bar, vary, &mut rng, (num, den));
         }
         seen_cell_bars.insert(cell_bar);
 
         let drift_ms = humanizer.compute_section_drift_ms(section_type, bar_idx, bars);
         let bar_events = process_bar(
-            bar_number, cell_bar, &current_hits, cell, &mut humanizer,
+            bar_number, cell_bar, &active_hits, active_cell, &mut humanizer,
             tempo, &time_signatures, ppq, beat_ticks, swing, humanize,
             0, drift_ms,
         );
@@ -468,8 +637,13 @@ pub fn assemble(
     }
 
     // Add crash on bar 1 beat 1 if not present
+    // Matches Python's inst.startswith("crash") — includes the choke variants so a
+    // cell that already opens on a crash choke doesn't get a redundant crash added.
     let has_crash_bar1 = events.iter().any(|e| {
-        matches!(e.instrument, Instrument::Crash1 | Instrument::Crash2) && e.tick < beat_ticks
+        matches!(
+            e.instrument,
+            Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke
+        ) && e.tick < beat_ticks
     });
     if !has_crash_bar1 && bars > 0 {
         let crash_tick = midi_math::position_to_ticks(1, 1, 0.0, &time_signatures, ppq);
@@ -602,7 +776,7 @@ pub fn assemble_arrangement(
         // In generative mode, prefer probability cells
         let section_pool: Vec<&Cell> = if generative {
             let prob_match: Vec<&Cell> = pool.iter()
-                .filter(|c| c.is_probability() && c.time_sig == (sec_num, sec_den))
+                .filter(|c| (c.is_probability() || c.is_euclidean()) && c.time_sig == (sec_num, sec_den))
                 .copied()
                 .collect();
             if !prob_match.is_empty() { prob_match } else { pool.clone() }
@@ -623,8 +797,11 @@ pub fn assemble_arrangement(
         };
 
         let is_prob = cell.is_probability();
+        let is_euclid = cell.is_euclidean();
         let cell_hits = if is_prob {
             realize_probability_grid(cell, section.bars, &mut rng)
+        } else if is_euclid {
+            realize_euclidean(cell, section.bars, seed)
         } else {
             cell.hits.clone()
         };
@@ -652,7 +829,10 @@ pub fn assemble_arrangement(
         for i in 0..section.bars {
             let bar_number = bar_cursor + i + 1;
 
-            let cell_bar = if is_prob {
+            let cell_bar = if is_prob || is_euclid {
+                // Realized hits (prob AND euclidean) are keyed by output bar
+                // within the section; the fixed-cell modulo would replay
+                // local bar 1 forever and discard euclidean phasing.
                 i + 1
             } else {
                 (i % cell.num_bars) + 1
@@ -661,15 +841,15 @@ pub fn assemble_arrangement(
             let vel_offset = drift_offset(i, section.bars, drift_dir);
 
             let mut current_hits = cell_hits.clone();
-            if !is_prob && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
+            if !(is_prob || is_euclid) && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
                 current_hits = vary_hits(&cell_hits, cell_bar, vary, &mut rng, (sec_num, sec_den));
             }
             seen_cell_bars.insert(cell_bar);
 
             let drift_ms = humanizer.compute_section_drift_ms(&section.section_type, i, section.bars);
 
-            if is_prob {
-                // Remap probability hits to correct global bar number
+            if is_prob || is_euclid {
+                // Remap realized hits to the correct global bar number
                 let remapped: Vec<Hit> = current_hits.iter()
                     .filter(|h| h.bar == cell_bar)
                     .map(|h| Hit {
@@ -765,6 +945,7 @@ pub fn assemble_layered(
         cell_type: CellType::Fixed,
         hits: Vec::new(),
         grid: Vec::new(),
+        limbs: Vec::new(),
         humanize_per_bar: None,
     };
 
@@ -779,6 +960,9 @@ pub fn assemble_layered(
 
             let layer_hits: Vec<Hit> = if cell.is_probability() {
                 let realized = realize_probability_grid(cell, cell.num_bars, &mut rng);
+                realized.into_iter().filter(|h| h.bar == cell_bar).collect()
+            } else if cell.is_euclidean() {
+                let realized = realize_euclidean(cell, cell.num_bars, seed);
                 realized.into_iter().filter(|h| h.bar == cell_bar).collect()
             } else {
                 cell.hits.iter().filter(|h| h.bar == cell_bar).cloned().collect()
@@ -835,24 +1019,257 @@ mod tests {
     #[test]
     fn test_assemble_basic() {
         let lib = CellLibrary::new();
-        let result = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let result = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
     }
 
     #[test]
+    fn test_meter_truth_stamps_chosen_cell_meter() {
+        let lib = CellLibrary::new();
+        // A 7/8 cell requested under 4/4 must still be stamped 7/8 (bar = 7*240),
+        // not the requested meter — otherwise the recorded MIDI's grid lies.
+        let r = assemble(&lib, None, Some("driving_7_8"), 2, 120.0, (4, 4), Some(0.0), 0.0, 0, 0, 0.0, false);
+        assert_eq!(r.time_signatures[0].numerator, 7);
+        assert_eq!(r.time_signatures[0].denominator, 8);
+    }
+
+    #[test]
+    fn test_meter_forced_and_auto() {
+        let lib = CellLibrary::new();
+        // Forcing 7/8 on posthardcore selects a 7/8 cell.
+        let forced = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (7, 8), Some(0.0), 0.0, 0, 0, 0.0, true);
+        assert_eq!((forced.time_signatures[0].numerator, forced.time_signatures[0].denominator), (7, 8));
+        // Auto (0,0) uses the style's native meter and must not overshoot.
+        let auto = assemble(&lib, Some("posthardcore"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, 0, 0.0, true);
+        assert!(auto.time_signatures[0].denominator == 4 || auto.time_signatures[0].denominator == 8);
+    }
+
+    #[test]
+    fn test_dice_rotation_changes_groove() {
+        // Non-generative fixed-cell style: different seeds must be able to select
+        // different cells (the dice for fixed-cell styles). Collect the event
+        // signature across seeds and assert not all identical.
+        let lib = CellLibrary::new();
+        let sig = |seed: u64| -> Vec<(i64, Instrument)> {
+            assemble(&lib, Some("screamo"), None, 4, 120.0, (0, 0), Some(0.0), 0.0, 0, seed, 0.0, false)
+                .events.iter().map(|e| (e.tick, e.instrument)).collect()
+        };
+        let base = sig(0);
+        let differs = (1..8).any(|s| sig(s) != base);
+        assert!(differs, "dice (seed rotation) should change the groove across seeds");
+    }
+
+    #[test]
+    fn test_generative_seed_reproducible_across_runs() {
+        // Regression: HashMap iteration order in constraint/flam paths used to
+        // make the same seed produce different MIDI across runs. Generate the
+        // same generative pattern 20x with humanize on and assert every run is
+        // byte-identical (tick, instrument, velocity).
+        let lib = CellLibrary::new();
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument, i32)> {
+            r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
+        };
+        let first = key(&assemble(
+            &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 0, 7, 0.0, true,
+        ));
+        assert!(!first.is_empty());
+        for _ in 0..20 {
+            let again = key(&assemble(
+                &lib, Some("posthardcore"), None, 4, 160.0, (4, 4), Some(0.7), 0.0, 0, 7, 0.0, true,
+            ));
+            assert_eq!(first, again, "same seed must yield identical MIDI every run");
+        }
+    }
+
+    #[test]
     fn test_assemble_by_cell_name() {
         let lib = CellLibrary::new();
-        let result = assemble(&lib, None, Some("blast_traditional"), 2, 200.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let result = assemble(&lib, None, Some("blast_traditional"), 2, 200.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert!(!result.events.is_empty());
+    }
+
+    #[test]
+    fn test_fill_every_swaps_only_fill_bars() {
+        // Fixed cell + humanize 0 => fully deterministic except the fill swap.
+        // With fill_every=4 over 4 bars, bars 1-3 must be identical to the
+        // no-fill run and bar 4 must differ (the tag-matched fill takes over).
+        let lib = CellLibrary::new();
+        assert!(!lib.get_fill_cells().is_empty(), "builtin.json must ship fill-role cells");
+        let run = |fill_every: i32| {
+            assemble(&lib, None, Some("blast_traditional"), 4, 120.0, (4, 4), Some(0.0), 0.0, fill_every, 42, 0.0, false)
+        };
+        let no_fill = run(0);
+        let with_fill = run(4);
+        let bar4_start = 3 * 4 * PPQ;
+        let split = |r: &AssembleResult| {
+            // The bar-1 auto-crash is excluded: its velocity is drawn from the
+            // humanizer RNG *after* the bar loop, so its stream position (and
+            // thus the value) legitimately shifts when bar 4's content changes.
+            // Same ordering as Python.
+            let head: Vec<_> = r.events.iter()
+                .filter(|e| e.tick < bar4_start && e.instrument != Instrument::Crash1)
+                .map(|e| (e.tick, e.instrument, e.velocity)).collect();
+            let tail: Vec<_> = r.events.iter().filter(|e| e.tick >= bar4_start)
+                .map(|e| (e.tick, e.instrument, e.velocity)).collect();
+            (head, tail)
+        };
+        let (head_a, tail_a) = split(&no_fill);
+        let (head_b, tail_b) = split(&with_fill);
+        assert_eq!(head_a, head_b, "non-fill bars must be untouched by fill_every");
+        assert_ne!(tail_a, tail_b, "the fill bar must actually change");
+    }
+
+    #[test]
+    fn test_euclid_pattern_matches_python() {
+        // Same downbeat-anchored modulo form as assembler.py _euclid_pattern.
+        assert_eq!(
+            euclid_pattern(3, 8),
+            vec![true, false, false, true, false, false, true, false]
+        );
+        let p = euclid_pattern(5, 8);
+        assert_eq!(p.iter().filter(|&&v| v).count(), 5);
+        assert_eq!(euclid_pattern(4, 4), vec![true; 4]);
+    }
+
+    #[test]
+    fn test_trig_condition_semantics() {
+        use super::super::cell::TrigCond;
+        let r22 = TrigCond::from_str("2:2");
+        assert!(r22.allows(2, 8, false) && r22.allows(4, 8, false) && !r22.allows(1, 8, false));
+        let r44 = TrigCond::from_str("4:4");
+        assert!(r44.allows(4, 4, false) && !r44.allows(3, 4, false));
+        assert!(TrigCond::from_str("1st").allows(1, 4, false));
+        assert!(!TrigCond::from_str("1st").allows(2, 4, false));
+        assert!(TrigCond::from_str("last").allows(4, 4, false));
+        assert!(TrigCond::from_str("pre").allows(1, 4, true));
+        assert!(!TrigCond::from_str("pre").allows(1, 4, false));
+        assert!(TrigCond::from_str("!pre").allows(1, 4, false));
+        // Empty = always; unknown fails open — same as Python.
+        assert!(TrigCond::from_str("").allows(3, 4, false));
+        assert!(TrigCond::from_str("wat").allows(3, 4, false));
+    }
+
+    #[test]
+    fn test_conditioned_entry_gates_by_pass() {
+        // Mirror of the Python test: a "2:2" china fires only on passes 2 and 4.
+        let json = r#"{
+            "cells": {
+                "t": {"name": "t", "tags": ["generative"], "time_sig": [4, 4],
+                      "num_bars": 1, "humanize": 0.0, "role": "groove", "type": "probability",
+                      "grid": [[1, 0.0, "kick", 1.0, "accent"],
+                               [3, 0.0, "china", 1.0, "accent", "2:2"]]}
+            },
+            "style_pools": {"t": ["t"]},
+            "section_preferences": {}
+        }"#;
+        let lib = CellLibrary::from_json(json);
+        let r = assemble(&lib, None, Some("t"), 4, 120.0, (4, 4), Some(0.0), 0.0, 0, 0, 0.0, true);
+        let bar_ticks = 4 * PPQ;
+        let mut china_bars: Vec<i64> = r
+            .events
+            .iter()
+            .filter(|e| e.instrument == Instrument::China)
+            .map(|e| e.tick / bar_ticks + 1)
+            .collect();
+        china_bars.dedup();
+        assert_eq!(china_bars, vec![2, 4], "2:2 must fire on passes 2 and 4");
+    }
+
+    #[test]
+    fn test_euclidean_cell_through_assemble() {
+        let lib = CellLibrary::new();
+        let run = |seed: u64| {
+            assemble(&lib, None, Some("euclid_skramz_surge_4_4"), 4, 160.0, (4, 4), Some(0.0), 0.0, 0, seed, 0.0, true)
+        };
+        let a = run(0);
+        let b = run(9);
+        assert!(!a.events.is_empty());
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument)> {
+            r.events.iter().map(|e| (e.tick, e.instrument)).collect()
+        };
+        assert_ne!(key(&a), key(&b), "dice_rotate limbs must move across seeds");
+        // Anchor limb (kick, dice_rotate false) must not move.
+        let kicks = |r: &AssembleResult| -> Vec<i64> {
+            r.events.iter().filter(|e| e.instrument == Instrument::Kick).map(|e| e.tick).collect()
+        };
+        assert_eq!(kicks(&a), kicks(&b), "anchor limbs hold across seeds");
+    }
+
+    #[test]
+    fn test_arrangement_euclidean_phases() {
+        // Regression: the arrangement path used the fixed-cell bar modulo for
+        // euclidean cells, replaying local bar 1 forever and discarding the
+        // polymeter phasing. Bars of a euclidean verse must not all be equal.
+        let lib = CellLibrary::new();
+        let r = assemble_arrangement(
+            &lib, "faraquet", "4:verse@7/8", 140.0, (4, 4), Some(0.0), 0.0, 5, 0.0, true,
+        );
+        let bar_ticks = 7 * PPQ / 2;
+        let mut bars: std::collections::BTreeMap<i64, Vec<(i64, Instrument)>> =
+            std::collections::BTreeMap::new();
+        for e in &r.events {
+            bars.entry(e.tick / bar_ticks).or_default().push((e.tick % bar_ticks, e.instrument));
+        }
+        for v in bars.values_mut() {
+            v.sort();
+        }
+        let distinct: std::collections::HashSet<_> = bars.values().collect();
+        assert!(distinct.len() > 1, "euclidean phasing must survive arrangement mode");
+    }
+
+    #[test]
+    fn test_fill_respects_meter() {
+        // A 3/4 groove picks only 3/4 fills (they ship now), and no fill hit
+        // may land at/past the loop end — the original overflow bug.
+        let lib = CellLibrary::new();
+        let run = |fill_every: i32| {
+            assemble(&lib, None, Some("driving_3_4"), 4, 120.0, (3, 4), Some(0.0), 0.0, fill_every, 42, 0.0, false)
+        };
+        let a = run(0);
+        let b = run(4);
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument, i32)> {
+            r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
+        };
+        assert_ne!(key(&a), key(&b), "a meter-matched 3/4 fill must engage");
+        let total = 4 * 3 * PPQ;
+        assert!(b.events.iter().all(|e| e.tick < total), "no event at/past total_ticks");
+    }
+
+    #[test]
+    fn test_fill_skipped_on_meter_mismatch() {
+        // Fixture: one 3/4 groove, one 4/4-only fill. The mismatched fill
+        // must be skipped entirely — output identical to fill-off (the skipped
+        // selection also consumes no RNG).
+        let json = r#"{
+            "cells": {
+                "g34": {"name": "g34", "tags": ["waltz"], "time_sig": [3, 4],
+                        "num_bars": 1, "humanize": 0.0, "role": "groove", "type": "fixed",
+                        "hits": [[1, 0.0, "kick", "accent"], [2, 0.0, "snare", "accent"],
+                                 [3, 0.0, "kick", "normal"]]},
+                "f44": {"name": "f44", "tags": ["fill", "waltz"], "time_sig": [4, 4],
+                        "num_bars": 1, "humanize": 0.0, "role": "fill", "type": "fixed",
+                        "hits": [[4, 0.0, "tom_floor", "accent"], [4, 0.5, "tom_floor", "accent"]]}
+            },
+            "style_pools": {"waltz": ["g34"]},
+            "section_preferences": {}
+        }"#;
+        let lib = CellLibrary::from_json(json);
+        let run = |fill_every: i32| {
+            assemble(&lib, None, Some("g34"), 4, 120.0, (3, 4), Some(0.0), 0.0, fill_every, 42, 0.0, false)
+        };
+        let key = |r: &AssembleResult| -> Vec<(i64, Instrument, i32)> {
+            r.events.iter().map(|e| (e.tick, e.instrument, e.velocity)).collect()
+        };
+        assert_eq!(key(&run(0)), key(&run(4)), "4/4-only fill must be skipped for a 3/4 groove");
     }
 
     #[test]
     fn test_assemble_deterministic() {
         let lib = CellLibrary::new();
-        let r1 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
-        let r2 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 42, 0.0, false);
+        let r1 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
+        let r2 = assemble(&lib, Some("screamo"), None, 4, 120.0, (4, 4), None, 0.0, 0, 42, 0.0, false);
         assert_eq!(r1.events.len(), r2.events.len(), "Same seed should produce same event count");
         for (a, b) in r1.events.iter().zip(r2.events.iter()) {
             assert_eq!(a.tick, b.tick);

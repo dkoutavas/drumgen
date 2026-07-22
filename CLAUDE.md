@@ -38,6 +38,37 @@ python drumgen.py --test-mapping ugritone
 
 # Run tests
 python -m pytest test_drumgen.py -v
+
+# Validate the MIDI pipeline across many configurations
+python validate_midi.py                  # quick mode (8 styles)
+python validate_midi.py --full           # exhaustive matrix
+python validate_midi.py --style shellac  # single style
+```
+
+### VST3/CLAP Plugin (Rust / nih-plug)
+
+The plugin builds VST3 + CLAP. Native Linux is the dev target (REAPER/Bitwig both
+load either). Ableton Live is Windows/macOS only and does **not** support CLAP —
+the only artifact that can load in Live is the **Windows VST3**.
+
+```bash
+# Regenerate the embedded cell library after editing cell_library.py
+python export_cells.py                   # writes plugin/cells/builtin.json
+
+# Native Linux build + install (-> ~/.vst3 and ~/.clap)
+cd plugin && ./build-linux.sh            # --check to build without installing
+
+# Cross-compile a Windows VST3/CLAP from Linux (mingw) -> plugin/dist/windows/
+# (needs: rustup target add x86_64-pc-windows-gnu
+#         openSUSE: sudo zypper in mingw64-cross-gcc)
+cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
+
+# Run Rust tests
+cd plugin && cargo test
+
+# CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +
+# macOS bundles on push; a v* tag cuts a release. Prefer the CI MSVC artifact
+# over the mingw cross-build for anything you actually install on Windows.
 ```
 
 ### MIDI Import & ALS Extraction
@@ -80,6 +111,8 @@ python drumgen.py --cell my_imported_cell --bars 4 --tempo 120
 
 The pipeline flows: **CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI Engine -> .mid file**
 
+A second frontend exists as a Rust VST3/CLAP plugin (`plugin/`) that ports the same engine and emits MIDI in real time inside a DAW instead of writing files (see "VST3 Plugin" below).
+
 - `drumgen.py` — CLI entry point (argparse). Parses args, delegates to `assemble()`, `assemble_arrangement()`, or `assemble_layered()`, then `write_midi()`. Supports `--generative`, `--variations`, and layer mode (`--kick/--snare/--cymbal/--toms`). `OUTPUT_DIR` auto-detects WSL and defaults to `C:\Users\%USERNAME%\Documents\drumgen_output`. `_ts_suffix()` appends time signature to filenames for non-4/4 meters.
 - `app.py` — Streamlit GUI. Same generation pipeline as CLI. Sidebar organized into visual sections (Output, What, Sound, Feel, Modes, Generate). Output folder defaults to Windows Documents on WSL (auto-detects `%USERNAME%`). "Open folder" button uses `wslpath -w` for reliable WSL→Windows path conversion (handles both `/mnt/` and native WSL paths). WSL caption shows the Windows-equivalent path. Mode-aware controls: Style/Cell disabled when layer mode active, Bars disabled in arrangement mode. Layer Mode expander includes clear button and active summary. Arrangement mode has meter quick-add selector for per-section time signatures. Smart filename auto-updates based on active mode (generative prefix, layer names, cell override, time signature for non-4/4). Generate button in both sidebar and main area. Post-generate layout: compact success row with download + open folder, audio preview with optional auto-play, pattern grid in collapsible expander, params/stats collapsed. MIDI import expander at bottom of sidebar.
 - `assembler.py` — Core orchestrator. Four main functions:
@@ -93,12 +126,27 @@ The pipeline flows: **CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI E
 - `als_extractor.py` — Standalone CLI. Opens `.als` files (gzip-compressed XML), finds MidiClip elements from both Session and Arrangement views, writes each as a `.mid` file to `extracted/`. Filters non-drum tracks via name blacklist (synth, sampler, pad, etc.) when `--drums-only` is used.
 - `humanizer.py` — `Humanizer` class with seeded RNG. Per-instrument velocity variance tables (25 instruments), timing tendencies (e.g., snare slightly late, ride slightly early), swing application. Advanced humanization: velocity contour (wrist pattern for cymbals including hihat_wide_open + beat-1 emphasis), section push/pull drift (verse drags, chorus pushes, build gradually pushes), kick-snare flam (kick pulled 5-12ms early on simultaneous hits), and ghost note clustering (ghosts gravitate toward snare accents, style-dependent via `_CLUSTER_TAG_AMOUNTS`). Module-level helpers: `get_cluster_amount(cell)`, `infer_section_type(cell)`.
 - `midi_engine.py` — Position-to-tick math and MIDI file writing via `mido`. Constants: PPQ=480, note duration=30 ticks, MIDI channel=9. Includes note overlap prevention (inserts early note_off when humanizer timing causes pitch collisions). Note_off events are clamped to the expected bar boundary so MIDI clips don't overshoot the grid in DAWs (especially important for odd meters). Time signature meta messages and note events are interleaved in a single sorted pass (by absolute tick) to avoid mixed-meter delta calculation bugs. Resolves kit aliases so aliased instrument names map to the correct MIDI note. `unique_filepath()` utility auto-increments filename suffix (`_1`, `_2`, etc.) to prevent overwriting existing files — used by both CLI and GUI.
+- `validate_midi.py` — Standalone validation script (also runnable via pytest). Generates MIDI across many style/cell/meter/tempo configurations and checks pipeline correctness (bar alignment, note bounds, round-trip via `midi_to_cell`).
 - `run-drumgen` — Bash launcher script. Activates venv and runs `streamlit run app.py`. On WSL, sets `BROWSER=explorer.exe` so Streamlit auto-opens in the Windows default browser.
 - `preview.py` — Optional FluidSynth-based WAV rendering for the Streamlit GUI.
 - `kit_mappings/` — JSON files mapping instrument names to MIDI note numbers. Default: `ugritone.json` (25 instruments including chokes, fx cymbals, ride_crash, china_2, hihat_wide_open, tom_mid_high). Also `addictive_drums.json` (note 48 = snare) and `general_midi.json`. Kit files support an `aliases` field for additional note-to-instrument mappings (e.g., `floor_tom` → `tom_floor`).
 - `user_cells/` — Directory for imported cell JSON files (gitignored). Loaded automatically by `cell_library.py` at import time.
 - `extracted/` — Directory for MIDI files extracted from .als projects (gitignored).
 - `styles/drumgen-style-dna.md` — Reference document describing rhythmic vocabulary per genre (blast beats, d-beats, Shellac precision, etc.). Used as build-time guidance, not consumed by code.
+
+### VST3 Plugin (`plugin/`)
+
+A Rust port of the core engine as a VST3/CLAP plugin (nih-plug). It is a MIDI generator with no audio processing: it reads the DAW transport and emits MIDI notes to drive a drum sampler on another track (in Ableton: drumgen MIDI track → "MIDI To" the sampler track). A dummy stereo output exists only because some DAWs require audio I/O to load a plugin.
+
+- `plugin/src/engine/` — Line-for-line port of the Python engine: `midi_math.rs` (PPQ=480, position→tick), `cell.rs`, `humanizer.rs`, `assembler.rs`, `cell_library.rs`. Behavior should match the Python modules; when changing engine logic in Python, mirror it here.
+- `plugin/src/lib.rs` — nih-plug `Plugin` impl. Detects param changes and regenerates the pattern; tracks transport play state.
+- `plugin/src/params.rs` — DAW-automatable params: style index, humanize, bars, seed, swing.
+- `plugin/src/playback.rs` — Event buffer keyed by absolute tick; maps DAW transport position into the looping pattern.
+- `plugin/src/generation.rs` — `GenerationManager`: owns the `CellLibrary`, generates patterns from params (currently synchronous).
+- `plugin/cells/builtin.json` — Built-in cells + style pools + section preferences embedded into the plugin. **Generated** by `export_cells.py` from `cell_library.py` (imported user cells are excluded) — rerun the export after adding or editing built-in cells.
+- `plugin/build-windows.sh` — Cross-compiles from WSL2 with `cargo xtask bundle` (mingw-w64 target) and installs to `C:\Program Files\Common Files\VST3\`.
+- `export_cells.py` — Serializes `CELLS`/`STYLE_POOLS`/`SECTION_PREFERENCES` to `plugin/cells/builtin.json`.
+- `live_player.py` — Real-time MIDI player (python-rtmidi) that streams drumgen patterns into a virtual MIDI port (loopMIDI, port named "drumgen") for Ableton. Must run on Windows Python — WSL2 cannot access Windows MIDI devices.
 
 ## Key Concepts
 

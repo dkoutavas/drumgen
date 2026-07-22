@@ -9,6 +9,7 @@ import pytest
 from assembler import (
     assemble, assemble_arrangement, assemble_layered,
     parse_arrangement, realize_probability_grid, extract_layer,
+    realize_euclidean, _euclid_pattern, _trig_allows,
     _normalize_grid, _validate_physical_constraints, _resolve_layer_conflicts,
     _consolidate_time_signatures, LAYER_GROUPS,
 )
@@ -122,6 +123,8 @@ class TestCellLibrary:
             assert not missing, f"Cell '{name}' missing fields: {missing}"
             if cell.get("type") == "probability":
                 assert "grid" in cell, f"Probability cell '{name}' missing 'grid'"
+            elif cell.get("type") == "euclidean":
+                assert "limbs" in cell, f"Euclidean cell '{name}' missing 'limbs'"
             else:
                 assert "hits" in cell, f"Cell '{name}' missing 'hits'"
 
@@ -151,13 +154,15 @@ class TestCellLibrary:
         for name, cell in BUILTIN_CELLS.items():
             if cell.get("type") == "probability":
                 assert len(cell["grid"]) >= 1, f"Cell '{name}' has no grid entries"
+            elif cell.get("type") == "euclidean":
+                assert len(cell["limbs"]) >= 1, f"Cell '{name}' has no limbs"
             else:
                 assert len(cell["hits"]) >= 1, f"Cell '{name}' has no hits"
 
     def test_hit_tuple_format(self):
         for name, cell in BUILTIN_CELLS.items():
-            if cell.get("type") == "probability":
-                continue  # grid entries tested in TestProbabilityGrids
+            if cell.get("type") in ("probability", "euclidean"):
+                continue  # grid entries tested in TestProbabilityGrids; limbs in TestEuclidean
             for i, hit in enumerate(cell["hits"]):
                 assert len(hit) in (4, 5), \
                     f"Cell '{name}' hit[{i}] must be 4- or 5-tuple, got {len(hit)}"
@@ -178,7 +183,7 @@ class TestCellLibrary:
 
     def test_beat_within_time_sig(self):
         for name, cell in BUILTIN_CELLS.items():
-            if cell.get("type") == "probability":
+            if cell.get("type") in ("probability", "euclidean"):
                 continue
             num = cell["time_sig"][0]
             for i, hit in enumerate(cell["hits"]):
@@ -188,7 +193,7 @@ class TestCellLibrary:
 
     def test_bar_within_num_bars(self):
         for name, cell in BUILTIN_CELLS.items():
-            if cell.get("type") == "probability":
+            if cell.get("type") in ("probability", "euclidean"):
                 continue
             for i, hit in enumerate(cell["hits"]):
                 if len(hit) == 5:
@@ -200,7 +205,8 @@ class TestCellLibrary:
         """Shellac cells should use precise/hard hits, no ghost notes."""
         shellac_cells = [c for c in BUILTIN_CELLS.values()
                          if ("shellac" in c["tags"] or c["name"].startswith("shellac"))
-                         and c.get("type") != "probability"]
+                         and c.get("type") not in ("probability", "euclidean")
+                         and c.get("role") == "groove"]
         assert len(shellac_cells) > 0, "No shellac cells found"
         for cell in shellac_cells:
             for i, hit in enumerate(cell["hits"]):
@@ -730,8 +736,9 @@ class TestProbabilityGrids:
         cell = CELLS["prob_shellac_4_4"]
         normalized = _normalize_grid(cell)
         for entry in normalized:
-            assert len(entry) == 6, f"Expected 6-tuple, got {entry}"
+            assert len(entry) == 7, f"Expected 7-tuple (bar,...,cond), got {entry}"
             assert entry[0] == 1  # single-bar cell
+            assert isinstance(entry[6], str)  # condition (empty = always)
 
     def test_realize_produces_hits(self):
         import random
@@ -808,8 +815,12 @@ class TestProbabilityGrids:
             for entry in cell["grid"]:
                 if len(entry) == 5:
                     beat, sub, inst, prob, vel = entry
-                else:
+                elif len(entry) == 6 and isinstance(entry[2], str):
+                    beat, sub, inst, prob, vel, _cond = entry
+                elif len(entry) == 6:
                     bar, beat, sub, inst, prob, vel = entry
+                else:
+                    bar, beat, sub, inst, prob, vel, _cond = entry
                 assert 0.0 <= prob <= 1.0, \
                     f"Cell '{name}' has probability {prob} outside [0,1]"
                 assert inst in VALID_INSTRUMENTS, \
@@ -1696,3 +1707,106 @@ class TestMidiValidation:
         results = run_quick()
         failures = [r for r in results if not r.passed]
         assert not failures, f"{len(failures)} failures: {[r.label for r in failures]}"
+
+
+class TestStage1ShapedRandomness:
+    """Trig conditions, Euclidean cells, and syncopation/tension steering."""
+
+    def test_euclid_pattern_known_values(self):
+        # Modulo form: downbeat-anchored rotation of canonical Bjorklund.
+        assert _euclid_pattern(3, 8) == [True, False, False, True, False, False, True, False]
+        # E(5,8) gaps must be maximally even (all gaps in {1,2}).
+        p = _euclid_pattern(5, 8)
+        onsets = [i for i, v in enumerate(p) if v]
+        gaps = [(b - a) for a, b in zip(onsets, onsets[1:] + [onsets[0] + 8])]
+        assert sum(p) == 5 and set(gaps) <= {1, 2}, (p, gaps)
+        assert sum(_euclid_pattern(7, 16)) == 7
+        assert _euclid_pattern(4, 4) == [True] * 4
+
+    def test_trig_condition_semantics(self):
+        # A:B — fire on pass A of every B cycles
+        assert _trig_allows("2:2", 2, 8, False)
+        assert _trig_allows("2:2", 4, 8, False)
+        assert not _trig_allows("2:2", 1, 8, False)
+        assert _trig_allows("4:4", 4, 4, False)
+        assert not _trig_allows("4:4", 3, 4, False)
+        # 1st / last
+        assert _trig_allows("1st", 1, 4, False) and not _trig_allows("1st", 2, 4, False)
+        assert _trig_allows("last", 4, 4, False) and not _trig_allows("last", 1, 4, False)
+        # pre chains
+        assert _trig_allows("pre", 1, 4, True) and not _trig_allows("pre", 1, 4, False)
+        assert _trig_allows("!pre", 1, 4, False) and not _trig_allows("!pre", 1, 4, True)
+        # empty = always; unknown fails open
+        assert _trig_allows("", 3, 4, False)
+        assert _trig_allows("wat", 3, 4, False)
+
+    def test_conditioned_entry_gates_by_pass(self):
+        import random
+        cell = {
+            "name": "t", "type": "probability", "tags": ["generative"],
+            "time_sig": (4, 4), "num_bars": 1, "humanize": 0.0, "role": "groove",
+            "grid": [
+                (1, 0.0, "kick", 1.0, "accent"),
+                (3, 0.0, "china", 1.0, "accent", "2:2"),
+            ],
+        }
+        hits = realize_probability_grid(cell, 4, random.Random(0))
+        china_bars = sorted(h[0] for h in hits if h[3] == "china")
+        assert china_bars == [2, 4], f"2:2 condition must fire on passes 2 and 4, got {china_bars}"
+
+    def test_euclidean_realization_shape(self):
+        cell = CELLS["euclid_math_7_8"]
+        hits = realize_euclidean(cell, 4, 0)
+        assert hits
+        assert {h[0] for h in hits} == {1, 2, 3, 4}
+        for bar, beat, sub, inst, vel in hits:
+            assert 1 <= beat <= 7
+            assert sub in (0.0, 0.5)
+
+    def test_euclidean_polymeter_phases(self):
+        # The 10-slot ghost limb must not repeat identically each 14-slot bar.
+        cell = CELLS["euclid_math_7_8"]
+        hits = realize_euclidean(cell, 4, 0)
+        g1 = sorted((h[1], h[2]) for h in hits if h[0] == 1 and h[3] == "snare_ghost")
+        g2 = sorted((h[1], h[2]) for h in hits if h[0] == 2 and h[3] == "snare_ghost")
+        assert g1 != g2
+
+    def test_euclidean_dice_rotates_but_anchors_hold(self):
+        cell = CELLS["euclid_blackmetal_pulse_4_4"]
+        a = realize_euclidean(cell, 2, 0)
+        b = realize_euclidean(cell, 2, 5)
+        assert a != b, "dice_rotate limb must move across seeds"
+        kicks_a = sorted(h[:3] for h in a if h[3] == "kick")
+        kicks_b = sorted(h[:3] for h in b if h[3] == "kick")
+        assert kicks_a == kicks_b, "anchor limb (dice_rotate False) must not move"
+
+    def test_euclidean_through_assemble(self):
+        result = assemble(cell_name="euclid_skramz_surge_4_4", bars=4, tempo=160, seed=7)
+        assert len(result["events"]) > 0
+
+    def test_steering_deterministic(self):
+        a = assemble(style="posthardcore", bars=4, tempo=155, seed=11, generative=True)
+        b = assemble(style="posthardcore", bars=4, tempo=155, seed=11, generative=True)
+        assert a["events"] == b["events"]
+
+    def test_fill_cells_no_stick_collisions(self):
+        # A fill must never ask one right hand to be in two places: no
+        # snare-family + tom-family hit on the same (bar, beat, sub).
+        snares = {"snare", "snare_rim", "snare_ghost"}
+        toms = {"tom_high", "tom_mid_high", "tom_mid", "tom_low", "tom_floor"}
+        from assembler import _normalize_hits
+        for name, cell in CELLS.items():
+            if cell.get("role") != "fill" or cell.get("type") in ("probability", "euclidean"):
+                continue
+            positions = {}
+            for bar, beat, sub, inst, _vel in _normalize_hits(cell):
+                positions.setdefault((bar, beat, sub), set()).add(inst)
+            for pos, insts in positions.items():
+                assert not (insts & snares and insts & toms), \
+                    f"fill '{name}' has snare+tom at {pos}: {insts}"
+
+    def test_fills_exist_for_every_shipped_meter(self):
+        from cell_library import CELLS as all_cells
+        fill_meters = {tuple(c["time_sig"]) for c in all_cells.values() if c["role"] == "fill"}
+        for meter in [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)]:
+            assert meter in fill_meters, f"no fill cell for {meter}"

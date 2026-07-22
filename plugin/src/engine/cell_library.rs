@@ -3,7 +3,7 @@ use serde::Deserialize;
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 
-use super::cell::{Cell, CellType, Hit, GridEntry, Instrument, VelocityLevel};
+use super::cell::{Cell, CellType, Hit, GridEntry, Instrument, Limb, TrigCond, VelocityLevel};
 
 /// Raw JSON format for cell deserialization.
 #[derive(Deserialize)]
@@ -20,6 +20,30 @@ struct RawCell {
     hits: Vec<Vec<serde_json::Value>>,
     #[serde(default)]
     grid: Vec<Vec<serde_json::Value>>,
+    #[serde(default)]
+    limbs: Vec<RawLimb>,
+}
+
+/// Raw JSON format for a Euclidean limb.
+#[derive(Deserialize)]
+struct RawLimb {
+    instrument: String,
+    pulses: i32,
+    steps: i32,
+    #[serde(default)]
+    rotation: i32,
+    #[serde(default = "default_velocity")]
+    velocity: String,
+    #[serde(default = "default_true")]
+    dice_rotate: bool,
+}
+
+fn default_velocity() -> String {
+    "normal".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Raw JSON format for the entire export.
@@ -79,6 +103,8 @@ impl CellLibrary {
 
         let cell_type = if raw.cell_type == "probability" {
             CellType::Probability
+        } else if raw.cell_type == "euclidean" {
+            CellType::Euclidean
         } else {
             CellType::Fixed
         };
@@ -95,6 +121,24 @@ impl CellLibrary {
             Vec::new()
         };
 
+        let limbs = if cell_type == CellType::Euclidean {
+            raw.limbs
+                .iter()
+                .filter_map(|l| {
+                    Some(Limb {
+                        instrument: Instrument::from_str(&l.instrument)?,
+                        pulses: l.pulses,
+                        steps: l.steps.max(1),
+                        rotation: l.rotation,
+                        velocity_level: VelocityLevel::from_str(&l.velocity),
+                        dice_rotate: l.dice_rotate,
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         Some(Cell {
             name: raw.name.clone(),
             tags: raw.tags.clone(),
@@ -105,6 +149,7 @@ impl CellLibrary {
             cell_type,
             hits,
             grid,
+            limbs,
             humanize_per_bar: None,
         })
     }
@@ -158,52 +203,44 @@ impl CellLibrary {
     }
 
     fn parse_grid(raw_grid: &[Vec<serde_json::Value>]) -> Vec<GridEntry> {
+        // Accepted forms (mirrors Python _normalize_grid):
+        //   5: (beat, sub, inst, prob, vel)
+        //   6: (bar, beat, sub, inst, prob, vel)         — position 2 is a number
+        //   6: (beat, sub, inst, prob, vel, cond)        — position 2 is a string
+        //   7: (bar, beat, sub, inst, prob, vel, cond)
         let mut grid = Vec::new();
         for entry in raw_grid {
-            let ge = if entry.len() == 6 {
-                // 6-tuple: (bar, beat, sub, instrument, probability, velocity_level)
-                let bar = entry[0].as_i64().unwrap_or(1) as i32;
-                let beat = entry[1].as_i64().unwrap_or(1) as i32;
-                let sub = entry[2].as_f64().unwrap_or(0.0);
-                let inst_str = entry[3].as_str().unwrap_or("kick");
-                let prob = entry[4].as_f64().unwrap_or(0.5);
-                let vel_str = entry[5].as_str().unwrap_or("normal");
-                if let Some(instrument) = Instrument::from_str(inst_str) {
-                    Some(GridEntry {
-                        bar,
-                        beat,
-                        sub,
-                        instrument,
-                        probability: prob,
-                        velocity_level: VelocityLevel::from_str(vel_str),
-                    })
-                } else {
-                    None
-                }
-            } else if entry.len() == 5 {
-                // 5-tuple: (beat, sub, instrument, probability, velocity_level) — bar=1
-                let beat = entry[0].as_i64().unwrap_or(1) as i32;
-                let sub = entry[1].as_f64().unwrap_or(0.0);
-                let inst_str = entry[2].as_str().unwrap_or("kick");
-                let prob = entry[3].as_f64().unwrap_or(0.5);
-                let vel_str = entry[4].as_str().unwrap_or("normal");
-                if let Some(instrument) = Instrument::from_str(inst_str) {
-                    Some(GridEntry {
-                        bar: 1,
-                        beat,
-                        sub,
-                        instrument,
-                        probability: prob,
-                        velocity_level: VelocityLevel::from_str(vel_str),
-                    })
-                } else {
-                    None
-                }
-            } else {
-                None
+            let single_bar_cond = entry.len() == 6 && entry[2].is_string();
+            let (bar, rest): (i32, &[serde_json::Value]) = match entry.len() {
+                5 => (1, &entry[..]),
+                6 if single_bar_cond => (1, &entry[..]),
+                6 | 7 => (entry[0].as_i64().unwrap_or(1) as i32, &entry[1..]),
+                _ => continue,
             };
-            if let Some(g) = ge {
-                grid.push(g);
+            // rest = (beat, sub, inst, prob, vel[, cond])
+            if rest.len() < 5 {
+                continue;
+            }
+            let beat = rest[0].as_i64().unwrap_or(1) as i32;
+            let sub = rest[1].as_f64().unwrap_or(0.0);
+            let inst_str = rest[2].as_str().unwrap_or("kick");
+            let prob = rest[3].as_f64().unwrap_or(0.5);
+            let vel_str = rest[4].as_str().unwrap_or("normal");
+            let cond = rest
+                .get(5)
+                .and_then(|v| v.as_str())
+                .map(TrigCond::from_str)
+                .unwrap_or(TrigCond::Always);
+            if let Some(instrument) = Instrument::from_str(inst_str) {
+                grid.push(GridEntry {
+                    bar,
+                    beat,
+                    sub,
+                    instrument,
+                    probability: prob,
+                    velocity_level: VelocityLevel::from_str(vel_str),
+                    condition: cond,
+                });
             }
         }
         grid
@@ -228,6 +265,35 @@ impl CellLibrary {
     /// Get the first cell for a style (backward-compat STYLE_MAP equivalent).
     pub fn get_default_cell(&self, style: &str) -> Option<&Cell> {
         self.get_pool(style).into_iter().next()
+    }
+
+    /// All fill-role cells (mirrors Python `get_fill_cells`). Sorted by name so
+    /// the RNG tie-break is deterministic (the backing map is a HashMap).
+    pub fn get_fill_cells(&self) -> Vec<&Cell> {
+        let mut fills: Vec<&Cell> = self.cells.values().filter(|c| c.role == "fill").collect();
+        fills.sort_by(|a, b| a.name.cmp(&b.name));
+        fills
+    }
+
+    /// True if the style's pool has a probability cell REACHABLE under the
+    /// given meter ((0,0) = Auto = any). Mirrors assemble()'s meter filter:
+    /// when a forced meter narrows selection to fixed cells only, realization
+    /// can't vary notes per seed and the caller's vary floor must engage.
+    pub fn style_has_prob(&self, style: &str, meter: (i32, i32)) -> bool {
+        // Euclidean cells also re-realize per seed (dice_rotate), so they
+        // count as generative for the vary-floor decision.
+        let generative = |c: &&Cell| c.is_probability() || c.is_euclidean();
+        let pool = self.get_pool(style);
+        if meter == (0, 0) {
+            return pool.iter().any(generative);
+        }
+        let ts_match: Vec<&Cell> = pool.iter().filter(|c| c.time_sig == meter).copied().collect();
+        if ts_match.is_empty() {
+            // assemble() falls back to the full pool when nothing matches.
+            pool.iter().any(generative)
+        } else {
+            ts_match.iter().any(generative)
+        }
     }
 
     /// Get all available style names.

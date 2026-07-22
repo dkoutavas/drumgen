@@ -1,8 +1,8 @@
 # drumgen
 
-Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python that outputs .mid files from hand-coded rhythmic cells with humanization. CLI and Streamlit GUI.
+Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python that outputs .mid files from hand-coded rhythmic cells with humanization. CLI, Streamlit GUI, and a native VST3/CLAP plugin (`plugin/`, Rust) that generates MIDI live inside a DAW.
 
-Built for Ableton Live + Ugritone drums. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, euro-screamo, and experimental black metal.
+Built for Bitwig Studio (native Linux) + Ugritone drums — see **[BITWIG.md](BITWIG.md)** for the plugin golden path. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, euro-screamo, and experimental black metal.
 
 ## Install
 

@@ -1,5 +1,5 @@
 use rand::Rng;
-use rand::distributions::{Distribution, Standard};
+use rand::distributions::Distribution;
 use rand_chacha::ChaCha8Rng;
 use rand::SeedableRng;
 
@@ -182,7 +182,8 @@ impl Humanizer {
         let (low, high) = velocity_level.range();
         let center = (low + high) / 2;
         let variance = Self::instrument_variance(instrument);
-        let scaled_variance = (variance as f64 * self.humanize_amount).round() as i32;
+        // Truncate toward zero (Rust `as i32`) to match Python's int() — not round().
+        let scaled_variance = (variance as f64 * self.humanize_amount) as i32;
         let scaled_variance = scaled_variance.max(3);
         if scaled_variance <= 0 {
             return center.clamp(1, 127);
@@ -260,8 +261,10 @@ impl Humanizer {
         }
         let ms_per_tick = (60000.0 / tempo) / ppq as f64;
 
-        // Group events by tick
-        let mut tick_map: std::collections::HashMap<i64, Vec<usize>> = std::collections::HashMap::new();
+        // Group events by tick. BTreeMap (not HashMap): the RNG draw below runs
+        // inside this loop, so a random tick order would consume the RNG stream
+        // differently and break same-seed reproducibility.
+        let mut tick_map: std::collections::BTreeMap<i64, Vec<usize>> = std::collections::BTreeMap::new();
         for (i, event) in events.iter().enumerate() {
             tick_map.entry(event.tick).or_default().push(i);
         }
