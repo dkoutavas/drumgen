@@ -216,10 +216,14 @@ fn lane_of(note: u8) -> Option<usize> {
 
 /// Bar-1 sixteenth grid: max note-on velocity per (lane, column), plus the
 /// number of sixteenth columns bar 1 actually has (capped at MAX_COLS).
-fn grid_cells(pattern: &Pattern) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
+fn grid_cells(pattern: &Pattern, bar: usize) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
     let mut grid = [[0u8; MAX_COLS]; GRID_LANES];
-    let start = *pattern.bar_starts.first().unwrap_or(&0);
-    let end = pattern.bar_starts.get(1).copied().unwrap_or(pattern.total_ticks);
+    let start = pattern.bar_starts.get(bar).copied().unwrap_or(0);
+    let end = pattern
+        .bar_starts
+        .get(bar + 1)
+        .copied()
+        .unwrap_or(pattern.total_ticks);
     let sixteenth = PPQ / 4;
     let len = (end - start).max(1);
     let ncols = ((len + sixteenth - 1) / sixteenth).clamp(1, MAX_COLS as i64) as usize;
@@ -240,24 +244,34 @@ fn grid_cells(pattern: &Pattern) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
 /// Render the bar-1 step grid with a "what am I hearing" header above it.
 /// Everything shown — style, meter, bars, seed — comes from the SAME pattern
 /// snapshot, so the labels always match the notes (no param-vs-snapshot race).
-fn step_grid(ui: &mut egui::Ui, pattern: &Pattern) {
-    let (grid, ncols) = grid_cells(pattern);
+fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize) {
+    let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
+    // Clamp against the current pattern (BARS may have shrunk since last frame).
+    if *view_bar >= total_bars {
+        *view_bar = 0;
+    }
+    let (grid, ncols) = grid_cells(pattern, *view_bar);
     let (num, den) = pattern
         .time_signatures
         .first()
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
-    let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
 
-    // Header states the *generated truth*: style, resolved meter (even when the
-    // METER param says Auto), bar count, and the seed the dice is on.
+    // Header states the *generated truth*: style + resolved meter (even when
+    // the METER param says Auto). BAR n/N is a pager — click to see the next
+    // bar of the pattern.
     ui.horizontal(|ui| {
         ui.label(
             egui::RichText::new(format!("{} {}/{}", pattern.style_name.to_uppercase(), num, den))
                 .color(ACCENT_B),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(egui::RichText::new(format!("BAR 1/{}", total_bars)).color(DIM));
+            let pager = ui
+                .button(format!("BAR {}/{}", *view_bar + 1, total_bars))
+                .on_hover_text("click: view next bar");
+            if pager.clicked() {
+                *view_bar = (*view_bar + 1) % total_bars;
+            }
         });
     });
 
@@ -338,12 +352,17 @@ mod tests {
             on(5 * PPQ, 49, 127),                // crash in bar 2 → excluded from bar-1 view
             MidiEvent { tick: 0, note: 36, velocity: 0, is_note_on: false }, // note-off ignored
         ]);
-        let (grid, ncols) = grid_cells(&pat);
+        let (grid, ncols) = grid_cells(&pat, 0);
         assert_eq!(ncols, 16);
         assert_eq!(grid[5][0], 110);
         assert_eq!(grid[4][8], 70);
         assert_eq!(grid[2][15], 40);
         assert!(grid[0].iter().all(|&v| v == 0), "bar-2 crash must not leak into bar 1");
+
+        // Pager: bar 2's window must show that crash (beat 2 -> col 4).
+        let (grid2, ncols2) = grid_cells(&pat, 1);
+        assert_eq!(ncols2, 16);
+        assert_eq!(grid2[0][4], 127, "bar-2 view must contain the bar-2 crash");
     }
 
     #[test]
@@ -369,7 +388,7 @@ mod tests {
         pat.bar_starts = vec![0, 7 * PPQ / 2, 7 * PPQ];
         pat.time_signatures =
             vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 7, denominator: 8 }];
-        let (_, ncols) = grid_cells(&pat);
+        let (_, ncols) = grid_cells(&pat, 0);
         assert_eq!(ncols, 14);
 
         // 5/4 = 20 sixteenths and 6/4 = 24 must fit without truncation.
@@ -377,14 +396,14 @@ mod tests {
         pat.bar_starts = vec![0, 5 * PPQ, 10 * PPQ];
         pat.time_signatures =
             vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 5, denominator: 4 }];
-        let (_, ncols) = grid_cells(&pat);
+        let (_, ncols) = grid_cells(&pat, 0);
         assert_eq!(ncols, 20);
 
         let mut pat = test_pattern(vec![on(0, 36, 100)]);
         pat.bar_starts = vec![0, 6 * PPQ, 12 * PPQ];
         pat.time_signatures =
             vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 6, denominator: 4 }];
-        let (_, ncols) = grid_cells(&pat);
+        let (_, ncols) = grid_cells(&pat, 0);
         assert_eq!(ncols, 24);
     }
 
@@ -411,6 +430,8 @@ struct UiState {
     save_msg: String,
     /// Sub-pixel remainder for the SEED drag widget.
     seed_acc: f32,
+    /// Which bar the step grid shows (0-based; clamped to the pattern).
+    view_bar: usize,
 }
 
 pub fn create(
@@ -511,8 +532,8 @@ pub fn create(
 
                     ui.add_space(4.0);
 
-                    // Step grid: what bar 1 actually plays.
-                    step_grid(ui, &pattern);
+                    // Step grid: pageable per-bar view of the pattern.
+                    step_grid(ui, &pattern, &mut ui_state.view_bar);
                 });
         },
     )

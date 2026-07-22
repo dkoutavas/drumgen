@@ -44,10 +44,25 @@ recorded just by playing — so record them the explicit way:
 5. Drop Ugritone on Track B (or move the clip to your drum track and bypass
    drumgen there) so the clip drives the kit.
 
-Alternatively: **SAVE .MID** in the drumgen GUI writes the current pattern to
-`~/drumgen_output/`, and you can drag that file straight from your file manager
-onto the Bitwig arranger (or browse it via the Browser's Files tab). Dropping it
-on an existing track imports the notes into that track.
+Alternatively — and this is the laziest, most reliable path: **SAVE .MID** in
+the drumgen GUI writes the current pattern to `~/drumgen_output/`, and you can
+drag that file straight from your file manager onto the Bitwig arranger (or
+browse it via the Browser's Files tab). Drop it on the drumgen/Ugritone track
+itself: the clip now drives Ugritone directly, so you can bypass/remove drumgen
+there and the part is locked in as a normal editable note clip.
+
+## 2b. Record the chain as AUDIO
+
+1. Create an **Audio track**.
+2. Open its **input chooser** (where a mic input would normally be picked) and
+   select **Ugritone Drums** — any track's output can be another track's input
+   in Bitwig.
+3. Arm the audio track, press **Record**, let the loop play. Done.
+
+Or skip live capture entirely: once a SAVE .MID clip is on the track (see
+above), right-click the clip → **Bounce**. Bouncing works on real clips —
+it does NOT work on live generator output, which is why recording the raw
+drumgen track directly bounces to silence.
 
 ## 3. Suggested workflow for loop farming
 
