@@ -2891,6 +2891,138 @@ def _fill_ghost_ruff_snare_4_4():
     }
 
 
+# ── Phase B: fill language in odd meters ─────────────────────────────────────
+# The 4/4 fill-language cells (drags, hertas, ruffs, ebbs) get odd-meter
+# siblings so song forms with @7/8, @3/4, @6/8, @5/4, @6/4 sections keep the
+# vocabulary. into_* tags steer selection toward the NEXT section.
+
+
+def _fill_drag_run_7_8():
+    """7/8 drag-run: ghost drags ahead of accents, crescendo run over the back
+    three eighths — the lurching launch into a blast."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "snare_ghost", "ghost"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "snare", "normal"),
+        (5, 0.5, "snare", "normal"),
+        (6, 0.0, "snare", "accent"),
+        (6, 0.5, "tom_low", "accent"),
+        (7, 0.0, "tom_floor", "accent"),
+        (7, 0.5, "kick", "accent"),
+    ]
+    return {
+        "name": "fill_drag_run_7_8",
+        "tags": ["fill", "odd_meter", "drag", "buildup", "into_blast", "into_drive"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_herta_waltz_3_4():
+    """3/4 herta tumble: the two-sixteenth+eighth figure walking down the toms,
+    resolving politely — a turn back into a verse."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.5, "snare", "normal"),
+        (2, 0.0, "tom_high", "accent"),
+        (2, 0.25, "tom_high", "normal"),
+        (2, 0.5, "tom_mid", "normal"),
+        (3, 0.0, "tom_low", "accent"),
+        (3, 0.25, "tom_low", "normal"),
+        (3, 0.5, "tom_floor", "normal"),
+    ]
+    return {
+        "name": "fill_herta_waltz_3_4",
+        "tags": ["fill", "waltz", "herta", "toms", "into_verse", "into_chorus"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_ruff_roll_6_8():
+    """6/8 ruff-into-roll: grace ghosts crowd the accent, then a compound roll
+    crescendos into the downbeat — the gospel-chop cousin for slow emo."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "snare_ghost", "ghost"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.0, "kick", "normal"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "snare", "soft"),
+        (5, 0.5, "snare", "normal"),
+        (6, 0.0, "snare", "normal"),
+        (6, 0.5, "snare", "accent"),
+    ]
+    return {
+        "name": "fill_ruff_roll_6_8",
+        "tags": ["fill", "compound", "ruff", "buildup", "into_chorus", "into_blast"],
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_stop_cascade_5_4():
+    """5/4 stop-cascade: two beats of groove, a dead-air beat (the stop), then
+    a doubled tom cascade across 4-5 — punctuation before a drive."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.0, "snare", "accent"),
+        # beat 3: silence — the stop.
+        (4, 0.0, "tom_high", "accent"),
+        (4, 0.25, "tom_mid", "normal"),
+        (4, 0.5, "tom_mid", "accent"),
+        (4, 0.75, "tom_low", "normal"),
+        (5, 0.0, "tom_low", "accent"),
+        (5, 0.25, "tom_floor", "normal"),
+        (5, 0.5, "tom_floor", "accent"),
+        (5, 0.75, "kick", "accent"),
+    ]
+    return {
+        "name": "fill_stop_cascade_5_4",
+        "tags": ["fill", "odd_meter", "stops", "toms", "into_drive", "into_blast"],
+        "time_sig": (5, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_ebb_6_4():
+    """6/4 ebb: a decrescendo that lets all the air out — floor toms and ghosts
+    fading toward whatever quiet comes next."""
+    hits = [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.0, "tom_floor", "normal"),
+        (2, 0.5, "tom_floor", "normal"),
+        (3, 0.0, "tom_low", "normal"),
+        (4, 0.0, "tom_floor", "soft"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "tom_floor", "soft"),
+        (6, 0.0, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "fill_ebb_6_4",
+        "tags": ["fill", "dynamics", "decrescendo", "into_atmospheric", "into_outro", "into_quiet"],
+        "time_sig": (6, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -2998,6 +3130,12 @@ CELLS = {cell["name"]: cell for cell in [
     _fill_ascending_lift_4_4(),
     _fill_decrescendo_ebb_4_4(),
     _fill_ghost_ruff_snare_4_4(),
+    # Phase B: odd-meter fill language
+    _fill_drag_run_7_8(),
+    _fill_herta_waltz_3_4(),
+    _fill_ruff_roll_6_8(),
+    _fill_stop_cascade_5_4(),
+    _fill_ebb_6_4(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -3185,17 +3323,40 @@ def get_pool(style):
     return [CELLS[name] for name in STYLE_POOLS[style_lower]]
 
 
-def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None):
+def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None,
+                         next_section=None):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
     Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
     If requested_time_sig is given, prefer cells matching that time signature.
     If rng is provided, ties are broken randomly; otherwise the first match is used.
+
+    "fill" sections pick from role=="fill" cells library-wide (fills live
+    outside style pools by design), meter-filtered, preferring fills whose
+    into_<next_section> tag matches what comes next.
     """
     section_lower = section_type.lower()
     if section_lower == "silence":
         return None
+
+    if section_lower == "fill":
+        fills = get_fill_cells()
+        if requested_time_sig:
+            ts_match = [f for f in fills if tuple(f["time_sig"]) == tuple(requested_time_sig)]
+            if ts_match:
+                fills = ts_match
+        if not fills:
+            return None
+        # Prefer fills that lead into what's coming (into_* tags).
+        if next_section:
+            into_tag = f"into_{next_section.lower()}"
+            aimed = [f for f in fills if into_tag in f.get("tags", [])]
+            if aimed:
+                fills = aimed
+        if rng and len(fills) > 1:
+            return rng.choice(fills)
+        return fills[0]
 
     # Filter by time signature if requested
     if requested_time_sig:

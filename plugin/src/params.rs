@@ -93,10 +93,10 @@ fn fill_label(index: i32) -> String {
 pub const SONGS: [(&str, &str); 8] = [
     ("Off", ""),
     // 20 bars — the workhorse Fugazi/ATDI verse-chorus skeleton.
-    ("Verse/Chor", "2:intro 4:verse 4:chorus 4:verse 4:chorus 2:outro"),
+    ("Verse/Chor", "2:intro 4:verse 3:chorus 1:fill 4:verse 4:chorus 2:outro"),
     // 16 bars — Daitro/City of Caterpillar: 8-bar crescendo (matches the
     // 8-bar build cells) erupting into blast, heavy landing.
-    ("Skramz Arc", "2:intro 8:build 4:blast 2:breakdown"),
+    ("Skramz Arc", "2:intro 8:build 1:fill 4:blast 1:breakdown"),
     // 17 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
     ("Stop/Go", "2:blast 1:silence 2:blast 1:silence 2:blast 1:silence 4:breakdown 3:chorus"),
     // 20 bars — Saetia quiet-loud-quiet: fragile passage, eruption, a held
@@ -107,9 +107,9 @@ pub const SONGS: [(&str, &str); 8] = [
     ("Eruption", "2:atmospheric 1:silence 3:blast 1:silence 2:breakdown 3:blast 1:silence 3:blast"),
     // 32 bars — Envy post-rock scale-build: long build, 6/8 lift, blast wall,
     // long comedown. Pair with styles that have 6/8 cells (shellac/fugazi).
-    ("Post-Rock", "4:intro 8:build 4:drive@6/8 8:blast 4:atmospheric 4:outro"),
+    ("Post-Rock", "4:intro 8:build 4:drive@6/8 1:fill 7:blast 4:atmospheric 4:outro"),
     // 24 bars — black-metal blast-forward with a 7/8 tremolo passage.
-    ("Blast Fwd", "2:intro 8:blast 4:drive@7/8 8:blast 2:breakdown"),
+    ("Blast Fwd", "2:intro 7:blast 1:fill 4:drive@7/8 8:blast 2:breakdown"),
 ];
 
 pub fn song_str(index: i32) -> &'static str {

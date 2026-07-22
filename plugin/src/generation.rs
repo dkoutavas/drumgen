@@ -263,6 +263,37 @@ mod tests {
     }
 
     #[test]
+    fn section_dynamics_make_quiet_sections_quiet() {
+        // Quiet/Loud: atmospheric bars (1-4, vel_base -14) must average well
+        // below the blast bars (15-18, vel_base +7). humanize 0 isolates the
+        // section dynamics from feel jitter.
+        use crate::params::song_str;
+        let gen = GenerationManager::new();
+        let idx = gen.style_names().iter().position(|s| s == "euro_screamo").unwrap() as i32;
+        let r = gen.generate_arrangement(idx, song_str(4), 0.0, 0, 0.0, true, 120.0, (0, 0));
+        let bar_ticks = 4 * 480i64;
+        let mean = |lo_bar: i64, hi_bar: i64| -> f64 {
+            let vals: Vec<i32> = r
+                .events
+                .iter()
+                .filter(|e| {
+                    let bar = e.tick / bar_ticks + 1;
+                    bar >= lo_bar && bar <= hi_bar
+                })
+                .map(|e| e.velocity)
+                .collect();
+            assert!(!vals.is_empty(), "bars {}-{} must have events", lo_bar, hi_bar);
+            vals.iter().sum::<i32>() as f64 / vals.len() as f64
+        };
+        let quiet = mean(1, 4);
+        let loud = mean(15, 18);
+        assert!(
+            loud > quiet + 8.0,
+            "blast ({loud:.1}) must be audibly louder than atmospheric ({quiet:.1})"
+        );
+    }
+
+    #[test]
     fn generate_is_fast_enough_to_stay_off_the_audio_thread() {
         // The bar-boundary swap story assumes generation is well under a bar.
         // Pin a generous ceiling on the worst case (16 bars, generative, humanize

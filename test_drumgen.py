@@ -1810,3 +1810,48 @@ class TestStage1ShapedRandomness:
         fill_meters = {tuple(c["time_sig"]) for c in all_cells.values() if c["role"] == "fill"}
         for meter in [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)]:
             assert meter in fill_meters, f"no fill cell for {meter}"
+
+
+class TestPhaseBSectionDynamics:
+    """Section dynamics table, into-aware fill sections."""
+
+    def test_section_vel_offset_ramps(self):
+        from assembler import _section_vel_offset
+        # Build rises from -12 toward +3 across 8 bars.
+        assert _section_vel_offset("build", 0) == -12
+        assert _section_vel_offset("build", 7) > 0
+        # Atmospheric stays down; blast stays up; unknown sections are neutral.
+        assert _section_vel_offset("atmospheric", 3) == -14
+        assert _section_vel_offset("blast", 3) == 7
+        assert _section_vel_offset("nonsense", 5) == 0
+
+    def test_fill_section_picks_into_aware_fill(self):
+        import random
+        from cell_library import get_cell_for_section
+        for seed in range(8):
+            rng = random.Random(seed)
+            cell = get_cell_for_section([], "fill", requested_time_sig=(4, 4),
+                                        rng=rng, next_section="blast")
+            assert cell is not None and cell["role"] == "fill"
+            assert tuple(cell["time_sig"]) == (4, 4)
+            assert "into_blast" in cell["tags"], cell["name"]
+        # Odd meter fills resolve too.
+        cell = get_cell_for_section([], "fill", requested_time_sig=(7, 8),
+                                    rng=random.Random(1), next_section="blast")
+        assert cell is not None and tuple(cell["time_sig"]) == (7, 8)
+
+    def test_arrangement_with_fill_section(self):
+        result = assemble_arrangement("screamo", "1:verse 1:fill 1:blast",
+                                      tempo=160, humanize=0.0, seed=4, generative=True)
+        assert len(result["events"]) > 0
+        assert result["total_bars"] == 3
+
+    def test_quiet_sections_quieter_than_loud(self):
+        result = assemble_arrangement(
+            "euro_screamo", "4:atmospheric 4:blast", tempo=140, humanize=0.0,
+            seed=0, generative=True)
+        bar_ticks = 4 * 480
+        quiet = [v for t, _, v in result["events"] if t < 4 * bar_ticks]
+        loud = [v for t, _, v in result["events"] if t >= 4 * bar_ticks]
+        assert quiet and loud
+        assert sum(loud) / len(loud) > sum(quiet) / len(quiet) + 8

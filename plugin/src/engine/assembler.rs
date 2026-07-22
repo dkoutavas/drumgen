@@ -23,26 +23,34 @@ fn rotate_pick<'a>(list: &[&'a Cell], seed: u64) -> &'a Cell {
     list[(seed as usize) % list.len()]
 }
 
-/// Velocity drift direction per section type.
-fn drift_direction(section_type: &str) -> &'static str {
+/// Per-section dynamics: (vel_base, vel_slope_per_bar, tension_mult).
+/// Mirrors Python SECTION_DYNAMICS — vel_base shifts every hit's velocity,
+/// vel_slope ramps it per bar, tension_mult scales the probability-grid
+/// tension envelope so loud sections also run DENSER, not just harder.
+fn section_dynamics(section_type: &str) -> (f64, f64, f64) {
     match section_type {
-        "verse" | "chorus" | "drive" | "build" | "intro" => "up",
-        "outro" => "down",
-        _ => "none", // blast, breakdown, atmospheric, silence, fill
+        "intro" => (-6.0, 0.5, 0.9),
+        "atmospheric" => (-14.0, 0.0, 0.85),
+        "verse" => (-3.0, 0.6, 1.0),
+        "build" => (-12.0, 2.2, 1.05),
+        "chorus" => (5.0, 0.4, 1.08),
+        "drive" => (3.0, 0.5, 1.05),
+        "blast" => (7.0, 0.0, 1.1),
+        "breakdown" => (7.0, -0.8, 0.92),
+        "outro" => (-2.0, -2.0, 0.9),
+        "fill" => (4.0, 0.0, 1.0),
+        _ => (0.0, 0.0, 1.0),
     }
 }
 
-/// Calculate velocity offset for a bar within a section.
-fn drift_offset(bar_index: i32, total_bars: i32, direction: &str) -> i32 {
-    if direction == "none" || total_bars <= 1 {
-        return 0;
-    }
-    let center = total_bars as f64 / 2.0;
-    match direction {
-        "up" => ((bar_index as f64 - center) * 1.5) as i32,
-        "down" => ((center - bar_index as f64) * 1.5) as i32,
-        _ => 0,
-    }
+/// Velocity offset for a bar within a section: base + slope * bar.
+fn section_vel_offset(section_type: &str, bar_index: i32) -> i32 {
+    let (base, slope, _) = section_dynamics(section_type);
+    ((base + slope * bar_index as f64) as i32).clamp(-20, 20)
+}
+
+fn section_tension(section_type: &str) -> f64 {
+    section_dynamics(section_type).2
 }
 
 /// Validate physical constraints at each position in a bar.
@@ -167,7 +175,12 @@ fn roll_bar(
 /// entries by cell pass, a tension envelope ramps mid-band probabilities, and
 /// a syncopation guard re-rolls a bar once when kick/snare leave the sweet
 /// spot. Mirrors Python realize_probability_grid.
-fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec<Hit> {
+fn realize_probability_grid(
+    cell: &Cell,
+    bars: i32,
+    rng: &mut ChaCha8Rng,
+    tension_mult: f64,
+) -> Vec<Hit> {
     let cell_num_bars = cell.num_bars;
     let total_passes = (bars + cell_num_bars - 1) / cell_num_bars;
     let mut all_hits = Vec::new();
@@ -176,8 +189,9 @@ fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec
         let output_bar = bar_idx + 1;
         let cell_bar = (bar_idx % cell_num_bars) + 1;
         let pass_num = bar_idx / cell_num_bars + 1;
-        let tension = TENSION_START
-            + (TENSION_END - TENSION_START) * (bar_idx as f64 / (bars - 1).max(1) as f64);
+        let tension = tension_mult
+            * (TENSION_START
+                + (TENSION_END - TENSION_START) * (bar_idx as f64 / (bars - 1).max(1) as f64));
 
         let mut bar_hits =
             roll_bar(cell, cell_bar, output_bar, pass_num, total_passes, tension, rng);
@@ -585,7 +599,7 @@ pub fn assemble(
     };
 
     let cell_hits = if is_prob {
-        realize_probability_grid(cell, bars, &mut rng)
+        realize_probability_grid(cell, bars, &mut rng, 1.0)
     } else if is_euclid {
         realize_euclidean(cell, bars, seed)
     } else {
@@ -769,9 +783,11 @@ pub fn assemble_arrangement(
     let mut events = Vec::new();
     let mut bar_cursor = 0;
 
-    for section in &sections {
+    for (sec_idx, section) in sections.iter().enumerate() {
         let (sec_num, sec_den) = section.time_sig;
         let beat_ticks = ppq * 4 / sec_den as i64;
+        // The upcoming section steers fill choice (into_* tags).
+        let next_section = sections.get(sec_idx + 1).map(|sec| sec.section_type.as_str());
 
         // In generative mode, prefer probability cells
         let section_pool: Vec<&Cell> = if generative {
@@ -786,7 +802,7 @@ pub fn assemble_arrangement(
 
         let cell = match library.get_cell_for_section(
             &section_pool, &section.section_type,
-            Some((sec_num, sec_den)), &mut rng,
+            Some((sec_num, sec_den)), &mut rng, next_section,
         ) {
             Some(c) => c,
             None => {
@@ -799,7 +815,7 @@ pub fn assemble_arrangement(
         let is_prob = cell.is_probability();
         let is_euclid = cell.is_euclidean();
         let cell_hits = if is_prob {
-            realize_probability_grid(cell, section.bars, &mut rng)
+            realize_probability_grid(cell, section.bars, &mut rng, section_tension(&section.section_type))
         } else if is_euclid {
             realize_euclidean(cell, section.bars, seed)
         } else {
@@ -823,7 +839,6 @@ pub fn assemble_arrangement(
             events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
         }
 
-        let drift_dir = drift_direction(&section.section_type);
         let mut seen_cell_bars = std::collections::HashSet::new();
 
         for i in 0..section.bars {
@@ -838,7 +853,7 @@ pub fn assemble_arrangement(
                 (i % cell.num_bars) + 1
             };
 
-            let vel_offset = drift_offset(i, section.bars, drift_dir);
+            let vel_offset = section_vel_offset(&section.section_type, i);
 
             let mut current_hits = cell_hits.clone();
             if !(is_prob || is_euclid) && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
@@ -959,7 +974,7 @@ pub fn assemble_layered(
             let cell_bar = (bar_idx % cell.num_bars) + 1;
 
             let layer_hits: Vec<Hit> = if cell.is_probability() {
-                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng);
+                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng, 1.0);
                 realized.into_iter().filter(|h| h.bar == cell_bar).collect()
             } else if cell.is_euclidean() {
                 let realized = realize_euclidean(cell, cell.num_bars, seed);

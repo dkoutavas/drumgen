@@ -7430,6 +7430,156 @@
         ]
       ]
     },
+    "fill_drag_run_7_8": {
+      "name": "fill_drag_run_7_8",
+      "tags": [
+        "fill",
+        "odd_meter",
+        "drag",
+        "buildup",
+        "into_blast",
+        "into_drive"
+      ],
+      "time_sig": [
+        7,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          5,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          6,
+          0.5,
+          "tom_low",
+          "accent"
+        ],
+        [
+          7,
+          0.0,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          7,
+          0.5,
+          "kick",
+          "accent"
+        ]
+      ]
+    },
+    "fill_ebb_6_4": {
+      "name": "fill_ebb_6_4",
+      "tags": [
+        "fill",
+        "dynamics",
+        "decrescendo",
+        "into_atmospheric",
+        "into_outro",
+        "into_quiet"
+      ],
+      "time_sig": [
+        6,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_low",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          6,
+          0.0,
+          "snare_ghost",
+          "ghost"
+        ]
+      ]
+    },
     "fill_floor_tom_sparse": {
       "name": "fill_floor_tom_sparse",
       "tags": [
@@ -7740,6 +7890,75 @@
         ]
       ]
     },
+    "fill_herta_waltz_3_4": {
+      "name": "fill_herta_waltz_3_4",
+      "tags": [
+        "fill",
+        "waltz",
+        "herta",
+        "toms",
+        "into_verse",
+        "into_chorus"
+      ],
+      "time_sig": [
+        3,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "tom_high",
+          "accent"
+        ],
+        [
+          2,
+          0.25,
+          "tom_high",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_low",
+          "accent"
+        ],
+        [
+          3,
+          0.25,
+          "tom_low",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "tom_floor",
+          "normal"
+        ]
+      ]
+    },
     "fill_linear_1bar": {
       "name": "fill_linear_1bar",
       "tags": [
@@ -7925,6 +8144,81 @@
           4,
           0.75,
           "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "fill_ruff_roll_6_8": {
+      "name": "fill_ruff_roll_6_8",
+      "tags": [
+        "fill",
+        "compound",
+        "ruff",
+        "buildup",
+        "into_chorus",
+        "into_blast"
+      ],
+      "time_sig": [
+        6,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          5,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.5,
+          "snare",
           "accent"
         ]
       ]
@@ -8167,6 +8461,87 @@
           4,
           0.75,
           "snare",
+          "accent"
+        ]
+      ]
+    },
+    "fill_stop_cascade_5_4": {
+      "name": "fill_stop_cascade_5_4",
+      "tags": [
+        "fill",
+        "odd_meter",
+        "stops",
+        "toms",
+        "into_drive",
+        "into_blast"
+      ],
+      "time_sig": [
+        5,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "tom_high",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "tom_mid",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "tom_low",
+          "normal"
+        ],
+        [
+          5,
+          0.0,
+          "tom_low",
+          "accent"
+        ],
+        [
+          5,
+          0.25,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          5,
+          0.5,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          5,
+          0.75,
+          "kick",
           "accent"
         ]
       ]

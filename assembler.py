@@ -31,23 +31,34 @@ _STICK_PRIORITY = {"snare": 2, "snare_rim": 2, "snare_ghost": 1,
 _VEL_RANK = {"accent": 3, "normal": 2, "soft": 1, "ghost": 0}
 
 
-_DRIFT_DIRECTIONS = {
-    "verse": "up", "chorus": "up", "drive": "up", "build": "up", "intro": "up",
-    "blast": "none", "breakdown": "none", "atmospheric": "none",
-    "silence": "none", "fill": "none",
-    "outro": "down",
+# Per-section dynamics: (vel_base, vel_slope_per_bar, tension_mult).
+# vel_base shifts every hit's velocity for the section; vel_slope ramps it per
+# bar (a build rises ~15 velocity across 8 bars); tension_mult scales the
+# probability-grid tension envelope so loud sections also run DENSER, not just
+# harder. Supersedes the old up/down/none drift.
+SECTION_DYNAMICS = {
+    "intro":       (-6.0, 0.5, 0.9),
+    "atmospheric": (-14.0, 0.0, 0.85),
+    "verse":       (-3.0, 0.6, 1.0),
+    "build":       (-12.0, 2.2, 1.05),
+    "chorus":      (5.0, 0.4, 1.08),
+    "drive":       (3.0, 0.5, 1.05),
+    "blast":       (7.0, 0.0, 1.1),
+    "breakdown":   (7.0, -0.8, 0.92),
+    "outro":       (-2.0, -2.0, 0.9),
+    "fill":        (4.0, 0.0, 1.0),
 }
 
 
-def _drift_offset(bar_index, total_bars, direction):
-    if direction == "none" or total_bars <= 1:
-        return 0
-    center = total_bars / 2
-    if direction == "up":
-        return int((bar_index - center) * 1.5)
-    elif direction == "down":
-        return int((center - bar_index) * 1.5)
-    return 0
+def _section_vel_offset(section_type, bar_index):
+    """Velocity offset for a bar within a section: base + slope * bar."""
+    base, slope, _ = SECTION_DYNAMICS.get(section_type, (0.0, 0.0, 1.0))
+    off = int(base + slope * bar_index)
+    return max(-20, min(20, off))
+
+
+def _section_tension(section_type):
+    return SECTION_DYNAMICS.get(section_type, (0.0, 0.0, 1.0))[2]
 
 
 def vary_hits(hits, cell_bar, vary_amount, rng, time_sig=(4, 4)):
@@ -254,14 +265,15 @@ def _validate_physical_constraints(bar_hits):
     return filtered
 
 
-def realize_probability_grid(prob_cell, bars, rng):
+def realize_probability_grid(prob_cell, bars, rng, tension_mult=1.0):
     """Realize a probability grid cell into concrete 5-tuple hits.
 
     Per bar: trig conditions gate entries by cell pass (memory across the
     baked pattern), a tension envelope ramps mid-band probabilities across the
-    bars, and a syncopation guard re-rolls a bar once when its kick/snare
-    offbeat ratio leaves the musical sweet spot. Returns hits in the same
-    format as _normalize_hits() output: (bar, beat, sub, inst, vel).
+    bars (scaled by tension_mult — section dynamics run loud sections denser),
+    and a syncopation guard re-rolls a bar once when its kick/snare offbeat
+    ratio leaves the musical sweet spot. Returns hits in the same format as
+    _normalize_hits() output: (bar, beat, sub, inst, vel).
     """
     grid = _normalize_grid(prob_cell)
     cell_num_bars = prob_cell["num_bars"]
@@ -272,9 +284,9 @@ def realize_probability_grid(prob_cell, bars, rng):
         output_bar = bar_idx + 1
         cell_bar = (bar_idx % cell_num_bars) + 1
         pass_num = bar_idx // cell_num_bars + 1
-        tension = TENSION_START + (TENSION_END - TENSION_START) * (
+        tension = tension_mult * (TENSION_START + (TENSION_END - TENSION_START) * (
             bar_idx / max(1, bars - 1)
-        )
+        ))
 
         bar_hits = _roll_bar(grid, cell_bar, output_bar, pass_num, total_passes, tension, rng)
         if not _syncopation_ok(bar_hits):
@@ -670,8 +682,10 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     bar_cursor = 0  # 0-indexed global bar counter
     used_cells = []
 
-    for section_bars, section_type, (sec_num, sec_den) in sections:
+    for sec_idx, (section_bars, section_type, (sec_num, sec_den)) in enumerate(sections):
         beat_ticks = ppq * 4 // sec_den
+        # The upcoming section steers fill choice (into_* tags).
+        next_section = sections[sec_idx + 1][1] if sec_idx + 1 < len(sections) else None
 
         # In generative mode, prefer per-seed-varying cells (prob + euclidean)
         section_pool = pool
@@ -682,7 +696,8 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
             if prob_match:
                 section_pool = prob_match
 
-        cell = get_cell_for_section(section_pool, section_type, requested_time_sig=(sec_num, sec_den), rng=rng)
+        cell = get_cell_for_section(section_pool, section_type, requested_time_sig=(sec_num, sec_den),
+                                    rng=rng, next_section=next_section)
 
         if cell is None:
             # Silence section — advance bar counter, emit nothing
@@ -700,7 +715,8 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         is_euclid = cell.get("type") == "euclidean"
 
         if is_prob:
-            cell_hits = realize_probability_grid(cell, section_bars, rng)
+            cell_hits = realize_probability_grid(cell, section_bars, rng,
+                                                 tension_mult=_section_tension(section_type))
         elif is_euclid:
             cell_hits = realize_euclidean(cell, section_bars, seed)
         else:
@@ -722,7 +738,6 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
             kick_vel = humanizer.humanize_velocity("accent", "kick")
             events.append((kick_tick, "kick", kick_vel))
 
-        drift_dir = _DRIFT_DIRECTIONS.get(section_type, "none")
         seen_cell_bars = set()
 
         for i in range(section_bars):
@@ -737,7 +752,7 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
             else:
                 cell_bar = (i % cell["num_bars"]) + 1
 
-            vel_offset = _drift_offset(i, section_bars, drift_dir)
+            vel_offset = _section_vel_offset(section_type, i)
 
             current_hits = cell_hits
             if not (is_prob or is_euclid) and vary > 0 and cell_bar in seen_cell_bars:

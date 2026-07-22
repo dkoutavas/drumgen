@@ -327,14 +327,49 @@ impl CellLibrary {
     /// Score a cell against section preferences and pick the best match.
     /// Filters by time signature if provided. Breaks ties using the RNG.
     pub fn get_cell_for_section<'a>(
-        &self,
+        &'a self,
         pool: &[&'a Cell],
         section_type: &str,
         requested_time_sig: Option<(i32, i32)>,
         rng: &mut ChaCha8Rng,
+        next_section: Option<&str>,
     ) -> Option<&'a Cell> {
         if section_type == "silence" {
             return None;
+        }
+
+        // "fill" sections pick from role=="fill" cells library-wide (fills
+        // live outside style pools by design), meter-filtered, preferring
+        // fills whose into_<next_section> tag matches what comes next.
+        // Mirrors Python get_cell_for_section.
+        if section_type == "fill" {
+            let mut fills = self.get_fill_cells();
+            if let Some(ts) = requested_time_sig {
+                let ts_match: Vec<&Cell> =
+                    fills.iter().filter(|f| f.time_sig == ts).copied().collect();
+                if !ts_match.is_empty() {
+                    fills = ts_match;
+                }
+            }
+            if fills.is_empty() {
+                return None;
+            }
+            if let Some(next) = next_section {
+                let into_tag = format!("into_{}", next);
+                let aimed: Vec<&Cell> = fills
+                    .iter()
+                    .filter(|f| f.tags.iter().any(|t| t == &into_tag))
+                    .copied()
+                    .collect();
+                if !aimed.is_empty() {
+                    fills = aimed;
+                }
+            }
+            if fills.len() > 1 {
+                let idx = rng.gen_range(0..fills.len());
+                return Some(fills[idx]);
+            }
+            return Some(fills[0]);
         }
 
         let prefs = self.section_preferences(section_type);
@@ -391,6 +426,35 @@ impl CellLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
+
+    #[test]
+    fn fill_sections_pick_into_aware_fills() {
+        // A "fill" section must return a role=="fill" cell, meter-matched,
+        // preferring fills tagged into_<next_section>.
+        let lib = CellLibrary::new();
+        let pool = lib.get_pool("screamo");
+        for seed in 0..8u64 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let cell = lib
+                .get_cell_for_section(&pool, "fill", Some((4, 4)), &mut rng, Some("blast"))
+                .expect("fill section must resolve");
+            assert_eq!(cell.role, "fill");
+            assert_eq!(cell.time_sig, (4, 4));
+            assert!(
+                cell.tags.iter().any(|t| t == "into_blast"),
+                "into_blast fills exist, so the aimed set must win (got {})",
+                cell.name
+            );
+        }
+        // Odd meter: 7/8 fill exists and is chosen.
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let cell = lib
+            .get_cell_for_section(&pool, "fill", Some((7, 8)), &mut rng, Some("blast"))
+            .expect("7/8 fill must resolve");
+        assert_eq!(cell.time_sig, (7, 8));
+        assert_eq!(cell.role, "fill");
+    }
 
     #[test]
     fn test_load_builtin() {
