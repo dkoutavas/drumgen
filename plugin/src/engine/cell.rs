@@ -272,6 +272,61 @@ pub struct Hit {
     pub velocity_level: VelocityLevel,
 }
 
+/// Elektron-style trig condition on a grid entry, evaluated before the
+/// probability roll. Mirrors Python's `_trig_allows`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrigCond {
+    /// No condition — always eligible.
+    Always,
+    /// "A:B" — fire on pass A of every B cycles of the cell (1-indexed).
+    Ratio(i32, i32),
+    /// "1st" — first pass only.
+    First,
+    /// "last" — final pass of the baked pattern.
+    Last,
+    /// "pre" — the previous entry in this bar fired.
+    Pre,
+    /// "!pre" — the previous entry in this bar did not fire.
+    NotPre,
+}
+
+impl TrigCond {
+    /// Parse from the authoring string; unknown strings fail open (Always),
+    /// matching Python.
+    pub fn from_str(s: &str) -> TrigCond {
+        match s {
+            "" => TrigCond::Always,
+            "1st" => TrigCond::First,
+            "last" => TrigCond::Last,
+            "pre" => TrigCond::Pre,
+            "!pre" => TrigCond::NotPre,
+            other => {
+                if let Some((a, b)) = other.split_once(':') {
+                    if let (Ok(a), Ok(b)) = (a.parse::<i32>(), b.parse::<i32>()) {
+                        if b > 0 {
+                            return TrigCond::Ratio(a, b);
+                        }
+                    }
+                }
+                TrigCond::Always
+            }
+        }
+    }
+
+    /// Does this condition allow the entry on the given cell pass?
+    pub fn allows(&self, pass_num: i32, total_passes: i32, prev_fired: bool) -> bool {
+        match *self {
+            TrigCond::Always => true,
+            TrigCond::First => pass_num == 1,
+            TrigCond::Last => pass_num == total_passes,
+            TrigCond::Pre => prev_fired,
+            TrigCond::NotPre => !prev_fired,
+            // rem_euclid = Python floor-mod, so a <= 0 behaves identically.
+            TrigCond::Ratio(a, b) => (pass_num - 1).rem_euclid(b) == (a - 1).rem_euclid(b),
+        }
+    }
+}
+
 /// A probability grid entry for generative cells.
 #[derive(Debug, Clone)]
 pub struct GridEntry {
@@ -287,13 +342,29 @@ pub struct GridEntry {
     pub probability: f64,
     /// Velocity level if fired.
     pub velocity_level: VelocityLevel,
+    /// Trig condition gating the roll (Always when unset).
+    pub condition: TrigCond,
 }
 
-/// Cell type — fixed pattern or probability grid.
+/// One limb of a Euclidean cell: E(pulses, steps) tiled across the pattern
+/// with no bar reset (polymeter).
+#[derive(Debug, Clone)]
+pub struct Limb {
+    pub instrument: Instrument,
+    pub pulses: i32,
+    pub steps: i32,
+    pub rotation: i32,
+    pub velocity_level: VelocityLevel,
+    /// When true, the dice adds a seed-derived rotation (anchors stay put).
+    pub dice_rotate: bool,
+}
+
+/// Cell type — fixed pattern, probability grid, or Euclidean limbs.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellType {
     Fixed,
     Probability,
+    Euclidean,
 }
 
 /// A rhythmic cell definition.
@@ -310,6 +381,8 @@ pub struct Cell {
     pub hits: Vec<Hit>,
     /// Grid entries for probability cells.
     pub grid: Vec<GridEntry>,
+    /// Limbs for Euclidean cells.
+    pub limbs: Vec<Limb>,
     /// Optional per-bar humanize overrides: (start_bar, end_bar) -> amount.
     pub humanize_per_bar: Option<HashMap<(i32, i32), f64>>,
 }
@@ -321,6 +394,10 @@ impl Cell {
     }
 
     /// Check if this cell is a probability grid cell.
+    pub fn is_euclidean(&self) -> bool {
+        self.cell_type == CellType::Euclidean
+    }
+
     pub fn is_probability(&self) -> bool {
         self.cell_type == CellType::Probability
     }

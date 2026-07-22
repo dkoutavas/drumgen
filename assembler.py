@@ -122,15 +122,97 @@ def _get_humanize_for_bar(cell, cell_bar, default_amount):
 
 
 def _normalize_grid(prob_cell):
-    """Convert 5-tuple grid entries to 6-tuples for single-bar cells."""
+    """Normalize grid entries to 7-tuples (bar, beat, sub, inst, prob, vel, cond).
+
+    Accepted authoring forms:
+      5-tuple (beat, sub, inst, prob, vel)             — single-bar, no condition
+      6-tuple (bar, beat, sub, inst, prob, vel)        — multi-bar, no condition
+      6-tuple (beat, sub, inst, prob, vel, cond)       — single-bar + condition
+      7-tuple (bar, beat, sub, inst, prob, vel, cond)  — multi-bar + condition
+    The two 6-tuple forms are disambiguated by position 2: a string there is an
+    instrument (condition form), a number is a sub position (bar form).
+    """
     normalized = []
     for entry in prob_cell["grid"]:
         if len(entry) == 5:
-            # (beat, sub, inst, prob, vel) -> (1, beat, sub, inst, prob, vel)
-            normalized.append((1, entry[0], entry[1], entry[2], entry[3], entry[4]))
+            normalized.append((1, entry[0], entry[1], entry[2], entry[3], entry[4], ""))
+        elif len(entry) == 6:
+            if isinstance(entry[2], str):
+                # (beat, sub, inst, prob, vel, cond)
+                normalized.append((1, entry[0], entry[1], entry[2], entry[3], entry[4], entry[5]))
+            else:
+                normalized.append((*entry, ""))
         else:
-            normalized.append(entry)
+            normalized.append(tuple(entry))
     return normalized
+
+
+# ── Stage 1: shaped randomness ──────────────────────────────────────────────
+# Trig conditions (Elektron-style) as an optional trailing string on a grid
+# entry. Evaluated BEFORE the probability roll, so a failed condition consumes
+# no RNG (cells without conditions keep their exact per-seed streams).
+#   "A:B"  fire on pass A of every B cycles of the cell (1-indexed)
+#   "1st"  first pass only          "last"  final pass of the baked pattern
+#   "pre"  previous entry in this bar fired    "!pre"  it did not
+def _trig_allows(cond, pass_num, total_passes, prev_fired):
+    if not cond:
+        return True
+    if cond == "1st":
+        return pass_num == 1
+    if cond == "last":
+        return pass_num == total_passes
+    if cond == "pre":
+        return prev_fired
+    if cond == "!pre":
+        return not prev_fired
+    if ":" in cond:
+        a, b = cond.split(":", 1)
+        try:
+            a, b = int(a), int(b)
+        except ValueError:
+            return True  # malformed ratio: fail open (mirrors Rust)
+        if b <= 0:
+            return True
+        return (pass_num - 1) % b == (a - 1) % b
+    return True  # unknown condition: fail open
+
+
+# Syncopation guard rails (Witek et al. 2014: groove pleasure peaks at MEDIUM
+# syncopation). If a bar's kick/snare offbeat ratio falls outside the band the
+# bar is re-rolled once; the second roll is kept regardless (bounded work,
+# deterministic per seed).
+SYNC_LO = 0.10
+SYNC_HI = 0.60
+# Tension envelope: mid-band probabilities ramp across the pattern so later
+# bars run slightly hotter — a shaped arc instead of a flat texture.
+TENSION_START = 0.88
+TENSION_END = 1.10
+
+
+def _syncopation_ok(bar_hits):
+    core = [(h[1], h[2]) for h in bar_hits if h[3] in ("kick", "snare")]
+    if len(core) < 3:
+        return True
+    off = sum(1 for _, sub in core if sub != 0.0) / len(core)
+    return SYNC_LO <= off <= SYNC_HI
+
+
+def _roll_bar(grid, cell_bar, output_bar, pass_num, total_passes, tension, rng):
+    """One realization attempt for one bar of a probability grid."""
+    bar_hits = []
+    prev_fired = False
+    for g_bar, beat, sub, inst, prob, vel, cond in grid:
+        if g_bar != cell_bar:
+            continue
+        if not _trig_allows(cond, pass_num, total_passes, prev_fired):
+            prev_fired = False
+            continue
+        p = prob * tension if 0.15 < prob < 0.85 else prob
+        fired = rng.random() < min(1.0, p)
+        prev_fired = fired
+        if fired:
+            bar_hits.append((output_bar, beat, sub, inst, vel))
+    return bar_hits
 
 
 def _validate_physical_constraints(bar_hits):
@@ -175,28 +257,76 @@ def _validate_physical_constraints(bar_hits):
 def realize_probability_grid(prob_cell, bars, rng):
     """Realize a probability grid cell into concrete 5-tuple hits.
 
-    For each output bar, rolls RNG for each grid entry. Returns hits in the
-    same format as _normalize_hits() output: list of (bar, beat, sub, inst, vel).
+    Per bar: trig conditions gate entries by cell pass (memory across the
+    baked pattern), a tension envelope ramps mid-band probabilities across the
+    bars, and a syncopation guard re-rolls a bar once when its kick/snare
+    offbeat ratio leaves the musical sweet spot. Returns hits in the same
+    format as _normalize_hits() output: (bar, beat, sub, inst, vel).
     """
     grid = _normalize_grid(prob_cell)
     cell_num_bars = prob_cell["num_bars"]
+    total_passes = (bars + cell_num_bars - 1) // cell_num_bars
     all_hits = []
 
     for bar_idx in range(bars):
         output_bar = bar_idx + 1
         cell_bar = (bar_idx % cell_num_bars) + 1
+        pass_num = bar_idx // cell_num_bars + 1
+        tension = TENSION_START + (TENSION_END - TENSION_START) * (
+            bar_idx / max(1, bars - 1)
+        )
 
-        bar_hits = []
-        for g_bar, beat, sub, inst, prob, vel in grid:
-            if g_bar != cell_bar:
-                continue
-            if rng.random() < prob:
-                bar_hits.append((output_bar, beat, sub, inst, vel))
+        bar_hits = _roll_bar(grid, cell_bar, output_bar, pass_num, total_passes, tension, rng)
+        if not _syncopation_ok(bar_hits):
+            bar_hits = _roll_bar(grid, cell_bar, output_bar, pass_num, total_passes, tension, rng)
 
-        # Validate physical constraints per bar
         bar_hits = _validate_physical_constraints(bar_hits)
         all_hits.extend(bar_hits)
 
+    return all_hits
+
+
+def _euclid_pattern(pulses, steps):
+    """Euclidean rhythm, downbeat-anchored: slot i is an onset iff
+    (i * pulses) mod steps < pulses. Equivalent to Bjorklund's algorithm up to
+    rotation, with slot 0 always an onset (E(3,8) -> x..x..x.)."""
+    return [(i * pulses) % steps < pulses for i in range(steps)]
+
+
+def realize_euclidean(cell, bars, seed):
+    """Realize a Euclidean cell's per-limb patterns over the whole output.
+
+    Each limb tiles its own `steps`-slot cycle across the pattern with NO bar
+    reset (polymeter): limbs with co-prime lengths phase against each other
+    and take many bars to realign. `dice_rotate` limbs (default true) add a
+    seed-derived rotation so the dice re-voices the cell; anchor limbs
+    (dice_rotate false) stay put. Slots are sixteenths: 4 per beat in /4
+    meters, 2 per (eighth-)beat in /8. Deterministic — no RNG stream used.
+    """
+    num, den = cell["time_sig"]
+    slots_per_beat = 2 if den == 8 else 4
+    spb = num * slots_per_beat
+    hits = []
+    for li, limb in enumerate(cell["limbs"]):
+        steps = max(1, limb["steps"])  # clamp like the Rust loader
+        pattern = _euclid_pattern(limb["pulses"], steps)
+        rot = limb.get("rotation", 0)
+        if limb.get("dice_rotate", True):
+            rot += (seed >> li) % steps
+        vel = limb.get("velocity", "normal")
+        inst = limb["instrument"]
+        for g in range(bars * spb):
+            if pattern[(g + rot) % steps]:
+                bar = g // spb + 1
+                within = g % spb
+                beat = within // slots_per_beat + 1
+                sub = (within % slots_per_beat) * (0.5 if den == 8 else 0.25)
+                hits.append((bar, beat, sub, inst, vel))
+
+    all_hits = []
+    for bar_number in range(1, bars + 1):
+        bar_hits = [h for h in hits if h[0] == bar_number]
+        all_hits.extend(_validate_physical_constraints(bar_hits))
     return all_hits
 
 
@@ -314,10 +444,11 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         style_lower = style.lower()
         if style_lower in STYLE_POOLS:
             pool = get_pool(style_lower)
-            # In generative mode, prefer probability cells
+            # In generative mode, prefer per-seed-varying cells (prob + euclidean)
             if generative:
                 prob_match = [c for c in pool
-                              if c.get("type") == "probability" and tuple(c["time_sig"]) == requested_ts]
+                              if c.get("type") in ("probability", "euclidean")
+                              and tuple(c["time_sig"]) == requested_ts]
                 if prob_match:
                     pool = prob_match
                 else:
@@ -360,8 +491,9 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     ppq = DEFAULT_PPQ
     beat_ticks = ppq * 4 // den
 
-    # Handle probability cell
+    # Handle generative cell types
     is_prob = cell.get("type") == "probability"
+    is_euclid = cell.get("type") == "euclidean"
 
     fill_cell = None
     if fill_every > 0:
@@ -379,6 +511,8 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
 
     if is_prob:
         cell_hits = realize_probability_grid(cell, bars, rng)
+    elif is_euclid:
+        cell_hits = realize_euclidean(cell, bars, seed)
     else:
         cell_hits = _normalize_hits(cell)
     fill_hits = _normalize_hits(fill_cell) if fill_cell else []
@@ -396,8 +530,8 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             active_hits = fill_hits
             active_cell = fill_cell
             cell_bar = (bar_idx % active_cell["num_bars"]) + 1
-        elif is_prob:
-            # Probability hits already have correct output bar numbers
+        elif is_prob or is_euclid:
+            # Realized hits already carry correct output bar numbers
             active_hits = cell_hits
             active_cell = cell
             cell_bar = bar_number  # hits are keyed by output bar
@@ -406,8 +540,9 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             active_cell = cell
             cell_bar = (bar_idx % active_cell["num_bars"]) + 1
 
-        # Apply vary mutations on repeated cell_bars (skip for probability cells)
-        if not is_prob and vary > 0 and cell_bar in seen_cell_bars:
+        # Apply vary mutations on repeated cell_bars (skip for generative cells
+        # — prob re-realizes per seed and euclidean phasing never repeats)
+        if not (is_prob or is_euclid) and vary > 0 and cell_bar in seen_cell_bars:
             active_hits = vary_hits(active_hits, cell_bar, vary, rng, time_sig=(num, den))
         seen_cell_bars.add(cell_bar)
 
@@ -531,11 +666,12 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     for section_bars, section_type, (sec_num, sec_den) in sections:
         beat_ticks = ppq * 4 // sec_den
 
-        # In generative mode, prefer probability cells
+        # In generative mode, prefer per-seed-varying cells (prob + euclidean)
         section_pool = pool
         if generative:
             prob_match = [c for c in pool
-                          if c.get("type") == "probability" and tuple(c["time_sig"]) == (sec_num, sec_den)]
+                          if c.get("type") in ("probability", "euclidean")
+                          and tuple(c["time_sig"]) == (sec_num, sec_den)]
             if prob_match:
                 section_pool = prob_match
 
@@ -554,9 +690,12 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
                   f"cell '{cell['name']}' for {sec_num}/{sec_den} — no matching cell", file=sys.stderr)
 
         is_prob = cell.get("type") == "probability"
+        is_euclid = cell.get("type") == "euclidean"
 
         if is_prob:
             cell_hits = realize_probability_grid(cell, section_bars, rng)
+        elif is_euclid:
+            cell_hits = realize_euclidean(cell, section_bars, seed)
         else:
             cell_hits = _normalize_hits(cell)
         cell_humanize = humanize if humanize is not None else cell["humanize"]
@@ -582,10 +721,11 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         for i in range(section_bars):
             bar_number = bar_cursor + i + 1  # 1-indexed global
 
-            if is_prob:
-                cell_bar = bar_number  # prob hits already use output bar numbers (1..section_bars)
-                # But realize_probability_grid used bar_idx 0..section_bars-1, output_bar = bar_idx+1
-                # We need to remap: the realized hits have output_bar = i+1 (1-indexed within section)
+            if is_prob or is_euclid:
+                # Realized hits (prob AND euclidean) are keyed by output bar
+                # within the section: 1..section_bars. Using the fixed-cell
+                # modulo here would discard euclidean phasing (every bar would
+                # replay local bar 1).
                 cell_bar = i + 1
             else:
                 cell_bar = (i % cell["num_bars"]) + 1
@@ -593,14 +733,14 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
             vel_offset = _drift_offset(i, section_bars, drift_dir)
 
             current_hits = cell_hits
-            if not is_prob and vary > 0 and cell_bar in seen_cell_bars:
+            if not (is_prob or is_euclid) and vary > 0 and cell_bar in seen_cell_bars:
                 current_hits = vary_hits(cell_hits, cell_bar, vary, rng, time_sig=(sec_num, sec_den))
             seen_cell_bars.add(cell_bar)
 
             drift_ms = humanizer.compute_section_drift_ms(section_type, i, section_bars)
 
-            # For prob cells, remap cell_bar hits to the correct global bar_number
-            if is_prob:
+            # For realized cells, remap cell_bar hits to the correct global bar_number
+            if is_prob or is_euclid:
                 remapped_hits = []
                 for h in current_hits:
                     if h[0] == cell_bar:
@@ -697,11 +837,15 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
 
         for layer_name, cell in layer_cells.items():
             is_prob = cell.get("type") == "probability"
+            is_euclid = cell.get("type") == "euclidean"
             cell_bar = (bar_idx % cell["num_bars"]) + 1
 
             if is_prob:
                 # Realize just this one bar
                 realized = realize_probability_grid(cell, cell["num_bars"], rng)
+                layer_hits = [h for h in realized if h[0] == cell_bar]
+            elif is_euclid:
+                realized = realize_euclidean(cell, cell["num_bars"], seed)
                 layer_hits = [h for h in realized if h[0] == cell_bar]
             else:
                 layer_hits = [h for h in _normalize_hits(cell) if h[0] == cell_bar]

@@ -31,6 +31,9 @@ def _serialize_cell(cell):
     if cell.get("type") == "probability":
         out["type"] = "probability"
         out["grid"] = [list(entry) for entry in cell["grid"]]
+    elif cell.get("type") == "euclidean":
+        out["type"] = "euclidean"
+        out["limbs"] = [dict(limb) for limb in cell["limbs"]]
     else:
         out["type"] = "fixed"
         out["hits"] = [list(h) for h in cell["hits"]]
