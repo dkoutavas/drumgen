@@ -1855,3 +1855,42 @@ class TestPhaseBSectionDynamics:
         loud = [v for t, _, v in result["events"] if t >= 4 * bar_ticks]
         assert quiet and loud
         assert sum(loud) / len(loud) > sum(quiet) / len(quiet) + 8
+
+
+class TestZonaPool:
+    """The jazz-on-emoviolence pool: format discipline for the comping cells."""
+
+    def _zona_cells(self):
+        from cell_library import CELLS, STYLE_POOLS
+        return [CELLS[n] for n in STYLE_POOLS["zona"]]
+
+    def test_zona_pool_exists_with_comp_anchor_first(self):
+        from cell_library import STYLE_POOLS
+        assert STYLE_POOLS["zona"][0] == "prob_jazz_comp_4_4"
+        assert len(STYLE_POOLS["zona"]) == 8
+
+    def test_zona_subs_stay_on_the_sixteenth_grid(self):
+        # Swing purity: the SWING param supplies the triplet lean at runtime;
+        # authored subs must stay on the straight grid, never pre-swung.
+        legal = {0.0, 0.25, 0.5, 0.75}
+        for cell in self._zona_cells():
+            entries = cell.get("grid", [])
+            for e in entries:
+                sub = e[1] if isinstance(e[2], str) else (e[1] if len(e) == 5 else e[2])
+                assert sub in legal, f"{cell['name']}: sub {sub} off-grid"
+
+    def test_zona_prob_cells_keep_an_on_beat_anchor(self):
+        # At least one kick/snare entry at sub 0.0 per prob cell keeps the
+        # syncopation guard in its band (all-offbeat bars re-roll forever).
+        from assembler import _normalize_grid
+        for cell in self._zona_cells():
+            if cell.get("type") != "probability":
+                continue
+            grid = _normalize_grid(cell)
+            anchors = [g for g in grid if g[3] in ("kick", "snare") and g[2] == 0.0]
+            assert anchors, f"{cell['name']} has no on-beat kick/snare anchor"
+
+    def test_zona_cluster_amount_is_jazz(self):
+        from humanizer import get_cluster_amount
+        from cell_library import CELLS
+        assert get_cluster_amount(CELLS["prob_jazz_comp_4_4"]) == 0.65

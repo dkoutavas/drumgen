@@ -658,7 +658,7 @@ pub fn create(
                     ui.horizontal(|ui| {
                         let ds = stepper(ui, "SONG", &params.song.to_string(), 80.0);
                         if ds != 0 {
-                            step_int(setter, &params.song, params.song.value(), ds, params::SONGS.len() as i32);
+                            step_int(setter, &params.song, params.song.value(), ds, params::n_songs() as i32);
                         }
                         let dice = ui
                             .add_sized(

@@ -20,6 +20,7 @@ fn drift_profile(section_type: &str) -> Option<&'static str> {
 /// Tag → ghost clustering amount (0.0 = none, 1.0 = max).
 fn cluster_tag_amount(tag: &str) -> Option<f64> {
     match tag {
+        "jazz" | "comping" => Some(0.65),
         "faraquet" => Some(0.7),
         "angular" => Some(0.6),
         "math" => Some(0.6),

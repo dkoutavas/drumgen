@@ -22,7 +22,8 @@ pub struct DrumgenParams {
     #[id = "seed"]
     pub seed: IntParam,
 
-    /// Swing amount (0.0 = straight, 1.0 = full triplet swing).
+    /// Swing amount: 0.0 = straight, 0.50 = full triplet swing (values above
+    /// push past triplet toward dotted feel). For zona comping, 0.35-0.50.
     #[id = "swing"]
     pub swing: FloatParam,
 
@@ -90,7 +91,7 @@ fn fill_label(index: i32) -> String {
 /// (loop mode). Strings use the engine's section vocabulary and were verified
 /// against SECTION_PREFERENCES + the style pools (see the Song Mode design).
 /// All 4/4 and fill-token-free until the fill-section engine change lands.
-pub const SONGS: [(&str, &str); 8] = [
+pub const SONGS: [(&str, &str); 10] = [
     ("Off", ""),
     // 20 bars — the workhorse Fugazi/ATDI verse-chorus skeleton.
     ("Verse/Chor", "2:intro 4:verse 3:chorus 1:fill 4:verse 4:chorus 2:outro"),
@@ -110,14 +111,124 @@ pub const SONGS: [(&str, &str); 8] = [
     ("Post-Rock", "4:intro 8:build 4:drive@6/8 1:fill 7:blast 4:atmospheric 4:outro"),
     // 24 bars — black-metal blast-forward with a 7/8 tremolo passage.
     ("Blast Fwd", "2:intro 7:blast 1:fill 4:drive@7/8 8:blast 2:breakdown"),
+    // 24 bars — Lord Snow logic: twinkle/burst alternation through a maze of
+    // short sections, meters flipping under your feet, stops as punctuation.
+    ("Labyrinth", "2:intro 3:verse@7/8 1:fill 2:blast 1:silence 3:verse@7/8 2:breakdown 4:drive@6/8 1:fill 3:blast 2:outro"),
+    // 14 bars — Ampere: the whole song is the climax; in and out in a minute.
+    ("Ampere", "1:intro 3:blast 1:silence 2:blast 2:breakdown 1:fill 3:blast 1:outro"),
 ];
 
+// ── User song forms: ~/.config/drumgen/songs.txt ────────────────────────────
+// One song per line: `Name | 3:verse@7/8 2:blast 1:silence ...`. Loaded ONCE
+// at plugin instantiation (restart the DAW to reload). A bad line is rejected
+// WHOLE with a log — a typo must never silently become a mediocre song.
+
+use std::sync::OnceLock;
+
+static USER_SONGS: OnceLock<Vec<(String, String)>> = OnceLock::new();
+
+/// Known section vocabulary — must match SECTION_PREFERENCES keys.
+const SECTIONS: [&str; 11] = [
+    "intro", "build", "verse", "chorus", "drive", "blast", "breakdown",
+    "atmospheric", "silence", "fill", "outro",
+];
+
+/// Strict arrangement validator. The engine's parse_arrangement is lenient
+/// (defaults on bad tokens); user input gets no such mercy.
+pub fn valid_arrangement(arr: &str) -> bool {
+    let mut total = 0i64;
+    let mut any = false;
+    for token in arr.split_whitespace() {
+        let Some((bars, rest)) = token.split_once(':') else { return false };
+        let Ok(bars) = bars.parse::<i64>() else { return false };
+        if !(1..=32).contains(&bars) {
+            return false;
+        }
+        let (section, meter) = match rest.split_once('@') {
+            Some((sec, ts)) => {
+                let Some((n, d)) = ts.split_once('/') else { return false };
+                let (Ok(n), Ok(d)) = (n.parse::<i32>(), d.parse::<i32>()) else { return false };
+                if !(1..=15).contains(&n) || !(d == 4 || d == 8) {
+                    return false;
+                }
+                (sec, Some((n, d)))
+            }
+            None => (rest, None),
+        };
+        let _ = meter;
+        if !SECTIONS.contains(&section.to_lowercase().as_str()) {
+            return false;
+        }
+        total += bars;
+        any = true;
+    }
+    any && total <= 64
+}
+
+fn load_user_songs() -> Vec<(String, String)> {
+    let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
+    let path = std::path::PathBuf::from(home).join(".config/drumgen/songs.txt");
+    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let mut songs = Vec::new();
+    for (ln, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((name, arr)) = line.split_once('|') else {
+            nih_plug::nih_log!("drumgen songs.txt line {}: missing '|' — skipped", ln + 1);
+            continue;
+        };
+        let name: String = name.trim().chars().take(10).collect();
+        let arr = arr.trim().to_string();
+        if name.is_empty() || !valid_arrangement(&arr) {
+            nih_plug::nih_log!(
+                "drumgen songs.txt line {}: invalid arrangement — skipped",
+                ln + 1
+            );
+            continue;
+        }
+        songs.push((name, arr));
+    }
+    if !songs.is_empty() {
+        nih_plug::nih_log!("drumgen: loaded {} user song(s) from songs.txt", songs.len());
+    }
+    songs
+}
+
+/// User songs, loaded once (never on the audio thread — first call happens at
+/// plugin instantiation in Default).
+pub fn user_songs() -> &'static [(String, String)] {
+    USER_SONGS.get_or_init(load_user_songs)
+}
+
+/// Built-in presets + user songs.
+pub fn n_songs() -> usize {
+    SONGS.len() + user_songs().len()
+}
+
 pub fn song_str(index: i32) -> &'static str {
-    SONGS.get(index as usize).map(|(_, s)| *s).unwrap_or("")
+    let i = index as usize;
+    if i < SONGS.len() {
+        SONGS[i].1
+    } else {
+        user_songs()
+            .get(i - SONGS.len())
+            .map(|(_, s)| s.as_str())
+            .unwrap_or("")
+    }
 }
 
 fn song_label(index: i32) -> String {
-    SONGS.get(index as usize).map(|(n, _)| n.to_string()).unwrap_or_else(|| "Off".to_string())
+    let i = index as usize;
+    if i < SONGS.len() {
+        SONGS[i].0.to_string()
+    } else {
+        user_songs()
+            .get(i - SONGS.len())
+            .map(|(n, _)| n.clone())
+            .unwrap_or_else(|| "Off".to_string())
+    }
 }
 
 impl DrumgenParams {
@@ -168,7 +279,7 @@ impl DrumgenParams {
             fill: IntParam::new("Fill", 2, IntRange::Linear { min: 0, max: (FILLS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(fill_label)),
 
-            song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: (SONGS.len() - 1) as i32 })
+            song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: (n_songs() - 1) as i32 })
                 .with_value_to_string(Arc::new(song_label)),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
@@ -181,5 +292,32 @@ impl Default for DrumgenParams {
     /// builds params via `new()` with the real list).
     fn default() -> Self {
         Self::new(Vec::new())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_builtin_song_passes_the_strict_validator() {
+        for (name, arr) in SONGS.iter().skip(1) {
+            assert!(valid_arrangement(arr), "builtin preset {} failed validation", name);
+        }
+    }
+
+    #[test]
+    fn validator_rejects_the_footguns() {
+        assert!(valid_arrangement("3:verse@7/8 2:blast 1:silence"));
+        assert!(!valid_arrangement("")); // empty
+        assert!(!valid_arrangement("4:vers")); // typo'd section
+        assert!(!valid_arrangement("4:verse@7/0")); // div-by-zero meter
+        assert!(!valid_arrangement("4:verse@7/3")); // non 4/8 denominator
+        assert!(!valid_arrangement("99999:blast")); // hang-scale bars
+        assert!(!valid_arrangement("0:blast")); // zero bars
+        assert!(!valid_arrangement("blast")); // missing count
+        assert!(!valid_arrangement("33:verse 32:blast")); // > 64 total
+        assert!(!valid_arrangement("4:verse@x/y")); // garbage meter
     }
 }

@@ -214,7 +214,10 @@ mod tests {
             .map(|n| gen.style_names().iter().position(|s| s == n).expect("style exists") as i32)
             .collect();
         // (preset index, expected bars) — keep in sync with params::SONGS.
-        let expected = [(1, 20), (2, 16), (3, 16), (4, 20), (5, 16), (6, 32), (7, 24)];
+        let expected = [
+            (1, 20), (2, 16), (3, 16), (4, 20), (5, 16), (6, 32), (7, 24),
+            (8, 24), (9, 14),
+        ];
         for &(song, bars) in &expected {
             for &style in &styles {
                 let run = |seed: u64| {

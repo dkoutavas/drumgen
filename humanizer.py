@@ -21,6 +21,7 @@ _SECTION_DRIFT = {
 
 # Tag → ghost clustering amount (0.0 = none, 1.0 = max)
 _CLUSTER_TAG_AMOUNTS = {
+    "jazz": 0.65, "comping": 0.65,
     "faraquet": 0.7, "angular": 0.6, "math": 0.6,
     "raein": 0.5, "euro_screamo": 0.5, "daitro": 0.5,
     "fugazi": 0.4, "posthardcore": 0.4, "driving": 0.4,

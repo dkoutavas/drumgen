@@ -3023,6 +3023,264 @@ def _fill_ebb_6_4():
     }
 
 
+# ── Zona: jazz drums on an emoviolence frame ────────────────────────────────
+# Monster Machismo / Zona Mexicana territory: ride-led comping, a snare that
+# CONVERSES (ghost chatter answering accents via pre/!pre chains), feathered
+# kick with occasional bombs, broken time that stays in the pocket. Pair with
+# SWING 0.35-0.50. The "jazz" tag drives ghost clustering at 0.65.
+
+
+def _prob_jazz_comp_4_4():
+    """The core comping engine: jazz ride anchor, conversing snare, kick bombs.
+    First in the zona pool — it sets the song-mode cluster feel."""
+    grid = []
+    # Ride anchor: the jazz pattern skeleton (1, 2&, 3, 4& strong; 2/4 lighter).
+    for beat in (1, 3):
+        grid.append((beat, 0.0, "ride", 0.95, "accent"))
+        grid.append((beat + 1, 0.0, "ride", 0.8, "normal"))
+        grid.append((beat + 1, 0.5, "ride", 0.9, "normal"))
+    # Pedal hat on 2 and 4 — the left foot keeps honest time.
+    grid.append((2, 0.0, "hihat_pedal", 0.85, "soft"))
+    grid.append((4, 0.0, "hihat_pedal", 0.85, "soft"))
+    # Snare conversation: accents propose, ghosts answer (pre), silence when
+    # the accent didn't land (!pre keeps a fallback murmur).
+    grid.extend([
+        (1, 0.75, "snare", 0.35, "accent"),
+        (2, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
+        (2, 0.5, "snare", 0.4, "accent", "!pre"),
+        (3, 0.25, "snare_ghost", 0.5, "ghost"),
+        (3, 0.75, "snare", 0.45, "accent"),
+        (4, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
+        (4, 0.75, "snare", 0.3, "normal"),
+    ])
+    # Feathered kick + bombs: quiet pulse, loud surprises on conditioned passes.
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "soft"),
+        (2, 0.0, "kick", 0.5, "soft"),
+        (3, 0.0, "kick", 0.85, "soft"),
+        (4, 0.0, "kick", 0.5, "soft"),
+        (2, 0.75, "kick", 0.45, "accent"),
+        (4, 0.5, "kick", 0.5, "accent", "2:2"),
+        (3, 0.5, "kick", 0.6, "accent", "4:4"),
+    ])
+    return {
+        "name": "prob_jazz_comp_4_4",
+        "tags": ["zona", "jazz", "comping", "verse", "groove", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_comp_7_8():
+    """7/8 comping: the ride keeps the odd cycle honest while the snare
+    argues with it. Sweep the Leg Johnny in a basement."""
+    grid = []
+    for beat in range(1, 8):
+        grid.append((beat, 0.0, "ride", 0.9 if beat in (1, 4, 6) else 0.75,
+                     "accent" if beat == 1 else "normal"))
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "normal"),
+        (4, 0.0, "kick", 0.7, "soft"),
+        (6, 0.5, "kick", 0.5, "accent"),
+        (3, 0.0, "snare", 0.6, "accent"),
+        (3, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
+        (5, 0.0, "snare", 0.5, "accent"),
+        (5, 0.5, "snare_ghost", 0.6, "ghost", "pre"),
+        (7, 0.0, "snare", 0.45, "normal", "!pre"),
+        (7, 0.5, "snare", 0.4, "accent", "2:2"),
+        (2, 0.5, "snare_ghost", 0.35, "ghost"),
+    ])
+    return {
+        "name": "zona_comp_7_8",
+        "tags": ["zona", "jazz", "comping", "odd_meter", "drive", "generative"],
+        "type": "probability",
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_broken_4_4():
+    """Broken time: the ride pattern fractures, holes open where the beat
+    should be, but the pocket never actually leaves."""
+    grid = [
+        (1, 0.0, "ride", 0.95, "accent"),
+        (1, 0.75, "ride", 0.6, "normal"),
+        (2, 0.5, "ride", 0.8, "normal"),
+        (3, 0.25, "ride", 0.55, "normal"),
+        (3, 0.75, "ride", 0.7, "accent"),
+        (4, 0.5, "ride", 0.75, "normal"),
+        (1, 0.0, "kick", 0.9, "normal"),
+        (2, 0.75, "kick", 0.6, "accent"),
+        (4, 0.0, "kick", 0.55, "soft"),
+        (4, 0.75, "kick", 0.4, "accent", "2:2"),
+        (2, 0.0, "snare", 0.65, "accent"),
+        (2, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
+        (3, 0.5, "snare", 0.55, "accent"),
+        (4, 0.25, "snare_ghost", 0.5, "ghost"),
+        (1, 0.5, "snare_ghost", 0.35, "ghost"),
+        (2, 0.0, "hihat_pedal", 0.7, "soft"),
+        (4, 0.0, "hihat_pedal", 0.7, "soft"),
+    ]
+    return {
+        "name": "zona_broken_4_4",
+        "tags": ["zona", "jazz", "broken", "angular", "drive", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _euclid_zona_broken_4_4():
+    """Euclidean broken time: ride on a 12-cycle drifting against the bar,
+    snare wandering per seed, feather kick anchor. Deterministic vertigo."""
+    return {
+        "name": "euclid_zona_broken_4_4",
+        "tags": ["zona", "jazz", "broken", "polymeter", "hypnotic", "generative"],
+        "type": "euclidean",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "limbs": [
+            {"instrument": "ride", "pulses": 7, "steps": 12, "rotation": 0,
+             "velocity": "normal", "dice_rotate": False},
+            {"instrument": "kick", "pulses": 4, "steps": 16, "rotation": 0,
+             "velocity": "soft", "dice_rotate": False},
+            {"instrument": "snare", "pulses": 4, "steps": 14, "rotation": 3,
+             "velocity": "accent", "dice_rotate": True},
+            {"instrument": "snare_ghost", "pulses": 5, "steps": 10, "rotation": 1,
+             "velocity": "ghost", "dice_rotate": True},
+        ],
+    }
+
+
+def _zona_bomb_blast_4_4():
+    """Emoviolence blast with a jazz brain: the wall has holes, and bombs
+    land where a session drummer would drop them, not on the grid's terms."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "kick", 0.78, "accent"))
+        grid.append((beat, 0.5, "kick", 0.72, "accent"))
+        grid.append((beat, 0.25, "snare", 0.75, "normal"))
+        grid.append((beat, 0.75, "snare", 0.68, "normal"))
+        grid.append((beat, 0.0, "ride", 0.8, "accent"))
+        grid.append((beat, 0.5, "ride", 0.7, "normal"))
+    grid.extend([
+        (1, 0.0, "crash_1", 0.4, "accent"),
+        (2, 0.75, "china", 0.45, "accent", "2:2"),
+        (4, 0.25, "china", 0.4, "accent", "4:4"),
+        (3, 0.75, "tom_floor", 0.35, "accent", "pre"),
+    ])
+    return {
+        "name": "zona_bomb_blast_4_4",
+        "tags": ["zona", "jazz", "blast", "chaotic", "intense", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_atmos_4_4():
+    """Brushy quiet: bell pings, ghost buzz, feathered kick. The cigarette
+    before the eruption."""
+    grid = [
+        (1, 0.0, "ride_bell", 0.7, "soft"),
+        (3, 0.0, "ride_bell", 0.5, "soft"),
+        (2, 0.5, "ride", 0.6, "soft"),
+        (4, 0.5, "ride", 0.55, "soft"),
+        (1, 0.0, "kick", 0.8, "soft"),
+        (3, 0.5, "kick", 0.4, "soft"),
+        (2, 0.0, "snare_ghost", 0.6, "ghost"),
+        (2, 0.75, "snare_ghost", 0.5, "ghost", "pre"),
+        (4, 0.0, "snare_ghost", 0.55, "ghost"),
+        (4, 0.25, "snare_ghost", 0.45, "ghost", "pre"),
+        (3, 0.25, "snare", 0.3, "soft"),
+        (2, 0.0, "hihat_pedal", 0.65, "soft"),
+        (4, 0.0, "hihat_pedal", 0.65, "soft"),
+    ]
+    return {
+        "name": "zona_atmos_4_4",
+        "tags": ["zona", "jazz", "atmospheric", "intro", "outro", "quiet", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.65,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_comp_6_8():
+    """6/8 comping: compound-time ride wash with the conversation moved to
+    the offbeat eighths. Slow-burn Ampere."""
+    grid = []
+    for beat in range(1, 7):
+        grid.append((beat, 0.0, "ride", 0.85 if beat in (1, 4) else 0.7,
+                     "accent" if beat in (1, 4) else "normal"))
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "normal"),
+        (4, 0.0, "kick", 0.6, "soft"),
+        (5, 0.5, "kick", 0.45, "accent", "2:2"),
+        (4, 0.0, "snare", 0.7, "accent"),
+        (4, 0.5, "snare_ghost", 0.65, "ghost", "pre"),
+        (2, 0.5, "snare_ghost", 0.45, "ghost"),
+        (6, 0.0, "snare", 0.4, "normal", "!pre"),
+        (6, 0.5, "snare_ghost", 0.5, "ghost"),
+    ])
+    return {
+        "name": "zona_comp_6_8",
+        "tags": ["zona", "jazz", "comping", "compound", "verse", "generative"],
+        "type": "probability",
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_lift_6_8():
+    """6/8 lift: the compound swell — ride opens up, toms roll under, the
+    section that makes the quiet part feel like it's rising off the floor."""
+    grid = []
+    for beat in range(1, 7):
+        grid.append((beat, 0.0, "ride", 0.85, "accent" if beat == 1 else "normal"))
+        grid.append((beat, 0.5, "ride", 0.6, "soft"))
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "accent"),
+        (3, 0.0, "kick", 0.6, "normal"),
+        (5, 0.0, "kick", 0.7, "normal"),
+        (4, 0.0, "snare", 0.85, "accent"),
+        (2, 0.0, "tom_floor", 0.4, "normal"),
+        (6, 0.0, "tom_low", 0.45, "normal"),
+        (6, 0.5, "tom_floor", 0.5, "accent", "2:2"),
+        (1, 0.0, "crash_1", 0.35, "accent", "4:4"),
+    ])
+    return {
+        "name": "zona_lift_6_8",
+        "tags": ["zona", "jazz", "compound", "build", "chorus", "dynamics", "generative"],
+        "type": "probability",
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -3136,6 +3394,15 @@ CELLS = {cell["name"]: cell for cell in [
     _fill_ruff_roll_6_8(),
     _fill_stop_cascade_5_4(),
     _fill_ebb_6_4(),
+    # Zona: jazz drums on an emoviolence frame
+    _prob_jazz_comp_4_4(),
+    _zona_comp_7_8(),
+    _zona_broken_4_4(),
+    _euclid_zona_broken_4_4(),
+    _zona_bomb_blast_4_4(),
+    _zona_atmos_4_4(),
+    _zona_comp_6_8(),
+    _zona_lift_6_8(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -3254,6 +3521,11 @@ STYLE_POOLS = {
     "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion", "euclid_noise_polymeter_4_4"],
     "postrock": ["postrock_6_4", "blackmetal_atmospheric", "city_of_caterpillar_build",
                  "motorik_build", "slint_explosion", "prob_postrock_6_4"],
+    # Zona: jazz-on-emoviolence. prob_jazz_comp FIRST — it anchors the pool
+    # and sets song-mode ghost clustering via the "jazz" tag (0.65).
+    "zona": ["prob_jazz_comp_4_4", "zona_comp_7_8", "zona_broken_4_4",
+             "euclid_zona_broken_4_4", "zona_bomb_blast_4_4", "zona_atmos_4_4",
+             "zona_comp_6_8", "zona_lift_6_8"],
 }
 
 def _integrate_user_cells_into_pools():
