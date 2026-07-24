@@ -1,4 +1,5 @@
 use nih_plug::prelude::*;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub mod engine;
@@ -86,6 +87,9 @@ struct Drumgen {
     /// GUI-readable snapshot of the newest pattern. The audio thread publishes
     /// with try_lock (never blocks); the editor locks briefly once per frame.
     pattern_view: Arc<Mutex<Arc<Pattern>>>,
+    /// Playhead bar index (0-based) for the GUI telegraph; -1 = not playing.
+    /// One relaxed store per buffer — the audio thread's only extra work.
+    playhead_bar: Arc<AtomicI64>,
     /// Manager parked here between `default()` and `initialize()` (then moved
     /// into the worker so the cell library is parsed exactly once).
     gen_manager: Option<GenerationManager>,
@@ -151,6 +155,7 @@ impl Default for Drumgen {
             current,
             pending: None,
             pattern_view,
+            playhead_bar: Arc::new(AtomicI64::new(-1)),
             gen_manager: Some(gen),
             worker: None,
             scratch: Vec::with_capacity(4096),
@@ -234,7 +239,12 @@ impl Plugin for Drumgen {
     }
 
     fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        editor::create(self.params.clone(), self.n_styles, self.pattern_view.clone())
+        editor::create(
+            self.params.clone(),
+            self.n_styles,
+            self.pattern_view.clone(),
+            self.playhead_bar.clone(),
+        )
     }
 
     fn initialize(
@@ -278,6 +288,7 @@ impl Plugin for Drumgen {
         self.active = 0;
         self.was_playing = false;
         self.last_end_samples = None;
+        self.playhead_bar.store(-1, Ordering::Relaxed);
     }
 
     fn process(
@@ -372,6 +383,7 @@ impl Plugin for Drumgen {
 
         // 4. Stopped: flush once, apply any pending swap immediately, silence.
         if !playing {
+            self.playhead_bar.store(-1, Ordering::Relaxed);
             if self.was_playing {
                 Self::flush(&mut self.active, context, 0);
                 self.was_playing = false;
@@ -420,6 +432,15 @@ impl Plugin for Drumgen {
         // 8. Compute the buffer's pattern window against the (possibly new) pattern.
         let total_ticks = self.current.total_ticks.max(1);
         let p0 = abs_tick_start.rem_euclid(total_ticks as f64);
+
+        // Telegraph: publish the playhead's bar (0-based) for the GUI. One
+        // relaxed atomic store — nothing else is allowed on this thread.
+        let ph_bar = self
+            .current
+            .bar_starts
+            .partition_point(|&b| (b as f64) <= p0)
+            .saturating_sub(1);
+        self.playhead_bar.store(ph_bar as i64, Ordering::Relaxed);
 
         // 9. Scan events into the reused scratch (no allocation after warmup).
         self.scratch.clear();

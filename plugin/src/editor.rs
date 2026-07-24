@@ -5,6 +5,7 @@
 
 use nih_plug::prelude::*;
 use nih_plug_egui::{create_egui_editor, egui};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::engine::midi_math::PPQ;
@@ -244,11 +245,64 @@ fn grid_cells(pattern: &Pattern, bar: usize) -> ([[u8; MAX_COLS]; GRID_LANES], u
 /// Render the bar-1 step grid with a "what am I hearing" header above it.
 /// Everything shown — style, meter, bars, seed — comes from the SAME pattern
 /// snapshot, so the labels always match the notes (no param-vs-snapshot race).
-fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize) {
+/// What the drummer does next: (line text, hot). `ph_bar` is the 0-based
+/// playhead bar (-1 = stopped -> None). Song mode walks the section map;
+/// loop mode counts down to the next fill bar. Pure — unit tested.
+fn telegraph(
+    sections: &[(String, i32)],
+    total_bars: usize,
+    ph_bar: i64,
+    fill_every: i32,
+) -> Option<(String, bool)> {
+    if ph_bar < 0 || total_bars == 0 {
+        return None;
+    }
+    let bar = (ph_bar as usize % total_bars) as i32 + 1; // 1-based
+
+    if !sections.is_empty() {
+        // Song mode: current section + what's next (wrapping to the top).
+        let mut cum = 0;
+        for (i, (name, bars)) in sections.iter().enumerate() {
+            let start = cum + 1;
+            cum += bars;
+            if bar <= cum {
+                let (next_name, _) = &sections[(i + 1) % sections.len()];
+                let left = cum - bar + 1; // bars remaining incl. current
+                let hot = bar == start; // just landed on this section
+                let line = if hot {
+                    format!("▸ {} NOW", name.to_uppercase())
+                } else {
+                    format!("{} ▸ {} IN {}", name.to_uppercase(), next_name.to_uppercase(), left)
+                };
+                return Some((line, hot || left == 1));
+            }
+        }
+        return None;
+    }
+
+    if fill_every > 0 {
+        // Loop mode: count down to the next fill bar (bar % fill_every == 0).
+        if bar % fill_every == 0 {
+            return Some(("▸ FILL NOW".to_string(), true));
+        }
+        let left = fill_every - (bar % fill_every);
+        return Some((format!("FILL IN {}", left), left == 1));
+    }
+    None
+}
+
+fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize, ph_bar: i64, follow: &mut u8) {
     let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
     // Clamp against the current pattern (BARS may have shrunk since last frame).
     if *view_bar >= total_bars {
         *view_bar = 0;
+    }
+    // Follow the playhead while the transport runs: NOW shows the sounding
+    // bar, NEXT (jam default) shows the bar the drummer plays next, wrapped.
+    let playing = ph_bar >= 0;
+    if playing && *follow > 0 {
+        let offset = if *follow == 2 { 1 } else { 0 };
+        *view_bar = (ph_bar as usize + offset) % total_bars;
     }
     let (grid, ncols) = grid_cells(pattern, *view_bar);
     // Meter of the VIEWED bar — song sections change meter mid-pattern.
@@ -281,11 +335,22 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize) {
                 .color(ACCENT_B),
         );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let pager = ui
-                .button(format!("BAR {}/{}", *view_bar + 1, total_bars))
-                .on_hover_text("click: view next bar");
+            let label = match (playing, *follow) {
+                (true, 1) => format!("NOW {}/{}", *view_bar + 1, total_bars),
+                (true, 2) => format!("NEXT {}/{}", *view_bar + 1, total_bars),
+                _ => format!("BAR {}/{}", *view_bar + 1, total_bars),
+            };
+            let pager = ui.button(label).on_hover_text(if playing {
+                "click: cycle BAR/NOW/NEXT follow"
+            } else {
+                "click: view next bar"
+            });
             if pager.clicked() {
-                *view_bar = (*view_bar + 1) % total_bars;
+                if playing {
+                    *follow = (*follow + 1) % 3;
+                } else {
+                    *view_bar = (*view_bar + 1) % total_bars;
+                }
             }
             if let Some(sec) = section {
                 ui.label(egui::RichText::new(sec).color(DIM));
@@ -385,6 +450,60 @@ mod tests {
     }
 
     #[test]
+    fn telegraph_loop_mode_counts_down_to_fill() {
+        let none: &[(String, i32)] = &[];
+        assert_eq!(
+            telegraph(none, 4, 0, 4),
+            Some(("FILL IN 3".to_string(), false))
+        );
+        assert_eq!(telegraph(none, 4, 2, 4), Some(("FILL IN 1".to_string(), true)));
+        assert_eq!(telegraph(none, 4, 3, 4), Some(("▸ FILL NOW".to_string(), true)));
+        // FILL off, no sections: nothing to telegraph.
+        assert_eq!(telegraph(none, 4, 1, 0), None);
+    }
+
+    #[test]
+    fn telegraph_song_mode_walks_sections() {
+        let sections = vec![
+            ("intro".to_string(), 2),
+            ("build".to_string(), 2),
+            ("blast".to_string(), 4),
+        ];
+        assert_eq!(
+            telegraph(&sections, 8, 0, 0),
+            Some(("▸ INTRO NOW".to_string(), true))
+        );
+        assert_eq!(
+            telegraph(&sections, 8, 1, 0),
+            Some(("INTRO ▸ BUILD IN 1".to_string(), true))
+        );
+        assert_eq!(
+            telegraph(&sections, 8, 4, 0),
+            Some(("▸ BLAST NOW".to_string(), true))
+        );
+        // Mid-blast: next wraps to the top of the form.
+        assert_eq!(
+            telegraph(&sections, 8, 5, 0),
+            Some(("BLAST ▸ INTRO IN 3".to_string(), false))
+        );
+    }
+
+    #[test]
+    fn telegraph_wraps_playhead_past_pattern_end() {
+        let sections = vec![("intro".to_string(), 2), ("blast".to_string(), 2)];
+        // ph 5 wraps to bar 2 (0-based 1) -> intro's last bar.
+        assert_eq!(telegraph(&sections, 4, 5, 0), telegraph(&sections, 4, 1, 0));
+    }
+
+    #[test]
+    fn telegraph_stopped_is_silent() {
+        let sections = vec![("intro".to_string(), 2)];
+        assert_eq!(telegraph(&sections, 2, -1, 4), None);
+        let none: &[(String, i32)] = &[];
+        assert_eq!(telegraph(none, 0, 0, 4), None);
+    }
+
+    #[test]
     fn lane_of_covers_every_instrument_note() {
         // lane_of hardcodes note numbers; this pins it to the single source of
         // truth (Instrument::midi_note) so a kit remap can't silently drop an
@@ -451,17 +570,27 @@ struct UiState {
     seed_acc: f32,
     /// Which bar the step grid shows (0-based; clamped to the pattern).
     view_bar: usize,
+    /// Grid follow mode while the transport runs: 0 = MANUAL (pager), 1 = NOW
+    /// (playhead bar), 2 = NEXT (upcoming bar — the jam default).
+    follow: u8,
+}
+
+impl UiState {
+    fn new() -> Self {
+        Self { follow: 2, ..Self::default() }
+    }
 }
 
 pub fn create(
     params: Arc<DrumgenParams>,
     n_styles: usize,
     pattern_view: Arc<Mutex<Arc<Pattern>>>,
+    playhead_bar: Arc<AtomicI64>,
 ) -> Option<Box<dyn Editor>> {
     let egui_state = params.editor_state.clone();
     create_egui_editor(
         egui_state,
-        UiState::default(),
+        UiState::new(),
         |ctx, _| install_theme(ctx),
         move |ctx, setter, ui_state| {
             // Patterns arrive asynchronously from the worker; poll so the grid
@@ -563,8 +692,24 @@ pub fn create(
 
                     ui.add_space(4.0);
 
-                    // Step grid: pageable per-bar view of the pattern.
-                    step_grid(ui, &pattern, &mut ui_state.view_bar);
+                    // Telegraph: what the drummer does next, readable mid-riff.
+                    let ph_bar = playhead_bar.load(Ordering::Relaxed);
+                    let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
+                    if let Some((line, hot)) = telegraph(
+                        &pattern.sections,
+                        total_bars,
+                        ph_bar,
+                        params::fill_of(params.fill.value()),
+                    ) {
+                        ui.label(
+                            egui::RichText::new(line)
+                                .color(if hot { ACCENT_A } else { ACCENT_B }),
+                        );
+                    }
+
+                    // Step grid: follows the playhead while playing (NOW/NEXT),
+                    // manual pager when stopped.
+                    step_grid(ui, &pattern, &mut ui_state.view_bar, ph_bar, &mut ui_state.follow);
                 });
         },
     )
