@@ -1894,3 +1894,74 @@ class TestZonaPool:
         from humanizer import get_cluster_amount
         from cell_library import CELLS
         assert get_cluster_amount(CELLS["prob_jazz_comp_4_4"]) == 0.65
+
+
+class TestNotation:
+    """notation.py: .mid -> drummer-readable MusicXML."""
+
+    def _make_mid(self, tmp_path, result, name):
+        from midi_engine import write_midi
+        p = str(tmp_path / name)
+        write_midi(result["events"], result["tempo"], result["time_signatures"],
+                   "kit_mappings/ugritone.json", p)
+        return p
+
+    def test_snap_is_idempotent_and_lossless_at_humanize_zero(self, tmp_path):
+        import notation
+        result = assemble(cell_name="fugazi_driving_chorus", bars=2, tempo=150,
+                          humanize=0.0, seed=1)
+        mid = self._make_mid(tmp_path, result, "clean.mid")
+        events, _, ppq, _ = notation.read_events(mid)
+        sixteenth = ppq // 4
+        # At humanize 0 every tick is already on-grid: snapping changed nothing,
+        # so slot * sixteenth reproduces the original tick set exactly.
+        engine_ticks = sorted({t for t, _, _ in result["events"]})
+        snapped_ticks = sorted({slot * sixteenth for slot, _, _ in events})
+        assert snapped_ticks == engine_ticks
+
+    def test_meter_changes_survive(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble_arrangement("posthardcore", "2:verse@7/8 2:drive@6/8",
+                                      tempo=160, humanize=0.4, seed=2, generative=True)
+        mid = self._make_mid(tmp_path, result, "meters.mid")
+        out = str(tmp_path / "meters.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        times = [(t.find("beats").text, t.find("beat-type").text)
+                 for t in root.findall(".//time")]
+        assert ("7", "8") in times and ("6", "8") in times
+        assert len(root.findall(".//measure")) == 4
+
+    def test_ghosts_and_accents_survive_the_round_trip(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble(style="zona", bars=4, tempo=140, humanize=0.5,
+                          seed=3, generative=True)
+        mid = self._make_mid(tmp_path, result, "zona.mid")
+        out = str(tmp_path / "zona.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        notes = [n for n in root.findall(".//note") if n.find("rest") is None]
+        ghosts = [n for n in notes if n.find("notehead[@parentheses='yes']") is not None]
+        accents = root.findall(".//accent")
+        assert ghosts, "zona ghost chatter must render in parentheses"
+        assert accents, "accents must be marked"
+
+    def test_voice_durations_balance_every_measure(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble(style="screamo", bars=4, tempo=180, humanize=0.4,
+                          seed=7, generative=True)
+        mid = self._make_mid(tmp_path, result, "sc.mid")
+        out = str(tmp_path / "sc.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        for m in root.findall(".//measure"):
+            sums = {}
+            for n in m.findall("note"):
+                if n.find("chord") is not None:
+                    continue
+                v = n.find("voice").text
+                sums[v] = sums.get(v, 0) + int(n.find("duration").text)
+            assert len(set(sums.values())) <= 1, f"measure {m.get('number')}: {sums}"
