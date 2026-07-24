@@ -3042,30 +3042,36 @@ def _prob_jazz_comp_4_4():
     # Pedal hat on 2 and 4 — the left foot keeps honest time.
     grid.append((2, 0.0, "hihat_pedal", 0.85, "soft"))
     grid.append((4, 0.0, "hihat_pedal", 0.85, "soft"))
-    # Snare conversation: accents propose, ghosts answer (pre), silence when
-    # the accent didn't land (!pre keeps a fallback murmur).
+    # Two-bar phrase logic — a drummer states a motif, THEN answers it.
+    # Odd passes (1:2) = the statement: a repeatable, catchy comp figure.
+    # Even passes (2:2) = the answer: ghost runs responding to the statement.
+    # Probability picks WHICH answer per seed; the structure always holds.
     grid.extend([
-        (1, 0.75, "snare", 0.35, "accent"),
-        (2, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
-        (2, 0.5, "snare", 0.4, "accent", "!pre"),
-        (3, 0.25, "snare_ghost", 0.5, "ghost"),
-        (3, 0.75, "snare", 0.45, "accent"),
-        (4, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
-        (4, 0.75, "snare", 0.3, "normal"),
+        # Statement (odd bars): backbeat-adjacent accents, held steady.
+        (2, 0.5, "snare", 0.9, "accent", "1:2"),
+        (4, 0.0, "snare", 0.9, "accent", "1:2"),
+        (3, 0.25, "snare_ghost", 0.6, "ghost", "1:2"),
+        # Answer (even bars): the ghost-run response, chained off the accent.
+        (1, 0.75, "snare", 0.85, "accent", "2:2"),
+        (2, 0.25, "snare_ghost", 0.85, "ghost", "pre"),
+        (2, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
+        (4, 0.0, "snare", 0.85, "accent", "2:2"),
+        (4, 0.25, "snare_ghost", 0.8, "ghost", "pre"),
+        # Floating spice, both bars, rare.
+        (3, 0.75, "snare", 0.3, "accent"),
     ])
-    # Feathered kick + bombs: quiet pulse, loud surprises on conditioned passes.
+    # Kick: a STEADY feathered pulse (catchy needs a floor), bombs earned.
     grid.extend([
-        (1, 0.0, "kick", 0.9, "soft"),
-        (2, 0.0, "kick", 0.5, "soft"),
-        (3, 0.0, "kick", 0.85, "soft"),
-        (4, 0.0, "kick", 0.5, "soft"),
-        (2, 0.75, "kick", 0.45, "accent"),
-        (4, 0.5, "kick", 0.5, "accent", "2:2"),
-        (3, 0.5, "kick", 0.6, "accent", "4:4"),
+        (1, 0.0, "kick", 0.95, "soft"),
+        (2, 0.0, "kick", 0.85, "soft"),
+        (3, 0.0, "kick", 0.95, "soft"),
+        (4, 0.0, "kick", 0.85, "soft"),
+        (2, 0.75, "kick", 0.5, "accent", "2:2"),
+        (3, 0.5, "kick", 0.7, "accent", "4:4"),
     ])
     return {
         "name": "prob_jazz_comp_4_4",
-        "tags": ["zona", "jazz", "comping", "verse", "groove", "generative"],
+        "tags": ["zona", "jazz", "comping", "verse", "build", "groove", "generative"],
         "type": "probability",
         "time_sig": (4, 4),
         "num_bars": 1,
@@ -3083,15 +3089,18 @@ def _zona_comp_7_8():
         grid.append((beat, 0.0, "ride", 0.9 if beat in (1, 4, 6) else 0.75,
                      "accent" if beat == 1 else "normal"))
     grid.extend([
-        (1, 0.0, "kick", 0.9, "normal"),
-        (4, 0.0, "kick", 0.7, "soft"),
-        (6, 0.5, "kick", 0.5, "accent"),
-        (3, 0.0, "snare", 0.6, "accent"),
-        (3, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
-        (5, 0.0, "snare", 0.5, "accent"),
-        (5, 0.5, "snare_ghost", 0.6, "ghost", "pre"),
-        (7, 0.0, "snare", 0.45, "normal", "!pre"),
-        (7, 0.5, "snare", 0.4, "accent", "2:2"),
+        (1, 0.0, "kick", 0.95, "normal"),
+        (4, 0.0, "kick", 0.85, "soft"),
+        (6, 0.5, "kick", 0.6, "accent", "2:2"),
+        # Statement (odd passes): the 7/8 backbone accents, dependable.
+        (3, 0.0, "snare", 0.9, "accent", "1:2"),
+        (5, 0.0, "snare", 0.85, "accent", "1:2"),
+        # Answer (even passes): the run through the back of the bar.
+        (3, 0.0, "snare", 0.85, "accent", "2:2"),
+        (3, 0.5, "snare_ghost", 0.85, "ghost", "pre"),
+        (5, 0.5, "snare", 0.8, "normal", "2:2"),
+        (7, 0.0, "snare", 0.8, "accent", "2:2"),
+        (7, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
         (2, 0.5, "snare_ghost", 0.35, "ghost"),
     ])
     return {
@@ -3110,23 +3119,26 @@ def _zona_broken_4_4():
     """Broken time: the ride pattern fractures, holes open where the beat
     should be, but the pocket never actually leaves."""
     grid = [
+        # Solid displaced-ride skeleton — the hook you can nod to.
         (1, 0.0, "ride", 0.95, "accent"),
-        (1, 0.75, "ride", 0.6, "normal"),
-        (2, 0.5, "ride", 0.8, "normal"),
-        (3, 0.25, "ride", 0.55, "normal"),
-        (3, 0.75, "ride", 0.7, "accent"),
-        (4, 0.5, "ride", 0.75, "normal"),
-        (1, 0.0, "kick", 0.9, "normal"),
-        (2, 0.75, "kick", 0.6, "accent"),
-        (4, 0.0, "kick", 0.55, "soft"),
-        (4, 0.75, "kick", 0.4, "accent", "2:2"),
-        (2, 0.0, "snare", 0.65, "accent"),
-        (2, 0.25, "snare_ghost", 0.7, "ghost", "pre"),
-        (3, 0.5, "snare", 0.55, "accent"),
-        (4, 0.25, "snare_ghost", 0.5, "ghost"),
-        (1, 0.5, "snare_ghost", 0.35, "ghost"),
-        (2, 0.0, "hihat_pedal", 0.7, "soft"),
-        (4, 0.0, "hihat_pedal", 0.7, "soft"),
+        (1, 0.75, "ride", 0.85, "normal"),
+        (2, 0.5, "ride", 0.9, "normal"),
+        (3, 0.25, "ride", 0.8, "normal"),
+        (3, 0.75, "ride", 0.9, "accent"),
+        (4, 0.5, "ride", 0.85, "normal"),
+        # Steady floor.
+        (1, 0.0, "kick", 0.95, "normal"),
+        (3, 0.0, "kick", 0.8, "soft"),
+        (2, 0.0, "snare", 0.9, "accent"),
+        (3, 0.5, "snare", 0.85, "accent"),
+        (2, 0.0, "hihat_pedal", 0.8, "soft"),
+        (4, 0.0, "hihat_pedal", 0.8, "soft"),
+        # The break happens on even passes — displacement as an EVENT.
+        (2, 0.75, "kick", 0.85, "accent", "2:2"),
+        (4, 0.75, "kick", 0.7, "accent", "2:2"),
+        (2, 0.25, "snare_ghost", 0.8, "ghost", "pre"),
+        (4, 0.25, "snare_ghost", 0.7, "ghost", "2:2"),
+        (1, 0.5, "snare_ghost", 0.4, "ghost"),
     ]
     return {
         "name": "zona_broken_4_4",
@@ -3169,12 +3181,12 @@ def _zona_bomb_blast_4_4():
     land where a session drummer would drop them, not on the grid's terms."""
     grid = []
     for beat in range(1, 5):
-        grid.append((beat, 0.0, "kick", 0.78, "accent"))
-        grid.append((beat, 0.5, "kick", 0.72, "accent"))
-        grid.append((beat, 0.25, "snare", 0.75, "normal"))
-        grid.append((beat, 0.75, "snare", 0.68, "normal"))
-        grid.append((beat, 0.0, "ride", 0.8, "accent"))
-        grid.append((beat, 0.5, "ride", 0.7, "normal"))
+        grid.append((beat, 0.0, "kick", 0.92, "accent"))
+        grid.append((beat, 0.5, "kick", 0.88, "accent"))
+        grid.append((beat, 0.25, "snare", 0.9, "normal"))
+        grid.append((beat, 0.75, "snare", 0.82, "normal"))
+        grid.append((beat, 0.0, "ride", 0.9, "accent"))
+        grid.append((beat, 0.5, "ride", 0.85, "normal"))
     grid.extend([
         (1, 0.0, "crash_1", 0.4, "accent"),
         (2, 0.75, "china", 0.45, "accent", "2:2"),
@@ -3231,14 +3243,15 @@ def _zona_comp_6_8():
         grid.append((beat, 0.0, "ride", 0.85 if beat in (1, 4) else 0.7,
                      "accent" if beat in (1, 4) else "normal"))
     grid.extend([
-        (1, 0.0, "kick", 0.9, "normal"),
-        (4, 0.0, "kick", 0.6, "soft"),
-        (5, 0.5, "kick", 0.45, "accent", "2:2"),
-        (4, 0.0, "snare", 0.7, "accent"),
-        (4, 0.5, "snare_ghost", 0.65, "ghost", "pre"),
-        (2, 0.5, "snare_ghost", 0.45, "ghost"),
-        (6, 0.0, "snare", 0.4, "normal", "!pre"),
-        (6, 0.5, "snare_ghost", 0.5, "ghost"),
+        (1, 0.0, "kick", 0.95, "normal"),
+        (4, 0.0, "kick", 0.8, "soft"),
+        (5, 0.5, "kick", 0.5, "accent", "2:2"),
+        # The 6/8 backbeat is non-negotiable — catchy lives on beat 4.
+        (4, 0.0, "snare", 0.95, "accent"),
+        (4, 0.5, "snare_ghost", 0.8, "ghost", "pre", ),
+        (2, 0.5, "snare_ghost", 0.5, "ghost", "1:2"),
+        (6, 0.0, "snare", 0.75, "normal", "2:2"),
+        (6, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
     ])
     return {
         "name": "zona_comp_6_8",

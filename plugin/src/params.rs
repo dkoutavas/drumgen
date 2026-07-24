@@ -113,7 +113,7 @@ pub const SONGS: [(&str, &str); 10] = [
     ("Blast Fwd", "2:intro 7:blast 1:fill 4:drive@7/8 8:blast 2:breakdown"),
     // 24 bars — Lord Snow logic: twinkle/burst alternation through a maze of
     // short sections, meters flipping under your feet, stops as punctuation.
-    ("Labyrinth", "2:intro 3:verse@7/8 1:fill 2:blast 1:silence 3:verse@7/8 2:breakdown 4:drive@6/8 1:fill 3:blast 2:outro"),
+    ("Labyrinth", "2:intro 3:verse@7/8 1:fill 2:blast 3:verse@7/8 4:build 1:fill 4:blast 2:breakdown 2:outro"),
     // 14 bars — Ampere: the whole song is the climax; in and out in a minute.
     ("Ampere", "1:intro 3:blast 1:silence 2:blast 2:breakdown 1:fill 3:blast 1:outro"),
 ];
