@@ -393,28 +393,50 @@ impl CellLibrary {
             return None;
         }
 
-        // Score each cell by counting matching tags
-        let scored: Vec<(i32, &Cell)> = candidates.iter()
-            .map(|&cell| {
-                let score = prefs.iter()
-                    .filter(|tag| cell.has_tag(tag))
-                    .count() as i32;
-                (score, cell)
-            })
-            .collect();
+        // Score each cell against the section preferences. Earlier prefs weigh
+        // more (first = n points, last = 1) — a flat tag count made the leading
+        // preference no stronger than the last one, so "blast" could lose to a
+        // cell that merely happened to carry two weak tags.
+        if !prefs.is_empty() {
+            let n = prefs.len() as i32;
+            let scored: Vec<(i32, &Cell)> = candidates
+                .iter()
+                .map(|&cell| {
+                    let mut score: i32 = prefs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, tag)| cell.has_tag(tag))
+                        .map(|(i, _)| n - i as i32)
+                        .sum();
+                    // Built-in tiebreak (+1). Every cell in the plugin is
+                    // built-in (export_cells.py excludes user cells), so this
+                    // is constant here — kept so the score matches Python's for
+                    // the same input, and so the `best_score > 0` gate below
+                    // behaves identically.
+                    score += 1;
+                    (score, cell)
+                })
+                .collect();
 
-        let best_score = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
-        let best: Vec<&Cell> = scored.iter()
-            .filter(|(s, _)| *s == best_score)
-            .map(|(_, c)| *c)
-            .collect();
-
-        if best.len() == 1 {
-            Some(best[0])
-        } else {
-            let idx = rng.gen_range(0..best.len());
-            Some(best[idx])
+            let best_score = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
+            if best_score > 0 {
+                let best: Vec<&Cell> = scored
+                    .iter()
+                    .filter(|(s, _)| *s == best_score)
+                    .map(|(_, c)| *c)
+                    .collect();
+                if best.len() > 1 {
+                    let idx = rng.gen_range(0..best.len());
+                    return Some(best[idx]);
+                }
+                return Some(best[0]);
+            }
         }
+
+        // No preferences for this section type: take the first cell in the pool
+        // deterministically. Drawing from the RNG here (as this used to) shifted
+        // every downstream realization for the same seed, which Python never does.
+        Some(candidates[0])
     }
 
     /// Number of cells loaded.

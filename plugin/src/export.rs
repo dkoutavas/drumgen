@@ -101,7 +101,10 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
     let meter_suffix = if meter == (4, 4) { String::new() } else { format!("_{}_{}", meter.0, meter.1) };
-    let base = format!("{}_{:04}{}_{}bars", pattern.style_name, pattern.seed, meter_suffix, bars);
+    let base = format!(
+        "{}_{}bpm_{:04}{}_{}bars",
+        pattern.style_name, pattern.tempo.round() as i64, pattern.seed, meter_suffix, bars
+    );
 
     let mut path = dir.join(format!("{base}.mid"));
     let mut n = 0;

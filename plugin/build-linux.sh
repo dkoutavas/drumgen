@@ -5,9 +5,9 @@
 #   ./build-linux.sh            # build + install to ~/.vst3 and ~/.clap
 #   ./build-linux.sh --check    # build only (no install)
 #
-# Hosts: REAPER (VST3 or CLAP) and Bitwig (CLAP). After installing, rescan
-# plugins in your host, add drumgen on a MIDI track, and route its MIDI output
-# to the track hosting your drum sampler.
+# Host: Bitwig Studio on native Linux (prefer CLAP; VST3 also works). After
+# installing, RESTART the DAW — a loaded .so stays in memory — then add drumgen
+# to a MIDI track ahead of your drum sampler in the same device chain.
 
 set -euo pipefail
 
@@ -50,5 +50,5 @@ echo "=== INSTALLED ==="
 echo "  VST3 -> $VST3_DEST/drumgen-vst.vst3"
 echo "  CLAP -> $CLAP_DEST/drumgen-vst.clap"
 echo ""
-echo "Next: rescan plugins in REAPER/Bitwig, add drumgen on a MIDI track,"
-echo "route its MIDI output to your drum sampler track, and press play."
+echo "Next: RESTART Bitwig (a loaded .so stays in memory), then add drumgen"
+echo "ahead of your drum sampler in the same device chain and press play."
