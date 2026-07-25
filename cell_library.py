@@ -268,6 +268,86 @@ def _emoviolence_angular_breakdown():
     }
 
 
+def _noise_rock_floor_breakdown():
+    """Floor-tom breakdown, noise rock. Space does the work.
+
+    style-dna 10C: single floor tom hits, spaced out, every hit rings. No
+    cymbal wash — the room is the cymbal. Shellac/Unwound/Oxbow read.
+    """
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "tom_floor", "accent"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "snare", "accent"),
+        (4, 0.5, "tom_floor", "accent"),
+    ]
+    return {
+        "name": "noise_rock_floor_breakdown",
+        "tags": ["noise_rock", "shellac", "unwound", "oxbow", "post_punk",
+                 "breakdown", "halftime", "heavy", "slow"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.25,  # noise rock is played tight on purpose
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _posthardcore_halftime_breakdown():
+    """Half-time breakdown, post-hardcore/math.
+
+    style-dna 11E: snare moves to 3 instead of 2 and 4, which is what signals
+    the drop. Ride bell marks the quarters so the pulse survives the halving —
+    Fugazi/Faraquet keep time through a breakdown rather than abandoning it.
+    """
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.0, "crash_1", "accent"),
+        (2, 0.5, "kick", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.75, "kick", "normal"),
+    ]
+    hits += [(beat, 0.0, "ride_bell", "normal") for beat in (2, 3, 4)]
+    return {
+        "name": "posthardcore_halftime_breakdown",
+        "tags": ["posthardcore", "fugazi", "faraquet", "math", "angular",
+                 "breakdown", "halftime", "heavy"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.3,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _blackmetal_halftime_breakdown():
+    """The landing after a blast, black metal / blackgaze.
+
+    style-dna 7B: half or less the blast tempo, huge space, every hit 115+.
+    China holds the decay where a blast had continuous cymbal.
+    """
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.0, "china", "accent"),
+        (2, 0.0, "kick", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (3, 0.0, "china", "accent"),
+        (4, 0.5, "kick", "accent"),
+        (4, 0.5, "tom_floor", "accent"),
+    ]
+    return {
+        "name": "blackmetal_halftime_breakdown",
+        "tags": ["black_metal", "deafheaven", "liturgy", "blackgaze",
+                 "breakdown", "halftime", "heavy", "slow"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
 def _emoviolence_blast_crash():
     """Traditional blast BUT crash on every quarter note. 2-bar cell."""
     hits = []
@@ -3255,6 +3335,9 @@ CELLS = {cell["name"]: cell for cell in [
     _fill_linear_1bar(),
     # Phase 2 grooves
     _emoviolence_angular_breakdown(),
+    _noise_rock_floor_breakdown(),
+    _posthardcore_halftime_breakdown(),
+    _blackmetal_halftime_breakdown(),
     _emoviolence_blast_crash(),
     _daitro_quiet_build(),
     _daitro_tremolo_drive(),
@@ -3430,61 +3513,61 @@ TAG_TO_POOLS = {
 
 STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4",
-              "prob_blast_4_4"],
-    "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
-    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
+              "prob_blast_4_4", "blackmetal_halftime_breakdown"],
+    "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4", "posthardcore_halftime_breakdown"],
+    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "noise_rock_floor_breakdown"],
     "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
-               "prob_fugazi_4_4"],
+               "prob_fugazi_4_4", "posthardcore_halftime_breakdown"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
-                 "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8"],
-    "raein": ["raein_melodic_drive", "raein_octopus_groove", "prob_raein_4_4"],
+                 "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8", "posthardcore_halftime_breakdown"],
+    "raein": ["raein_melodic_drive", "raein_octopus_groove", "prob_raein_4_4", "posthardcore_halftime_breakdown"],
     "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
                      "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
                      "faraquet_7_8", "faraquet_5_4", "waltz_punk",
                      "prob_posthardcore_4_4",
-                     "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
-    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4"],
+                     "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4", "posthardcore_halftime_breakdown"],
+    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional", "city_of_caterpillar_build",
                 "prob_screamo_4_4", "euclid_skramz_surge_4_4"],
     "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional",
-                    "prob_emoviolence_4_4"],
+                    "prob_emoviolence_4_4", "city_of_caterpillar_build"],
     "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
-             "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8"],
+             "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8", "posthardcore_halftime_breakdown"],
     "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive",
-                     "prob_euro_screamo_4_4", "city_of_caterpillar_build", "euclid_skramz_surge_4_4"],
-    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release", "prob_daitro_4_4"],
+                     "prob_euro_screamo_4_4", "city_of_caterpillar_build", "euclid_skramz_surge_4_4", "emoviolence_angular_breakdown"],
+    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release", "prob_daitro_4_4", "emoviolence_angular_breakdown"],
     "liturgy": ["liturgy_burst_beat", "liturgy_pillar_stabs", "prob_liturgy_burst_4_4",
-                "euclid_blackmetal_pulse_4_4"],
+                "euclid_blackmetal_pulse_4_4", "blackmetal_halftime_breakdown"],
     "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast", "atmospheric_7_8",
-                    "euclid_blackmetal_pulse_4_4"],
+                    "euclid_blackmetal_pulse_4_4", "blackmetal_halftime_breakdown"],
     "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric", "deafheaven_shimmer_blast",
-                   "prob_blackgaze_4_4"],
+                   "prob_blackgaze_4_4", "blackmetal_halftime_breakdown"],
     # Phase 3: Style palette expansion
-    "sonic_youth": ["motorik_build", "prob_postpunk_4_4"],
-    "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4"],
-    "post_punk": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
-    "wipers": ["postpunk_machine", "prob_postpunk_4_4"],
-    "preoccupations": ["postpunk_machine", "prob_postpunk_4_4"],
-    "dry_cleaning": ["postpunk_machine", "prob_postpunk_4_4"],
-    "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
-    "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
+    "sonic_youth": ["motorik_build", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4", "noise_rock_floor_breakdown"],
+    "post_punk": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "wipers": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "preoccupations": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "dry_cleaning": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4", "posthardcore_halftime_breakdown"],
     "q_and_not_u": ["athletic_angular", "postpunk_busy", "prob_angular_athletic_4_4",
-                    "qanu_dancepunk", "prob_qanu_4_4"],
+                    "qanu_dancepunk", "prob_qanu_4_4", "posthardcore_halftime_breakdown"],
     "atdi": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
-             "atdi_relationship_groove", "prob_atdi_4_4"],
+             "atdi_relationship_groove", "prob_atdi_4_4", "posthardcore_halftime_breakdown"],
     "blood_brothers": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
-                       "atdi_relationship_groove", "prob_atdi_4_4"],
-    "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion", "euclid_noise_polymeter_4_4"],
+                       "atdi_relationship_groove", "prob_atdi_4_4", "posthardcore_halftime_breakdown"],
+    "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "city_of_caterpillar": ["city_of_caterpillar_build", "emoviolence_blast_crash", "emoviolence_angular_breakdown",
                             "prob_cityofcat_4_4"],
-    "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion", "euclid_noise_polymeter_4_4"],
+    "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "postrock": ["postrock_6_4", "blackmetal_atmospheric", "city_of_caterpillar_build",
-                 "motorik_build", "slint_explosion", "prob_postrock_6_4"],
+                 "motorik_build", "slint_explosion", "prob_postrock_6_4", "posthardcore_halftime_breakdown"],
     # Zona: jazz-on-emoviolence. prob_jazz_comp FIRST — it anchors the pool
     # and sets song-mode ghost clustering via the "jazz" tag (0.65).
     "zona": ["prob_jazz_comp_4_4", "zona_comp_7_8", "zona_broken_4_4",
              "euclid_zona_broken_4_4", "zona_bomb_blast_4_4", "zona_atmos_4_4",
-             "zona_comp_6_8", "zona_lift_6_8"],
+             "zona_comp_6_8", "zona_lift_6_8", "posthardcore_halftime_breakdown"],
 }
 
 def _integrate_user_cells_into_pools():

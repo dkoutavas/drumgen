@@ -107,7 +107,7 @@ A Streamlit GUI covers the same ground: `./run-drumgen` (or
 
 ## Library
 
-106 cells across 29 plugin style pools — 27 probability grids, 5 Euclidean
+109 cells across 29 plugin style pools — 27 probability grids, 5 Euclidean
 polymeter cells, 26 fills, the rest fixed patterns. `python drumgen.py
 --list-cells` prints the current inventory; `styles/drumgen-style-dna.md`
 documents the rhythmic vocabulary per genre.

@@ -1929,7 +1929,10 @@ class TestZonaPool:
     def test_zona_pool_exists_with_comp_anchor_first(self):
         from cell_library import STYLE_POOLS
         assert STYLE_POOLS["zona"][0] == "prob_jazz_comp_4_4"
-        assert len(STYLE_POOLS["zona"]) == 8
+        # The anchor's POSITION is what this pins (it sets song-mode ghost
+        # clustering via the "jazz" tag). The pool is allowed to grow as
+        # section vocabulary gets filled in, so this is a floor, not an equality.
+        assert len(STYLE_POOLS["zona"]) >= 8
 
     def test_zona_subs_stay_on_the_sixteenth_grid(self):
         # Swing purity: the SWING param supplies the triplet lean at runtime;

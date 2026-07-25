@@ -89,7 +89,7 @@ telegraph "alright", audio takes recorded successfully, and a generated
 parentheses, x-notehead cymbals, accents) — the notation chain is proven
 end-to-end.
 
-**Scale**: 106 cells (27 probability grids, 5 Euclidean, 26 fills) across 29
+**Scale**: 109 cells (27 probability grids, 5 Euclidean, 26 fills) across 29
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~5,500 lines of Rust plugin, ~5,200 lines of
 Python engine/tools, **289 Python + 73 Rust tests green**.

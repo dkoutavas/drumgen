@@ -655,6 +655,71 @@
         ]
       ]
     },
+    "blackmetal_halftime_breakdown": {
+      "name": "blackmetal_halftime_breakdown",
+      "tags": [
+        "black_metal",
+        "deafheaven",
+        "liturgy",
+        "blackgaze",
+        "breakdown",
+        "halftime",
+        "heavy",
+        "slow"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "china",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "china",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ]
+      ]
+    },
     "blast_3_4": {
       "name": "blast_3_4",
       "tags": [
@@ -9884,6 +9949,137 @@
         ]
       ]
     },
+    "noise_rock_floor_breakdown": {
+      "name": "noise_rock_floor_breakdown",
+      "tags": [
+        "noise_rock",
+        "shellac",
+        "unwound",
+        "oxbow",
+        "post_punk",
+        "breakdown",
+        "halftime",
+        "heavy",
+        "slow"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.25,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "posthardcore_halftime_breakdown": {
+      "name": "posthardcore_halftime_breakdown",
+      "tags": [
+        "posthardcore",
+        "fugazi",
+        "faraquet",
+        "math",
+        "angular",
+        "breakdown",
+        "halftime",
+        "heavy"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.3,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "ride_bell",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride_bell",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "ride_bell",
+          "normal"
+        ]
+      ]
+    },
     "postpunk_busy": {
       "name": "postpunk_busy",
       "tags": [
@@ -17099,14 +17295,16 @@
       "athletic_angular",
       "prob_angular_athletic_4_4",
       "atdi_relationship_groove",
-      "prob_atdi_4_4"
+      "prob_atdi_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "black_metal": [
       "liturgy_burst_beat",
       "blackmetal_atmospheric",
       "deafheaven_build_to_blast",
       "atmospheric_7_8",
-      "euclid_blackmetal_pulse_4_4"
+      "euclid_blackmetal_pulse_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "blast": [
       "blast_traditional",
@@ -17114,7 +17312,8 @@
       "blast_7_8",
       "blast_5_4",
       "blast_3_4",
-      "prob_blast_4_4"
+      "prob_blast_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "city_of_caterpillar": [
       "city_of_caterpillar_build",
@@ -17126,30 +17325,35 @@
       "daitro_quiet_build",
       "daitro_tremolo_drive",
       "daitro_blast_release",
-      "prob_daitro_4_4"
+      "prob_daitro_4_4",
+      "emoviolence_angular_breakdown"
     ],
     "dbeat": [
       "dbeat_standard",
       "dbeat_7_8",
-      "prob_dbeat_4_4"
+      "prob_dbeat_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "deafheaven": [
       "deafheaven_build_to_blast",
       "blackmetal_atmospheric",
       "deafheaven_shimmer_blast",
-      "prob_blackgaze_4_4"
+      "prob_blackgaze_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "drive_like_jehu": [
       "athletic_angular",
       "postpunk_busy",
       "slint_explosion",
-      "prob_angular_athletic_4_4"
+      "prob_angular_athletic_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "emoviolence": [
       "emoviolence_blast_crash",
       "emoviolence_angular_breakdown",
       "blast_traditional",
-      "prob_emoviolence_4_4"
+      "prob_emoviolence_4_4",
+      "city_of_caterpillar_build"
     ],
     "euro_screamo": [
       "daitro_tremolo_drive",
@@ -17158,7 +17362,8 @@
       "raein_melodic_drive",
       "prob_euro_screamo_4_4",
       "city_of_caterpillar_build",
-      "euclid_skramz_surge_4_4"
+      "euclid_skramz_surge_4_4",
+      "emoviolence_angular_breakdown"
     ],
     "faraquet": [
       "faraquet_displaced_4_4",
@@ -17166,7 +17371,8 @@
       "faraquet_5_4",
       "prob_faraquet_4_4",
       "prob_faraquet_7_8",
-      "euclid_math_7_8"
+      "euclid_math_7_8",
+      "posthardcore_halftime_breakdown"
     ],
     "fugazi": [
       "fugazi_driving_chorus",
@@ -17175,13 +17381,15 @@
       "driving_3_4",
       "driving_6_8",
       "driving_6_4",
-      "prob_fugazi_4_4"
+      "prob_fugazi_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "liturgy": [
       "liturgy_burst_beat",
       "liturgy_pillar_stabs",
       "prob_liturgy_burst_4_4",
-      "euclid_blackmetal_pulse_4_4"
+      "euclid_blackmetal_pulse_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "noise_rock": [
       "shellac_floor_tom_drive",
@@ -17191,18 +17399,21 @@
       "shellac_6_8",
       "unwound_dynamics",
       "prob_postpunk_4_4",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "oxbow": [
       "unwound_dynamics",
       "shellac_floor_tom_drive",
       "slint_explosion",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "post_punk": [
       "postpunk_machine",
       "postpunk_busy",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "posthardcore": [
       "fugazi_driving_chorus",
@@ -17220,7 +17431,8 @@
       "athletic_angular",
       "postpunk_busy",
       "slint_explosion",
-      "prob_angular_athletic_4_4"
+      "prob_angular_athletic_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "postrock": [
       "postrock_6_4",
@@ -17228,23 +17440,27 @@
       "city_of_caterpillar_build",
       "motorik_build",
       "slint_explosion",
-      "prob_postrock_6_4"
+      "prob_postrock_6_4",
+      "posthardcore_halftime_breakdown"
     ],
     "preoccupations": [
       "postpunk_machine",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "q_and_not_u": [
       "athletic_angular",
       "postpunk_busy",
       "prob_angular_athletic_4_4",
       "qanu_dancepunk",
-      "prob_qanu_4_4"
+      "prob_qanu_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "raein": [
       "raein_melodic_drive",
       "raein_octopus_groove",
-      "prob_raein_4_4"
+      "prob_raein_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "screamo": [
       "emoviolence_blast_crash",
@@ -17257,34 +17473,40 @@
     "shame": [
       "postpunk_machine",
       "postpunk_busy",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "shellac": [
       "shellac_floor_tom_drive",
       "shellac_7_8",
       "shellac_5_4",
       "shellac_3_4",
-      "shellac_6_8"
+      "shellac_6_8",
+      "noise_rock_floor_breakdown"
     ],
     "slint": [
       "motorik_build",
       "slint_explosion",
       "unwound_dynamics",
-      "prob_slint_4_4"
+      "prob_slint_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "sonic_youth": [
       "motorik_build",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "unwound": [
       "unwound_dynamics",
       "postpunk_machine",
       "slint_explosion",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "wipers": [
       "postpunk_machine",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "zona": [
       "prob_jazz_comp_4_4",
@@ -17294,7 +17516,8 @@
       "zona_bomb_blast_4_4",
       "zona_atmos_4_4",
       "zona_comp_6_8",
-      "zona_lift_6_8"
+      "zona_lift_6_8",
+      "posthardcore_halftime_breakdown"
     ]
   },
   "section_preferences": {
