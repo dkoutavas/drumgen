@@ -44,13 +44,18 @@ pub struct DrumgenParams {
     pub song: IntParam,
 
     /// Editor window state (size / open) — persisted with the plugin state.
-    #[persist = "editor-state"]
+    /// Key is versioned: old projects saved 480x320 under "editor-state" and
+    /// would silently stomp the new default; unknown keys are ignored, so v2
+    /// makes every project pick up the cockpit size (a deliberately resized
+    /// old window is lost once — accepted).
+    #[persist = "editor-state-v2"]
     pub editor_state: Arc<EguiState>,
 }
 
-/// Editor window size (logical px) — 2x a 240x160 virtual screen.
-pub const EDITOR_WIDTH: u32 = 480;
-pub const EDITOR_HEIGHT: u32 = 320;
+/// Editor window size (logical px). 720x440 fits the horizon strip (4 bars
+/// x ~10px cells) plus the full control stack without clipping.
+pub const EDITOR_WIDTH: u32 = 720;
+pub const EDITOR_HEIGHT: u32 = 440;
 
 /// Meter param index → (numerator, denominator). Index 0 is Auto = (0,0).
 pub const METERS: [(i32, i32); 7] = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
@@ -102,10 +107,10 @@ pub const SONGS: [(&str, &str); 10] = [
     ("Stop/Go", "2:blast 1:silence 2:blast 1:silence 2:blast 1:silence 4:breakdown 3:chorus"),
     // 20 bars — Saetia quiet-loud-quiet: fragile passage, eruption, a held
     // silence (the gasp), fragile again, full blast, decay.
-    ("Quiet/Loud", "4:atmospheric 4:drive 2:silence 4:atmospheric 4:blast 2:outro"),
+    ("Quiet/Loud", "4:atmospheric 4:drive 1:silence 4:atmospheric 4:blast 3:outro"),
     // 16 bars — Orchid eruption form: uneasy calm punched apart by silences
     // and blast bursts, a halftime weight in the middle.
-    ("Eruption", "2:atmospheric 1:silence 3:blast 1:silence 2:breakdown 3:blast 1:silence 3:blast"),
+    ("Eruption", "2:atmospheric 1:silence 3:blast 2:breakdown 4:blast 1:silence 3:blast"),
     // 32 bars — Envy post-rock scale-build: long build, 6/8 lift, blast wall,
     // long comedown. Pair with styles that have 6/8 cells (shellac/fugazi).
     ("Post-Rock", "4:intro 8:build 4:drive@6/8 1:fill 7:blast 4:atmospheric 4:outro"),
@@ -165,9 +170,32 @@ pub fn valid_arrangement(arr: &str) -> bool {
     any && total <= 64
 }
 
+/// Written once when songs.txt doesn't exist yet — teaches the format with
+/// zero active lines. Never overwrites an existing file.
+const STARTER_SONGS_TXT: &str = "\
+# drumgen custom song forms — one per line, restart the DAW to reload.\n\
+#\n\
+#   Name | bars:section bars:section@meter ...\n\
+#\n\
+# Sections: intro build verse chorus drive blast breakdown atmospheric\n\
+#           silence fill outro\n\
+# Meters:   @3/4 @5/4 @6/4 @6/8 @7/8 (omit for the song's home meter, 4/4)\n\
+# Rules:    1-32 bars per section, 64 bars total max. A bad line is\n\
+#           skipped whole (check the DAW's plugin log).\n\
+#\n\
+# Example labyrinth (remove the leading # to activate):\n\
+# My Maze | 2:atmospheric 3:verse@7/8 1:fill 2:blast 3:verse@7/8 4:build 1:fill 4:blast 2:outro\n\
+";
+
 fn load_user_songs() -> Vec<(String, String)> {
     let Some(home) = std::env::var_os("HOME") else { return Vec::new() };
-    let path = std::path::PathBuf::from(home).join(".config/drumgen/songs.txt");
+    let dir = std::path::PathBuf::from(home).join(".config/drumgen");
+    let path = dir.join("songs.txt");
+    if !path.exists() {
+        // First run: plant the starter file so the feature is discoverable.
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(&path, STARTER_SONGS_TXT);
+    }
     let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
     let mut songs = Vec::new();
     for (ln, raw) in text.lines().enumerate() {

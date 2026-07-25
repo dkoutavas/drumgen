@@ -4,6 +4,7 @@
 //! work. The theme is installed once in the build closure.
 
 use nih_plug::prelude::*;
+use nih_plug_egui::resizable_window::ResizableWindow;
 use nih_plug_egui::{create_egui_editor, egui};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -102,7 +103,8 @@ fn step_int(setter: &ParamSetter, p: &IntParam, cur: i32, delta: i32, count: i32
 }
 
 /// A labelled ◀ value ▶ stepper. Returns the chosen delta (-1/0/+1).
-fn stepper(ui: &mut egui::Ui, label: &str, value: &str, value_width: f32) -> i32 {
+/// A non-empty `hint` becomes hover text on the value label.
+fn stepper(ui: &mut egui::Ui, label: &str, value: &str, value_width: f32, hint: &str) -> i32 {
     let mut delta = 0;
     ui.vertical(|ui| {
         ui.label(egui::RichText::new(label).color(DIM));
@@ -110,10 +112,13 @@ fn stepper(ui: &mut egui::Ui, label: &str, value: &str, value_width: f32) -> i32
             if ui.button("◀").clicked() {
                 delta = -1;
             }
-            ui.add_sized(
+            let resp = ui.add_sized(
                 [value_width, 24.0],
                 egui::Label::new(egui::RichText::new(value).color(TEXT)),
             );
+            if !hint.is_empty() {
+                resp.on_hover_text(hint);
+            }
             if ui.button("▶").clicked() {
                 delta = 1;
             }
@@ -245,6 +250,18 @@ fn grid_cells(pattern: &Pattern, bar: usize) -> ([[u8; MAX_COLS]; GRID_LANES], u
 /// Render the bar-1 step grid with a "what am I hearing" header above it.
 /// Everything shown — style, meter, bars, seed — comes from the SAME pattern
 /// snapshot, so the labels always match the notes (no param-vs-snapshot race).
+/// Reduce the audio thread's published playhead TICK into this pattern
+/// snapshot's bar index. Re-reduction (mod total_ticks) guards the pending-
+/// swap window where the audio thread's pattern length differs from the GUI
+/// snapshot. -1 = stopped.
+fn ph_bar_of(tick: i64, pattern: &Pattern) -> i64 {
+    if tick < 0 {
+        return -1;
+    }
+    let t = tick.rem_euclid(pattern.total_ticks.max(1));
+    (pattern.bar_starts.partition_point(|&b| b <= t) as i64 - 1).max(0)
+}
+
 /// What the drummer does next: (line text, hot). `ph_bar` is the 0-based
 /// playhead bar (-1 = stopped -> None). Song mode walks the section map;
 /// loop mode counts down to the next fill bar. Pure — unit tested.
@@ -289,6 +306,72 @@ fn telegraph(
         return Some((format!("FILL IN {}", left), left == 1));
     }
     None
+}
+
+/// Horizon strip: the current bar and the next three, in miniature, with a
+/// moving playhead cursor — what's playing and what's coming, at a glance.
+/// When stopped, the strip starts at `start_bar` and shows no cursor.
+fn horizon_strip(ui: &mut egui::Ui, pattern: &Pattern, start_bar: usize, ph_tick: i64) {
+    let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
+    let n = 4.min(total_bars);
+    let cell_h = 6.0;
+    let label_h = 11.0;
+    let gap = 6.0;
+    let avail = ui.available_width();
+    let block_w = ((avail - gap * (n as f32 - 1.0)) / n as f32).floor();
+    let h = label_h + cell_h * GRID_LANES as f32;
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(avail, h), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    let t = if ph_tick >= 0 { ph_tick.rem_euclid(pattern.total_ticks.max(1)) } else { -1 };
+
+    for i in 0..n {
+        let bar = (start_bar + i) % total_bars; // bounded — never >= total_bars
+        let (grid, ncols) = grid_cells(pattern, bar);
+        let x0 = rect.left() + i as f32 * (block_w + gap);
+        // Bar number label; the playhead bar gets the accent.
+        let is_now = t >= 0
+            && pattern.bar_starts[bar] <= t
+            && t < pattern.bar_starts[bar + 1];
+        painter.text(
+            egui::pos2(x0, rect.top()),
+            egui::Align2::LEFT_TOP,
+            format!("{}", bar + 1),
+            egui::FontId::proportional(8.0),
+            if is_now { ACCENT_A } else { DIM },
+        );
+        let cw = (block_w / ncols as f32).floor().max(2.0);
+        let gy = rect.top() + label_h;
+        for lane in 0..GRID_LANES {
+            for col in 0..ncols {
+                let v = grid[lane][col];
+                let color = if v >= 96 {
+                    ACCENT_A
+                } else if v >= 1 {
+                    GRID_MID
+                } else {
+                    PANEL
+                };
+                painter.rect_filled(
+                    egui::Rect::from_min_size(
+                        egui::pos2(x0 + col as f32 * cw, gy + lane as f32 * cell_h),
+                        egui::vec2(cw - 1.0, cell_h - 1.0),
+                    ),
+                    0.0,
+                    color,
+                );
+            }
+        }
+        // Playhead cursor: a 2px butter line sweeping through the NOW bar.
+        if is_now {
+            let (bs, be) = (pattern.bar_starts[bar], pattern.bar_starts[bar + 1]);
+            let frac = (t - bs) as f32 / (be - bs).max(1) as f32;
+            let x = x0 + frac * cw * ncols as f32;
+            painter.line_segment(
+                [egui::pos2(x, gy), egui::pos2(x, gy + cell_h * GRID_LANES as f32)],
+                egui::Stroke::new(2.0f32, ACCENT_B),
+            );
+        }
+    }
 }
 
 fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize, ph_bar: i64, follow: &mut u8) {
@@ -450,6 +533,20 @@ mod tests {
     }
 
     #[test]
+    fn ph_bar_of_reduces_ticks_into_the_snapshot() {
+        let pat = test_pattern(vec![on(0, 36, 100)]); // 2 bars of 4/4, 3840 ticks
+        assert_eq!(ph_bar_of(-1, &pat), -1);
+        assert_eq!(ph_bar_of(0, &pat), 0);
+        assert_eq!(ph_bar_of(1919, &pat), 0);
+        assert_eq!(ph_bar_of(1920, &pat), 1);
+        // Tick published against a LONGER audio-side pattern reduces safely
+        // into this snapshot (the pending-swap guard).
+        assert_eq!(ph_bar_of(3840, &pat), 0);
+        assert_eq!(ph_bar_of(5000, &pat), 0);
+        assert_eq!(ph_bar_of(5761, &pat), 1);
+    }
+
+    #[test]
     fn telegraph_loop_mode_counts_down_to_fill() {
         let none: &[(String, i32)] = &[];
         assert_eq!(
@@ -585,7 +682,7 @@ pub fn create(
     params: Arc<DrumgenParams>,
     n_styles: usize,
     pattern_view: Arc<Mutex<Arc<Pattern>>>,
-    playhead_bar: Arc<AtomicI64>,
+    playhead_tick: Arc<AtomicI64>,
 ) -> Option<Box<dyn Editor>> {
     let egui_state = params.editor_state.clone();
     create_egui_editor(
@@ -593,14 +690,18 @@ pub fn create(
         UiState::new(),
         |ctx, _| install_theme(ctx),
         move |ctx, setter, ui_state| {
-            // Patterns arrive asynchronously from the worker; poll so the grid
-            // refreshes without needing mouse movement.
-            ctx.request_repaint_after(std::time::Duration::from_millis(100));
             let pattern = pattern_view.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let ph_tick = playhead_tick.load(Ordering::Relaxed);
+            // 16ms while playing (smooth cursor), lazy 100ms poll when stopped.
+            ctx.request_repaint_after(std::time::Duration::from_millis(
+                if ph_tick >= 0 { 16 } else { 100 },
+            ));
 
-            egui::CentralPanel::default()
-                .frame(egui::Frame::default().fill(BG).inner_margin(8.0))
-                .show(ctx, |ui| {
+            // ResizableWindow: same CentralPanel underneath (panel_fill == BG,
+            // default margin 8) plus a drag grip in the bottom-right corner.
+            ResizableWindow::new("drumgen-window")
+                .min_size(egui::Vec2::new(480.0, 320.0))
+                .show(ctx, params.editor_state.as_ref(), |ui| {
                     // Header: logo + style picker.
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("DRUMGEN").heading().color(ACCENT_A));
@@ -630,7 +731,7 @@ pub fn create(
                         // the song's home meter.
                         let song_off = params::song_str(params.song.value()).is_empty();
                         ui.add_enabled_ui(song_off, |ui| {
-                            let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0);
+                            let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0, "");
                             if db != 0 {
                                 let next = (params.bars.value() + db).clamp(1, 16);
                                 setter.begin_set_parameter(&params.bars);
@@ -639,13 +740,13 @@ pub fn create(
                             }
                         });
 
-                        let dm = stepper(ui, "METER", &params.meter.to_string(), 40.0);
+                        let dm = stepper(ui, "METER", &params.meter.to_string(), 40.0, "Auto follows the host time signature");
                         if dm != 0 {
                             step_int(setter, &params.meter, params.meter.value(), dm, params::METERS.len() as i32);
                         }
 
                         ui.add_enabled_ui(song_off, |ui| {
-                            let df = stepper(ui, "FILL", &params.fill.to_string(), 56.0);
+                            let df = stepper(ui, "FILL", &params.fill.to_string(), 56.0, "");
                             if df != 0 {
                                 step_int(setter, &params.fill, params.fill.value(), df, params::FILLS.len() as i32);
                             }
@@ -656,7 +757,10 @@ pub fn create(
 
                     // SONG structure + DICE hero + SAVE + last save result.
                     ui.horizontal(|ui| {
-                        let ds = stepper(ui, "SONG", &params.song.to_string(), 80.0);
+                        let ds = stepper(
+                            ui, "SONG", &params.song.to_string(), 80.0,
+                            "song skeletons; add your own in ~/.config/drumgen/songs.txt (restart DAW to reload)",
+                        );
                         if ds != 0 {
                             step_int(setter, &params.song, params.song.value(), ds, params::n_songs() as i32);
                         }
@@ -673,15 +777,19 @@ pub fn create(
                             setter.end_set_parameter(&params.seed);
                         }
                         seed_drag(ui, setter, &params.seed, &mut ui_state.seed_acc);
-                        let save = ui
-                            .button("SAVE .MID")
-                            .on_hover_text("write pattern to ~/drumgen_output");
+                        let save = ui.button("SAVE .MID").on_hover_text(
+                            "write pattern to ~/drumgen_output (an on_save hook also renders the score — see NOTATION.md)",
+                        );
                         if save.clicked() {
                             ui_state.save_msg = match export::save_pattern(&pattern) {
-                                Ok(path) => format!(
-                                    "SAVED {}",
-                                    path.file_name().and_then(|n| n.to_str()).unwrap_or("?")
-                                ),
+                                Ok(path) => {
+                                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                                    if export::save_hook_installed() {
+                                        format!("SAVED {name} ▸ score")
+                                    } else {
+                                        format!("SAVED {name}")
+                                    }
+                                }
                                 Err(e) => format!("SAVE FAILED: {e}"),
                             };
                         }
@@ -693,7 +801,7 @@ pub fn create(
                     ui.add_space(4.0);
 
                     // Telegraph: what the drummer does next, readable mid-riff.
-                    let ph_bar = playhead_bar.load(Ordering::Relaxed);
+                    let ph_bar = ph_bar_of(ph_tick, &pattern);
                     let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
                     if let Some((line, hot)) = telegraph(
                         &pattern.sections,
@@ -706,6 +814,15 @@ pub fn create(
                                 .color(if hot { ACCENT_A } else { ACCENT_B }),
                         );
                     }
+
+                    // Horizon: now + the next three bars, cursor sweeping.
+                    let horizon_start = if ph_bar >= 0 {
+                        ph_bar as usize % total_bars
+                    } else {
+                        ui_state.view_bar.min(total_bars - 1)
+                    };
+                    horizon_strip(ui, &pattern, horizon_start, ph_tick);
+                    ui.add_space(4.0);
 
                     // Step grid: follows the playhead while playing (NOW/NEXT),
                     // manual pager when stopped.

@@ -49,6 +49,19 @@ actively maintained) and export `.gp5` from there. Expect the notation to
 render less beautifully than MuseScore — TuxGuitar is a tab editor, not an
 engraver. For a chart a working drummer reads cold, send the MuseScore PDF.
 
+## Zero-command mode: the on-save hook
+
+Run once:
+
+```bash
+./scripts/install-notation-hook.sh
+```
+
+From then on, every **SAVE .MID** in the plugin also renders the `.musicxml`
+score next to it automatically (the save message shows `▸ score`). The hook
+is just `~/.config/drumgen/on_save` — an executable that receives the saved
+path; edit or delete it freely.
+
 ## CLI one-shot
 
 ```bash
