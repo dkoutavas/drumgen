@@ -156,11 +156,18 @@ fn worker_loop(
             let (song_name, sections) = if req.song > 0 {
                 let name = crate::params::song_label(req.song);
                 let home = if req.meter == (0, 0) { (4, 4) } else { req.meter };
+                // Pair each section with the cell that actually won it, so the
+                // GUI reports what is PLAYING rather than what the form asked
+                // for (a style with no blast cell must not be labelled BLAST).
                 let secs = crate::engine::assembler::parse_arrangement(
                     crate::params::song_str(req.song), home,
                 )
                 .into_iter()
-                .map(|sec| (sec.section_type, sec.bars))
+                .enumerate()
+                .map(|(i, sec)| {
+                    let cell = res.section_cells.get(i).cloned().unwrap_or_default();
+                    (sec.section_type, sec.bars, cell)
+                })
                 .collect();
                 (name, secs)
             } else {

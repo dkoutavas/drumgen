@@ -85,7 +85,7 @@ cd plugin && ./build-linux.sh            # --check to build without installing
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
 
-# Run Rust tests (70)
+# Run Rust tests (71)
 cd plugin && cargo test
 
 # CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +

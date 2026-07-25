@@ -43,9 +43,11 @@ pub struct Pattern {
     pub tempo: f64,
     pub style_name: String,
     pub cell_name: String,
-    /// Song-mode section map: (section_type, bars) in order. Empty in loop
-    /// mode. The GUI walks this to label the viewed bar.
-    pub sections: Vec<(String, i32)>,
+    /// Song-mode section map: (section_type, bars, cell_name) in order, empty
+    /// in loop mode. The GUI walks this to label the viewed bar. `cell_name`
+    /// is what actually PLAYS; `section_type` is only what the song form asked
+    /// for, and the two diverge whenever a style cannot serve the section.
+    pub sections: Vec<(String, i32, String)>,
 }
 
 impl Pattern {
@@ -56,7 +58,7 @@ impl Pattern {
         display_seed: u64,
         style_name: String,
         cell_name: String,
-        sections: Vec<(String, i32)>,
+        sections: Vec<(String, i32, String)>,
     ) -> Self {
         let total_bars = res
             .time_signatures
@@ -153,7 +155,14 @@ mod tests {
     }
 
     fn result(events: Vec<Event>, time_signatures: Vec<TimeSigEntry>, total_bars: i32) -> AssembleResult {
-        AssembleResult { events, tempo: 120.0, time_signatures, seed: 0, total_bars }
+        AssembleResult {
+            events,
+            tempo: 120.0,
+            time_signatures,
+            seed: 0,
+            total_bars,
+            section_cells: Vec::new(),
+        }
     }
 
     fn hit(tick: i64, instrument: Instrument, velocity: i32) -> Event {

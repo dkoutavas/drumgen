@@ -15,6 +15,12 @@ pub struct AssembleResult {
     pub time_signatures: Vec<TimeSigEntry>,
     pub seed: u64,
     pub total_bars: i32,
+    /// Name of the cell each arrangement section actually resolved to, in
+    /// section order ("" for silence). Empty in loop mode. The GUI needs this
+    /// to report what is PLAYING — the section type is only what the song form
+    /// asked for, and a style with no blast cell does not start blasting just
+    /// because the form said "blast".
+    pub section_cells: Vec<String>,
 }
 
 /// Seed-keyed rotation into a candidate cell list — the "dice" for fixed-cell
@@ -683,6 +689,7 @@ pub fn assemble(
         time_signatures,
         seed,
         total_bars: bars,
+        section_cells: Vec::new(),
     }
 }
 
@@ -784,6 +791,9 @@ pub fn assemble_arrangement(
     let mut bar_cursor = 0;
     // Cells actually chosen, for the ghost-clustering amount below.
     let mut used_cells: Vec<&Cell> = Vec::with_capacity(sections.len());
+    // Same, but positional (one entry per section, "" for silence) so the GUI
+    // can report what is playing instead of what the form asked for.
+    let mut section_cells: Vec<String> = Vec::with_capacity(sections.len());
 
     for (sec_idx, section) in sections.iter().enumerate() {
         let (sec_num, sec_den) = section.time_sig;
@@ -809,11 +819,13 @@ pub fn assemble_arrangement(
             Some(c) => c,
             None => {
                 // Silence section
+                section_cells.push(String::new());
                 bar_cursor += section.bars;
                 continue;
             }
         };
         used_cells.push(cell);
+        section_cells.push(cell.name.clone());
 
         // The section's bar grid stays at the REQUESTED meter (it is what the
         // arrangement asked for and what the host follows); when no cell in the
@@ -928,6 +940,7 @@ pub fn assemble_arrangement(
         time_signatures,
         seed,
         total_bars,
+        section_cells,
     }
 }
 
@@ -1051,6 +1064,7 @@ pub fn assemble_layered(
         time_signatures,
         seed,
         total_bars: bars,
+        section_cells: Vec::new(),
     }
 }
 
@@ -1338,6 +1352,34 @@ mod tests {
         );
         assert!(!result.events.is_empty());
         assert_eq!(result.total_bars, 8);
+    }
+
+    /// The GUI labels the viewed bar from this, so it must line up with the
+    /// sections one-for-one — including silence, which contributes a bar span
+    /// but no cell. An off-by-one here relabels every section after a silence.
+    #[test]
+    fn section_cells_line_up_with_the_sections() {
+        let lib = CellLibrary::new();
+        // Two silences, one of them not last, plus a fill.
+        let arr = "2:intro 1:silence 3:blast 1:fill 2:silence 2:outro";
+        let res = assemble_arrangement(&lib, "unwound", arr, 140.0, (4, 4), Some(0.4), 0.0, 9, 0.25, true);
+        let sections = parse_arrangement(arr, (4, 4));
+
+        assert_eq!(res.section_cells.len(), sections.len(), "one entry per section");
+        for (sec, name) in sections.iter().zip(res.section_cells.iter()) {
+            if sec.section_type == "silence" {
+                assert!(name.is_empty(), "silence names no cell, got '{name}'");
+            } else {
+                assert!(!name.is_empty(), "{} resolved to nothing", sec.section_type);
+            }
+        }
+        // unwound owns no blast cell; the label must therefore NOT claim one.
+        let blast_idx = sections.iter().position(|s| s.section_type == "blast").unwrap();
+        let played = &res.section_cells[blast_idx];
+        assert!(
+            !lib.get_cell(played).map_or(false, |c| c.has_tag("blast")),
+            "unwound has no blast cell, so '{played}' should not be tagged blast"
+        );
     }
 
     /// The cross-engine golden vector: Python is the reference engine, and on

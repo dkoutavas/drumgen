@@ -793,10 +793,14 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     events = humanizer.apply_ghost_clustering(events, cluster_amt, tempo, ppq)
     events.sort(key=lambda e: (e[0], e[1]))
 
+    # Report the cells that were ACTUALLY used. This used to re-call
+    # get_cell_for_section without the rng, so the summary named different
+    # cells than the ones that played whenever a tie was broken randomly.
+    section_cells = [c["name"] if c is not None else "" for c in used_cells]
     section_summary = " → ".join(
         f"{count}×{stype}" + (f"@{sn}/{sd}" if (sn, sd) != (default_num, default_den) else "")
-        + (f"({get_cell_for_section(pool, stype, requested_time_sig=(sn, sd))['name']})" if get_cell_for_section(pool, stype, requested_time_sig=(sn, sd)) else "(silence)")
-        for count, stype, (sn, sd) in sections
+        + (f"({name})" if name else "(silence)")
+        for (count, stype, (sn, sd)), name in zip(sections, section_cells)
     )
 
     return {
@@ -806,6 +810,10 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         "seed": seed,
         "total_bars": total_bars,
         "section_summary": section_summary,
+        # Cell name per section in order ("" for silence) — what PLAYS, as
+        # opposed to what the section type asked for. Mirrors the Rust
+        # AssembleResult.section_cells the plugin GUI reads.
+        "section_cells": section_cells,
     }
 
 

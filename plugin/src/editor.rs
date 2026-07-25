@@ -266,7 +266,7 @@ fn ph_bar_of(tick: i64, pattern: &Pattern) -> i64 {
 /// playhead bar (-1 = stopped -> None). Song mode walks the section map;
 /// loop mode counts down to the next fill bar. Pure — unit tested.
 fn telegraph(
-    sections: &[(String, i32)],
+    sections: &[(String, i32, String)],
     total_bars: usize,
     ph_bar: i64,
     fill_every: i32,
@@ -279,11 +279,11 @@ fn telegraph(
     if !sections.is_empty() {
         // Song mode: current section + what's next (wrapping to the top).
         let mut cum = 0;
-        for (i, (name, bars)) in sections.iter().enumerate() {
+        for (i, (name, bars, _)) in sections.iter().enumerate() {
             let start = cum + 1;
             cum += bars;
             if bar <= cum {
-                let (next_name, _) = &sections[(i + 1) % sections.len()];
+                let (next_name, _, _) = &sections[(i + 1) % sections.len()];
                 let left = cum - bar + 1; // bars remaining incl. current
                 let hot = bar == start; // just landed on this section
                 let line = if hot {
@@ -397,17 +397,21 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize, ph_bar:
         .or(pattern.time_signatures.first())
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
-    // Section name of the viewed bar (song mode only; empty in loop mode).
+    // The viewed bar's section (song mode only; empty in loop mode) AND the
+    // cell actually playing there. The two are not the same thing: the section
+    // type is what the song form ASKED for, and 22 of the style pools have no
+    // blast cell at all — labelling an unwound bar "BLAST" because Labyrinth
+    // said so is the header lying about its own output.
     let section = {
         let mut cum = 0;
         pattern
             .sections
             .iter()
-            .find(|(_, bars)| {
+            .find(|(_, bars, _)| {
                 cum += bars;
                 bar_number <= cum
             })
-            .map(|(name, _)| name.to_uppercase())
+            .map(|(name, _, cell)| (name.to_uppercase(), cell.clone()))
     };
 
     // Header states the *generated truth*: style + the VIEWED bar's meter and
@@ -435,8 +439,16 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize, ph_bar:
                     *view_bar = (*view_bar + 1) % total_bars;
                 }
             }
-            if let Some(sec) = section {
-                ui.label(egui::RichText::new(sec).color(DIM));
+            if let Some((sec, cell)) = section {
+                // Name the CELL — that is what you are hearing. The section type
+                // rides along in the telegraph, which is form navigation.
+                if cell.is_empty() {
+                    ui.label(egui::RichText::new(sec).color(DIM));
+                } else {
+                    ui.label(egui::RichText::new(&cell).color(DIM)).on_hover_text(
+                        format!("{} section, playing cell '{}'", sec, cell),
+                    );
+                }
             }
         });
     });
@@ -552,7 +564,7 @@ mod tests {
 
     #[test]
     fn telegraph_loop_mode_counts_down_to_fill() {
-        let none: &[(String, i32)] = &[];
+        let none: &[(String, i32, String)] = &[];
         assert_eq!(
             telegraph(none, 4, 0, 4),
             Some(("FILL IN 3".to_string(), false))
@@ -566,9 +578,9 @@ mod tests {
     #[test]
     fn telegraph_song_mode_walks_sections() {
         let sections = vec![
-            ("intro".to_string(), 2),
-            ("build".to_string(), 2),
-            ("blast".to_string(), 4),
+            ("intro".to_string(), 2, String::new()),
+            ("build".to_string(), 2, String::new()),
+            ("blast".to_string(), 4, String::new()),
         ];
         assert_eq!(
             telegraph(&sections, 8, 0, 0),
@@ -591,16 +603,16 @@ mod tests {
 
     #[test]
     fn telegraph_wraps_playhead_past_pattern_end() {
-        let sections = vec![("intro".to_string(), 2), ("blast".to_string(), 2)];
+        let sections = vec![("intro".to_string(), 2, String::new()), ("blast".to_string(), 2, String::new())];
         // ph 5 wraps to bar 2 (0-based 1) -> intro's last bar.
         assert_eq!(telegraph(&sections, 4, 5, 0), telegraph(&sections, 4, 1, 0));
     }
 
     #[test]
     fn telegraph_stopped_is_silent() {
-        let sections = vec![("intro".to_string(), 2)];
+        let sections = vec![("intro".to_string(), 2, String::new())];
         assert_eq!(telegraph(&sections, 2, -1, 4), None);
-        let none: &[(String, i32)] = &[];
+        let none: &[(String, i32, String)] = &[];
         assert_eq!(telegraph(none, 0, 0, 4), None);
     }
 
