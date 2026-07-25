@@ -55,7 +55,14 @@ impl GenerationManager {
         // stream (or a rotation index). Without this, styles whose pools share
         // a cell produced byte-identical MIDI at the same seed. Plugin-boundary
         // only — the engine stays a faithful port that takes a raw seed.
-        let salted = seed ^ fnv1a(style_name.as_bytes());
+        //
+        // ADDITION, not XOR: the salted seed also drives `rotate_pick`, and
+        // DICE is seed+1. Under XOR, consecutive seeds do not give consecutive
+        // rotation indices — preoccupations landed on the same cell for seeds
+        // 1&2 and again for 3&4, so four dice presses changed nothing audible.
+        // Adding keeps +1 on the seed as +1 on the rotation while still giving
+        // every style its own offset into the stream.
+        let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
 
         // Vary floor: when no probability cell is reachable (none in the pool,
         // or a forced meter narrows selection to fixed cells only), the dice
@@ -97,7 +104,7 @@ impl GenerationManager {
     ) -> AssembleResult {
         let style_name = self.library.style_by_index(style_index as usize)
             .unwrap_or("screamo");
-        let salted = seed ^ fnv1a(style_name.as_bytes());
+        let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
         let home = if meter == (0, 0) { (4, 4) } else { meter };
         // Vary floor mirrors generate(): pool-wide check (sections roam meters).
         let vary = if self.library.style_has_prob(style_name, (0, 0)) { 0.0 } else { 0.25 };
@@ -312,4 +319,126 @@ mod tests {
             assert!(ms < 50.0, "style {} took {:.2}ms to generate", i, ms);
         }
     }
+
+    #[test]
+    fn dice_is_audible_for_every_style() {
+        // The dice is the hero interaction: one press must ALWAYS change what
+        // you hear. test_all_styles_produce_distinct_patterns compares styles
+        // against each other at a fixed seed — this sweeps the other axis,
+        // seed k vs k+1 within each style, which is what the button actually
+        // does. Humanize 0.0 so a changed groove is proved, not changed feel.
+        let gen = GenerationManager::new();
+        let notes = |style: i32, seed: u64| -> Vec<(i64, crate::engine::cell::Instrument)> {
+            gen.generate(style, 0.0, 4, seed, 0.0, true, 140.0, (0, 0), 0)
+                .events
+                .iter()
+                .map(|e| (e.tick, e.instrument))
+                .collect()
+        };
+
+        let mut dead = Vec::new();
+        for i in 0..gen.num_styles() as i32 {
+            let name = gen.style_name(i as usize).unwrap_or("?").to_string();
+            for seed in 0..4u64 {
+                if notes(i, seed) == notes(i, seed + 1) {
+                    dead.push(format!("{name} seed {seed} == {}", seed + 1));
+                }
+            }
+        }
+        assert!(dead.is_empty(), "dice presses that change nothing:\n{}", dead.join("\n"));
+    }
+
+    /// No two cells in the library may hold identical material: the dice
+    /// rotates through a style's pool, so a duplicate is a press that changes
+    /// nothing. This is what caught motorik_pulse (== postpunk_machine) and
+    /// prob_shellac_4_4 (a "probability" cell whose every entry sat at
+    /// 0.98–1.0, so it realized to shellac_floor_tom_drive); both were deleted.
+    #[test]
+    fn no_two_cells_hold_the_same_material() {
+        use std::collections::BTreeMap;
+        let lib = CellLibrary::new();
+        let mut by_material: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for style in lib.style_names().to_vec() {
+            for cell in lib.get_pool(&style) {
+                // Euclidean cells carry their material in `limbs`, not hits or
+                // grid — leaving it out made all four of them collide.
+                let key = format!(
+                    "{:?}|{:?}|{:?}|{:?}",
+                    cell.time_sig, cell.hits, cell.grid, cell.limbs
+                );
+                let names = by_material.entry(key).or_default();
+                if !names.contains(&cell.name) {
+                    names.push(cell.name.clone());
+                }
+            }
+        }
+        let dupes: Vec<String> = by_material
+            .values()
+            .filter(|v| v.len() > 1)
+            .map(|v| v.join(" == "))
+            .collect();
+        assert!(dupes.is_empty(), "duplicate cell material:\n{}", dupes.join("\n"));
+    }
+
+    #[test]
+    fn meter_truth_across_styles_and_meters() {
+        // The pattern's time signature must describe the cell that is actually
+        // playing. When a style has no cell in the forced meter the engine
+        // falls back to another cell — and must then report THAT cell's meter,
+        // or the recorded MIDI's bar grid lies to the DAW.
+        let gen = GenerationManager::new();
+        let meters = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
+
+        for i in 0..gen.num_styles() as i32 {
+            for meter in meters {
+                let res = gen.generate(i, 0.0, 4, 1, 0.0, true, 120.0, meter, 0);
+                assert_eq!(
+                    res.time_signatures.len(),
+                    1,
+                    "loop mode is a single meter for the whole pattern"
+                );
+                let got = (res.time_signatures[0].numerator, res.time_signatures[0].denominator);
+                // Requesting a meter is a FILTER, not a promise: if it matched,
+                // the stamped meter must be it; if it fell back, the stamp must
+                // still be a real meter and every event must fit the bar grid.
+                let total = crate::engine::midi_math::total_pattern_ticks(
+                    4, &res.time_signatures, crate::engine::midi_math::PPQ,
+                );
+                assert!(
+                    res.events.iter().all(|e| e.tick < total),
+                    "style {} meter {:?}: event past the {}-tick grid",
+                    gen.style_name(i as usize).unwrap_or("?"), meter, total
+                );
+                assert!(
+                    got.0 > 0 && (got.1 == 4 || got.1 == 8),
+                    "style {} meter {:?}: nonsense stamped meter {:?}",
+                    gen.style_name(i as usize).unwrap_or("?"), meter, got
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn song_mode_keeps_the_requested_section_meters() {
+        // A song's `@7/8` section is a declaration, not a filter: the bar grid
+        // stays 7/8 even when the pool has no 7/8 cell (the fallback cell fills
+        // it). Pins the Post-Rock preset, whose one @6/8 section is the only
+        // meter change in it.
+        let gen = GenerationManager::new();
+        let idx = gen.style_names().iter().position(|s| s == "shellac").expect("shellac exists") as i32;
+        let res = gen.generate_arrangement(
+            idx, crate::params::song_str(6), 0.0, 5, 0.0, true, 120.0, (4, 4),
+        );
+        let meters: Vec<(i32, i32)> = res
+            .time_signatures
+            .iter()
+            .map(|t| (t.numerator, t.denominator))
+            .collect();
+        assert!(
+            meters.contains(&(6, 8)),
+            "the @6/8 section must survive into the bar grid, got {meters:?}"
+        );
+        assert_eq!(res.total_bars, 32, "Post-Rock is 32 bars");
+    }
 }
+
