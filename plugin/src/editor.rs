@@ -445,8 +445,12 @@ fn step_grid(ui: &mut egui::Ui, pattern: &Pattern, view_bar: &mut usize, ph_bar:
     let pulse = if den == 8 { 2 } else { 4 };
     let gutter = 30.0;
     let avail = ui.available_width();
-    let cell_w = ((avail - gutter) / ncols as f32).floor().clamp(6.0, 27.0);
-    let cell_h = 13.0;
+    // Grow into whatever the user dragged: the detail grid absorbs all
+    // remaining height (minus the panel's bottom margin) and widens up to a
+    // chunky cap. At the default 720x440 this lands near the old 13px rows.
+    let cell_w = ((avail - gutter) / ncols as f32).floor().clamp(6.0, 44.0);
+    let remaining = (ui.available_height() - 10.0).max(0.0);
+    let cell_h = (remaining / GRID_LANES as f32).floor().clamp(13.0, 44.0);
     let w = gutter + cell_w * ncols as f32;
     let h = cell_h * GRID_LANES as f32;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
