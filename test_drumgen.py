@@ -116,6 +116,28 @@ class TestCellLibrary:
     def test_all_builtin_cells_registered(self):
         assert len(BUILTIN_CELLS) >= 55  # 44 original + 11 new (phase 3)
 
+    def test_no_two_cells_hold_the_same_material(self):
+        """Duplicate cells make the plugin's dice press change nothing.
+
+        The plugin rotates through a style's pool by seed, so two cells with
+        identical hits are a dead press. motorik_pulse (== postpunk_machine)
+        and prob_shellac_4_4 (== shellac_floor_tom_drive with every probability
+        pinned at 0.98-1.0) were both deleted for exactly this reason.
+        """
+        import json
+        seen = {}
+        dupes = []
+        for name, cell in BUILTIN_CELLS.items():
+            key = json.dumps(
+                [tuple(cell["time_sig"]), cell.get("hits"), cell.get("grid"), cell.get("limbs")],
+                sort_keys=True, default=list,
+            )
+            if key in seen:
+                dupes.append(f"{seen[key]} == {name}")
+            else:
+                seen[key] = name
+        assert not dupes, "duplicate cell material:\n" + "\n".join(dupes)
+
     def test_required_fields(self):
         required_base = {"name", "tags", "time_sig", "num_bars", "humanize"}
         for name, cell in BUILTIN_CELLS.items():
@@ -712,7 +734,7 @@ class TestProbabilityGrids:
 
     def test_prob_cells_registered(self):
         prob_names = [
-            "prob_faraquet_4_4", "prob_shellac_4_4", "prob_posthardcore_4_4",
+            "prob_faraquet_4_4", "prob_posthardcore_4_4",
             "prob_dbeat_4_4", "prob_blast_4_4", "prob_euro_screamo_4_4",
             "prob_faraquet_7_8",
         ]
@@ -725,7 +747,6 @@ class TestProbabilityGrids:
     def test_prob_cells_in_style_pools(self):
         assert "prob_faraquet_4_4" in STYLE_POOLS["faraquet"]
         assert "prob_faraquet_7_8" in STYLE_POOLS["faraquet"]
-        assert "prob_shellac_4_4" in STYLE_POOLS["shellac"]
         assert "prob_posthardcore_4_4" in STYLE_POOLS["posthardcore"]
         assert "prob_dbeat_4_4" in STYLE_POOLS["dbeat"]
         assert "prob_blast_4_4" in STYLE_POOLS["blast"]
@@ -733,7 +754,7 @@ class TestProbabilityGrids:
         assert "prob_faraquet_4_4" in STYLE_POOLS["math"]
 
     def test_normalize_grid_5tuple(self):
-        cell = CELLS["prob_shellac_4_4"]
+        cell = CELLS["prob_dbeat_4_4"]
         normalized = _normalize_grid(cell)
         for entry in normalized:
             assert len(entry) == 7, f"Expected 7-tuple (bar,...,cond), got {entry}"
@@ -742,7 +763,7 @@ class TestProbabilityGrids:
 
     def test_realize_produces_hits(self):
         import random
-        cell = CELLS["prob_shellac_4_4"]
+        cell = CELLS["prob_dbeat_4_4"]
         rng = random.Random(42)
         hits = realize_probability_grid(cell, 4, rng)
         assert len(hits) > 0
@@ -770,13 +791,6 @@ class TestProbabilityGrids:
         bars_present = {h[0] for h in hits}
         for bar in bars_present:
             assert 1 <= bar <= 4
-
-    def test_realize_near_deterministic_shellac(self):
-        import random
-        cell = CELLS["prob_shellac_4_4"]
-        hits = realize_probability_grid(cell, 1, random.Random(42))
-        instruments = {h[3] for h in hits}
-        assert "ride" in instruments
 
     def test_validate_physical_constraints(self):
         bar_hits = [
@@ -1121,15 +1135,6 @@ class TestVariations:
 
 class TestNewStyleCells:
     """Cell-specific assertions for Phase 3 style palette expansion."""
-
-    def test_motorik_pulse_no_ghost_no_ride(self):
-        cell = CELLS["motorik_pulse"]
-        instruments = {h[2] for h in cell["hits"]}
-        velocities = {h[3] for h in cell["hits"]}
-        assert "ride" not in instruments
-        assert "ghost" not in velocities
-        hh_hits = [h for h in cell["hits"] if h[2] == "hihat_closed"]
-        assert len(hh_hits) == 8
 
     def test_motorik_build_structure(self):
         cell = CELLS["motorik_build"]

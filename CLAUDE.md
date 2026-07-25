@@ -55,7 +55,7 @@ python notation.py ~/drumgen_output/take.mid
 python drumgen.py --style zona --tempo 140 --bars 8 --musicxml   # generate + notate
 ./scripts/install-notation-hook.sh       # SAVE .MID in the plugin auto-notates
 
-# Run tests (287 Python)
+# Run tests (286 Python)
 python -m pytest test_drumgen.py -v
 
 # Validate the MIDI pipeline across many configurations
@@ -85,7 +85,7 @@ cd plugin && ./build-linux.sh            # --check to build without installing
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
 
-# Run Rust tests (55)
+# Run Rust tests (69)
 cd plugin && cargo test
 
 # CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +
@@ -143,7 +143,7 @@ A second frontend exists as a Rust VST3/CLAP plugin (`plugin/`) that ports the s
   - `assemble_layered()` — Layer mode: mixes instrument layers (kick/snare/cymbal/toms) from different cells into one pattern, with conflict resolution.
   - Also handles: hit normalization (4-tuple to 5-tuple), probability grid realization (`realize_probability_grid`), physical constraint validation, layer extraction/conflict resolution, variation mutations (`vary_hits`), velocity drift per section, per-bar humanize overrides. All three assemble functions apply advanced humanization post-processing (flam, ghost clustering) after bar loop and pass section drift into `_process_bar()`.
 - `cell_library.py` — All rhythmic cells defined as Python functions returning dicts. Includes both fixed cells (with `hits`) and probability grid cells (with `type: "probability"` and `grid`). Contains `CELLS` registry, `STYLE_POOLS` (style -> list of cell names), `SECTION_PREFERENCES` (section type -> preferred tags), and lookup functions (`get_cell`, `get_pool`, `get_cell_for_section`). Loads user-imported cells from `user_cells/` via `load_user_cells()` and auto-integrates them into `STYLE_POOLS` via `TAG_TO_POOLS` tag-to-pool mapping.
-- `test_drumgen.py` — Comprehensive test suite (pytest, 287 tests). Covers cell integrity, time signatures, style pools, assembler, humanizer, MIDI engine, end-to-end generation, probability grids, layer mode, mixed meters (including note position verification), variations, Phase 3 style palette expansion, advanced humanization (velocity contour, flam, section drift, ghost clustering, seed reproducibility), MIDI duration overshoot verification for odd meters, Stage-1 shaped randomness (trig conditions, Euclidean realization, steering determinism), section dynamics, into-aware fill sections, the zona pool's format discipline, and the notation round-trip.
+- `test_drumgen.py` — Comprehensive test suite (pytest, 286 tests). Covers cell integrity, time signatures, style pools, assembler, humanizer, MIDI engine, end-to-end generation, probability grids, layer mode, mixed meters (including note position verification), variations, Phase 3 style palette expansion, advanced humanization (velocity contour, flam, section drift, ghost clustering, seed reproducibility), MIDI duration overshoot verification for odd meters, Stage-1 shaped randomness (trig conditions, Euclidean realization, steering determinism), section dynamics, into-aware fill sections, the zona pool's format discipline, and the notation round-trip.
 - `midi_reader.py` — Standalone CLI + importable library. Reads `.mid` files via mido, converts to drumgen's native cell format (flat 5-tuple hits), saves as JSON in `user_cells/`. Includes content-based auto-tagging (`auto_tag_cell()`), validation (`validate_cell()`), hit deduplication, trailing bar trim, and content hashing for dedup. Auto-generated cell names include `_{bpm}bpm` suffix when BPM metadata is available (explicit `--name` is not affected). Exposes `midi_to_cell()`, `save_cell()`, `auto_tag_cell()`, `validate_cell()` for GUI use.
 - `als_extractor.py` — Standalone CLI. Opens `.als` files (gzip-compressed XML), finds MidiClip elements from both Session and Arrangement views, writes each as a `.mid` file to `extracted/`. Filters non-drum tracks via name blacklist (synth, sampler, pad, etc.) when `--drums-only` is used.
 - `humanizer.py` — `Humanizer` class with seeded RNG. Per-instrument velocity variance tables (25 instruments), timing tendencies (e.g., snare slightly late, ride slightly early), swing application. Advanced humanization: velocity contour (wrist pattern for cymbals including hihat_wide_open + beat-1 emphasis), section push/pull drift (verse drags, chorus pushes, build gradually pushes), kick-snare flam (kick pulled 5-12ms early on simultaneous hits), and ghost note clustering (ghosts gravitate toward snare accents, style-dependent via `_CLUSTER_TAG_AMOUNTS`). Module-level helpers: `get_cluster_amount(cell)`, `infer_section_type(cell)`.

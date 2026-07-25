@@ -1176,33 +1176,6 @@ def _prob_faraquet_4_4():
     }
 
 
-def _prob_shellac_4_4():
-    """Shellac near-deterministic grid. Floor tom + snare + ride. Almost always the same."""
-    grid = [
-        # Floor tom on beats 1 and 3 — near-certain
-        (1, 0.0, "tom_floor", 0.98, "accent"),
-        (3, 0.0, "tom_floor", 0.98, "accent"),
-        # Snare on 2 and 4 — near-certain
-        (2, 0.0, "snare", 0.98, "accent"),
-        (4, 0.0, "snare", 0.98, "accent"),
-        # Ride on every quarter — deterministic
-        (1, 0.0, "ride", 1.0, "normal"),
-        (2, 0.0, "ride", 1.0, "normal"),
-        (3, 0.0, "ride", 1.0, "normal"),
-        (4, 0.0, "ride", 1.0, "normal"),
-    ]
-    return {
-        "name": "prob_shellac_4_4",
-        "type": "probability",
-        "tags": ["shellac", "noise_rock", "generative"],
-        "time_sig": (4, 4),
-        "num_bars": 1,
-        "humanize": 0.2,
-        "role": "groove",
-        "grid": grid,
-    }
-
-
 def _prob_posthardcore_4_4():
     """Post-hardcore/Fugazi driving probability grid. Ride eighths, solid backbeat."""
     grid = []
@@ -1400,29 +1373,6 @@ def _prob_faraquet_7_8():
 
 
 # ── Phase 3: Style palette expansion ──────────────────────────────────────────
-
-def _motorik_pulse():
-    """Motorik 4/4: HH closed eighths, kick 1/3, snare 2/4. Steady machine beat."""
-    hits = []
-    for beat in range(1, 5):
-        hits.append((beat, 0.0, "hihat_closed", "accent"))
-        hits.append((beat, 0.5, "hihat_closed", "normal"))
-    hits.extend([
-        (1, 0.0, "kick", "accent"),
-        (3, 0.0, "kick", "accent"),
-        (2, 0.0, "snare", "accent"),
-        (4, 0.0, "snare", "accent"),
-    ])
-    return {
-        "name": "motorik_pulse",
-        "tags": ["motorik", "krautrock", "sonic_youth", "post_punk", "driving", "verse"],
-        "time_sig": (4, 4),
-        "num_bars": 1,
-        "humanize": 0.2,
-        "role": "groove",
-        "hits": hits,
-    }
-
 
 def _motorik_build():
     """4-bar motorik crescendo: ghost → soft → normal + HH open → accent."""
@@ -3342,14 +3292,12 @@ CELLS = {cell["name"]: cell for cell in [
     _driving_6_4(),
     # Probability grid cells
     _prob_faraquet_4_4(),
-    _prob_shellac_4_4(),
     _prob_posthardcore_4_4(),
     _prob_dbeat_4_4(),
     _prob_blast_4_4(),
     _prob_euro_screamo_4_4(),
     _prob_faraquet_7_8(),
     # Phase 3: Style palette expansion
-    _motorik_pulse(),
     _motorik_build(),
     _slint_explosion(),
     _athletic_angular(),
@@ -3484,8 +3432,7 @@ STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4",
               "prob_blast_4_4"],
     "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
-    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
-                "prob_shellac_4_4"],
+    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8"],
     "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
                "prob_fugazi_4_4"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
@@ -3496,8 +3443,7 @@ STYLE_POOLS = {
                      "faraquet_7_8", "faraquet_5_4", "waltz_punk",
                      "prob_posthardcore_4_4",
                      "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
-    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
-                   "prob_shellac_4_4", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4"],
+    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4"],
     "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional", "city_of_caterpillar_build",
                 "prob_screamo_4_4", "euclid_skramz_surge_4_4"],
     "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional",
@@ -3514,12 +3460,12 @@ STYLE_POOLS = {
     "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric", "deafheaven_shimmer_blast",
                    "prob_blackgaze_4_4"],
     # Phase 3: Style palette expansion
-    "sonic_youth": ["motorik_pulse", "motorik_build", "prob_postpunk_4_4"],
+    "sonic_youth": ["motorik_build", "prob_postpunk_4_4"],
     "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4"],
-    "post_punk": ["postpunk_machine", "postpunk_busy", "motorik_pulse", "prob_postpunk_4_4"],
+    "post_punk": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
     "wipers": ["postpunk_machine", "prob_postpunk_4_4"],
-    "preoccupations": ["postpunk_machine", "motorik_pulse", "prob_postpunk_4_4"],
-    "dry_cleaning": ["postpunk_machine", "motorik_pulse", "prob_postpunk_4_4"],
+    "preoccupations": ["postpunk_machine", "prob_postpunk_4_4"],
+    "dry_cleaning": ["postpunk_machine", "prob_postpunk_4_4"],
     "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
     "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
     "q_and_not_u": ["athletic_angular", "postpunk_busy", "prob_angular_athletic_4_4",
