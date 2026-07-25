@@ -205,10 +205,63 @@ Use it for anything ambiguous or risky; it earns its cost.
 ## 8. Open threads
 
 **Awaiting the author's ears**: the grid-grows-with-window change; Labyrinth's
-full verdict; whether zona's 10-seed gate passes; merge `plugin-hardening` →
-`main` (+ a v0.2.0 tag) once it does.
+full verdict; whether zona's 10-seed gate passes; the whole 2026-07-25
+hardening batch (below); merge `plugin-hardening` → `main` (+ a v0.2.0 tag)
+once it does.
+
+### The vocabulary matrix (measured 2026-07-25 — the live problem)
+
+Cells were authored **per style as grooves**, never per **section function**,
+and Song Mode asks for the second. Coverage of a section = "some cell in the
+pool carries one of that section's `SECTION_PREFERENCES` tags"; where none
+does, `get_cell_for_section` picks **at random** from the pool. That is why an
+`unwound` BLAST section played `slint_explosion` — correct engine behaviour
+(it is the most intense cell Unwound owns), wrong-looking label.
+
+**Coin-flip pairs: 128/288 (44%) → 96/288 (33%)** after the breakdown work.
+Remaining, weighted by what the 9 shipped song forms actually demand:
+
+| section | coin-flip pools | forms using it | priority |
+|---|---|---|---|
+| intro | 17 | 6 | 102 |
+| blast | 11 | 8 | 88 |
+| outro | 17 | 5 | 85 |
+| build | 18 | 3 | 54 |
+| atmospheric | 17 | 3 | 51 |
+
+Blast is *partly correct by design* — a good share of its 11 are styles that
+shouldn't blast. Intro and outro are the honest next targets: sparse,
+deconstructing material most pools genuinely lack.
+
+**Two cheap fixes were measured and rejected** — do not re-propose them:
+appending each section's own name to its preference list changes 4 picks of 288
+(coin flips 128→127, because `driving` already carries the load), and a
+mechanical density-based tag pass only reaches 117 while zeroing the two
+sections that were already healthiest. The gap is arc vocabulary; that means
+authoring cells.
+
+**19 groove cells are functionally mute** — no preference tag at all, so they
+score 1 against a tagged sibling's 4 and can never win a section. For
+`faraquet` and `math` it is their entire pool, which is why those two pick at
+random everywhere. Ratcheted by a test; drive it down, never up.
+
+**Open taste call**: six pools took a breakdown from a neighbouring family
+because they had none of their own — zona, postrock, dbeat, raein,
+sonic_youth, slint. Whether those styles should break down at all is the same
+question as "unwound shouldn't blast", and it is the author's.
 
 **Queued, gated on need**:
+- Intro/outro cells for the pools that lack them (the 102/85 rows above),
+  gated on the breakdown cells passing the ear test first — no point
+  authoring more in a shape that gets rejected.
+- Tagging the 19 mute cells. Cheap, but measured as low-yield on its own;
+  worth doing alongside authoring, not instead of it.
+- **Corpus stage is blocked, not merely unstarted** (verified): `export_cells.py`
+  excludes imported cells from the plugin entirely, so Song Mode never sees
+  them; `midi_reader.auto_tag_cell` emits only density/blast/halftime tags and
+  cannot detect `build`/`quiet`/intro function; and `TAG_TO_POOLS` has no route
+  to zona/faraquet/shellac. Mass-importing today would add more unreachable
+  grooves to the pools that are already fine. Fix those three first.
 - Phrase-logic retrofit for older chatty grids (euro_screamo, posthardcore).
 - Corpus stage: mass-import the author's years of Ableton projects
   (`als_extractor.py` → `midi_reader.py`), then the missing piece — a
