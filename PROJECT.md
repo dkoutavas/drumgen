@@ -92,7 +92,7 @@ end-to-end.
 **Scale**: 106 cells (27 probability grids, 5 Euclidean, 26 fills) across 29
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~5,500 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, **286 Python + 71 Rust tests green**.
+Python engine/tools, **289 Python + 73 Rust tests green**.
 
 ### Feature inventory
 
@@ -150,12 +150,12 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 286 tests
+python -m pytest test_drumgen.py -q          # 289 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 71 tests
+cd plugin && cargo test                      # 73 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.

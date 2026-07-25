@@ -297,6 +297,14 @@ impl CellLibrary {
     }
 
     /// Get all available style names.
+    /// Every cell in the library, pooled or not — fills and transitions live
+    /// OUTSIDE style pools by design, so walking the pools misses them.
+    /// Iteration order is HashMap order: fine for set-building and counting,
+    /// never use it anywhere the RNG is consumed.
+    pub fn all_cells(&self) -> impl Iterator<Item = &Cell> {
+        self.cells.values()
+    }
+
     pub fn style_names(&self) -> &[String] {
         &self.style_names
     }

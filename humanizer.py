@@ -15,7 +15,7 @@ _SECTION_DRIFT = {
     "buildup":     "gradual_push",
     "crescendo":   "gradual_push",
     "breakdown":   "constant_drag",
-    "half_time":   "constant_drag",
+    "halftime":    "constant_drag",
     "fill":        "fill_rush",
 }
 
@@ -38,21 +38,27 @@ def get_cluster_amount(cell):
     return max(amounts) if amounts else 0.3
 
 
+# Tag → inferred section type, in priority order. Module-level so the
+# vocabulary validator in test_drumgen.py can check every tag here still
+# matches a real cell: the "half_time" spelling sat in this table for months
+# matching nothing, so halftime cells never inferred as breakdowns and never
+# got their drag. A table nothing reads is indistinguishable from a correct one.
+_SECTION_TYPE_TAGS = [
+    ("blast", ("blast", "extreme")),
+    ("build", ("build", "crescendo")),
+    ("breakdown", ("breakdown", "halftime")),
+    ("atmospheric", ("atmospheric", "sparse", "quiet")),
+    ("drive", ("driving", "intense")),
+    ("fill", ("fill",)),
+]
+
+
 def infer_section_type(cell):
     """Infer section type from cell tags for push/pull drift."""
     tags = cell.get("tags", [])
-    if any(t in tags for t in ("blast", "extreme")):
-        return "blast"
-    if any(t in tags for t in ("build", "crescendo")):
-        return "build"
-    if any(t in tags for t in ("breakdown", "half_time")):
-        return "breakdown"
-    if any(t in tags for t in ("atmospheric", "sparse", "quiet")):
-        return "atmospheric"
-    if any(t in tags for t in ("driving", "intense")):
-        return "drive"
-    if any(t in tags for t in ("fill",)):
-        return "fill"
+    for section, trigger_tags in _SECTION_TYPE_TAGS:
+        if any(t in tags for t in trigger_tags):
+            return section
     return "verse"
 
 

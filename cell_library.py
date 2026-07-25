@@ -3511,7 +3511,10 @@ SECTION_PREFERENCES = {
     "intro": ["build", "sparse", "atmospheric", "quiet"],
     "build": ["build", "crescendo", "atmospheric"],
     "verse": ["driving", "groovy", "melodic"],
-    "chorus": ["driving", "intense", "accent"],
+    # "accent" was here and matched zero cells — a preference that reads
+    # nothing is invisible rot, so it is gone. See the vocabulary validator in
+    # test_drumgen.py, which now fails if any preference tag goes dead again.
+    "chorus": ["driving", "intense"],
     "drive": ["driving", "intense", "tremolo"],
     "blast": ["blast", "intense", "extreme"],
     "breakdown": ["breakdown", "halftime", "heavy", "slow"],

@@ -116,6 +116,63 @@ class TestCellLibrary:
     def test_all_builtin_cells_registered(self):
         assert len(BUILTIN_CELLS) >= 55  # 44 original + 11 new (phase 3)
 
+    # ── Tag vocabulary validator ─────────────────────────────────────────
+    # Tags are written as prose on cells and read as an enum by the scorer and
+    # the humanizer, and nothing checked the intersection. That is how `accent`
+    # came to sit in the chorus preferences matching zero cells, and how
+    # `half_time` sat in the humanizer while every cell was tagged `halftime`
+    # — a lookup that silently never fired. These tests close that gap: a tag
+    # that reads nothing is a bug, not a harmless leftover.
+
+    def _live_tags(self):
+        return {t for c in BUILTIN_CELLS.values() for t in c["tags"]}
+
+    def test_every_section_preference_tag_matches_a_cell(self):
+        from cell_library import SECTION_PREFERENCES
+        live = self._live_tags()
+        dead = sorted(
+            {(sec, t) for sec, prefs in SECTION_PREFERENCES.items()
+             for t in prefs if t not in live}
+        )
+        assert not dead, (
+            "SECTION_PREFERENCES tags matching no cell (the section silently "
+            f"loses that preference): {dead}"
+        )
+
+    def test_every_humanizer_tag_matches_a_cell(self):
+        from humanizer import _CLUSTER_TAG_AMOUNTS, _SECTION_TYPE_TAGS
+        live = self._live_tags()
+        dead_cluster = sorted(t for t in _CLUSTER_TAG_AMOUNTS if t not in live)
+        assert not dead_cluster, (
+            f"_CLUSTER_TAG_AMOUNTS keys matching no cell: {dead_cluster}"
+        )
+        dead_infer = sorted(
+            {t for _, tags in _SECTION_TYPE_TAGS for t in tags if t not in live}
+        )
+        assert not dead_infer, (
+            f"infer_section_type tags matching no cell: {dead_infer}"
+        )
+
+    def test_functionally_mute_cells_do_not_multiply(self):
+        """A groove carrying no preference tag can never win a section.
+
+        Scoring gives every built-in a +1 bonus, so a cell with no functional
+        tag scores 1 against a tagged sibling's 4+ and is unreachable in Song
+        Mode — material that never plays. 19 such cells exist today (faraquet
+        and math are ALL of their pool, which is why those styles pick at
+        random). This is a ratchet, not a pass: drive it down, never up.
+        """
+        from cell_library import SECTION_PREFERENCES
+        functional = {t for prefs in SECTION_PREFERENCES.values() for t in prefs}
+        mute = sorted(
+            name for name, cell in BUILTIN_CELLS.items()
+            if cell["role"] == "groove" and not (set(cell["tags"]) & functional)
+        )
+        assert len(mute) <= 19, (
+            f"{len(mute)} functionally-mute grooves (was 19). New ones are "
+            f"unreachable in Song Mode: {mute}"
+        )
+
     def test_no_two_cells_hold_the_same_material(self):
         """Duplicate cells make the plugin's dice press change nothing.
 
