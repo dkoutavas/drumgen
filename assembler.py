@@ -687,17 +687,20 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         # The upcoming section steers fill choice (into_* tags).
         next_section = sections[sec_idx + 1][1] if sec_idx + 1 < len(sections) else None
 
-        # In generative mode, prefer per-seed-varying cells (prob + euclidean)
-        section_pool = pool
-        if generative:
-            prob_match = [c for c in pool
-                          if c.get("type") in ("probability", "euclidean")
-                          and tuple(c["time_sig"]) == (sec_num, sec_den)]
-            if prob_match:
-                section_pool = prob_match
-
-        cell = get_cell_for_section(section_pool, section_type, requested_time_sig=(sec_num, sec_den),
-                                    rng=rng, next_section=next_section)
+        # Score the WHOLE pool against the section, then prefer a per-seed
+        # varying cell only among equal scorers.
+        #
+        # This used to narrow the pool to probability/euclidean cells BEFORE
+        # scoring, which subordinated section intent to generativity: most
+        # styles own one or two grids, so build, blast and breakdown all
+        # collapsed onto the same cell and the fixed blast cell was
+        # unreachable. The plugin's telegraph announced "BLAST NOW" over the
+        # same groove as the verse, eight bars louder. blast_traditional
+        # scores 7 for a blast section against prob_screamo_4_4's 3 — let the
+        # score say so.
+        cell = get_cell_for_section(pool, section_type, requested_time_sig=(sec_num, sec_den),
+                                    rng=rng, next_section=next_section,
+                                    prefer_generative=generative)
 
         if cell is None:
             # Silence section — advance bar counter, emit nothing

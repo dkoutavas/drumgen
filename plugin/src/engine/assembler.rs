@@ -791,20 +791,20 @@ pub fn assemble_arrangement(
         // The upcoming section steers fill choice (into_* tags).
         let next_section = sections.get(sec_idx + 1).map(|sec| sec.section_type.as_str());
 
-        // In generative mode, prefer probability cells
-        let section_pool: Vec<&Cell> = if generative {
-            let prob_match: Vec<&Cell> = pool.iter()
-                .filter(|c| (c.is_probability() || c.is_euclidean()) && c.time_sig == (sec_num, sec_den))
-                .copied()
-                .collect();
-            if !prob_match.is_empty() { prob_match } else { pool.clone() }
-        } else {
-            pool.clone()
-        };
-
+        // Score the WHOLE pool against the section, then prefer a per-seed
+        // varying cell only among equal scorers.
+        //
+        // This used to narrow the pool to probability/euclidean cells BEFORE
+        // scoring, which subordinated section intent to generativity: most
+        // styles own one or two grids, so build, blast and breakdown all
+        // collapsed onto the same cell and the fixed blast cell was
+        // unreachable. The telegraph announced "BLAST NOW" over the same
+        // groove as the verse, eight bars louder. blast_traditional scores 7
+        // for a blast section against prob_screamo_4_4's 3 — let the score
+        // say so.
         let cell = match library.get_cell_for_section(
-            &section_pool, &section.section_type,
-            Some((sec_num, sec_den)), &mut rng, next_section,
+            &pool, &section.section_type,
+            Some((sec_num, sec_den)), &mut rng, next_section, generative,
         ) {
             Some(c) => c,
             None => {

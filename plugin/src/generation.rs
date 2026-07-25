@@ -106,8 +106,13 @@ impl GenerationManager {
             .unwrap_or("screamo");
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
         let home = if meter == (0, 0) { (4, 4) } else { meter };
-        // Vary floor mirrors generate(): pool-wide check (sections roam meters).
-        let vary = if self.library.style_has_prob(style_name, (0, 0)) { 0.0 } else { 0.25 };
+        // Vary floor is UNCONDITIONAL in Song Mode. Section intent outranks
+        // generativity when picking a cell, so a blast section rightly lands on
+        // a fixed blast cell — which would then be identical on every dice
+        // press. `vary` only touches repeated bars of a fixed cell (the
+        // is_prob/is_euclid guard in assemble_arrangement), so probability
+        // sections are unaffected and every section gets per-seed motion.
+        let vary = 0.25;
 
         assembler::assemble_arrangement(
             &self.library,

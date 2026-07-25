@@ -333,6 +333,10 @@ impl CellLibrary {
         requested_time_sig: Option<(i32, i32)>,
         rng: &mut ChaCha8Rng,
         next_section: Option<&str>,
+        // `prefer_generative` narrows EQUALLY-SCORING candidates to probability
+        // /euclidean cells so the dice keeps re-rolling a section. A tiebreak,
+        // never a filter — see the comment in assemble_arrangement.
+        prefer_generative: bool,
     ) -> Option<&'a Cell> {
         if section_type == "silence" {
             return None;
@@ -420,11 +424,21 @@ impl CellLibrary {
 
             let best_score = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
             if best_score > 0 {
-                let best: Vec<&Cell> = scored
+                let mut best: Vec<&Cell> = scored
                     .iter()
                     .filter(|(s, _)| *s == best_score)
                     .map(|(_, c)| *c)
                     .collect();
+                if prefer_generative && best.len() > 1 {
+                    let gen: Vec<&Cell> = best
+                        .iter()
+                        .filter(|c| c.is_probability() || c.is_euclidean())
+                        .copied()
+                        .collect();
+                    if !gen.is_empty() {
+                        best = gen;
+                    }
+                }
                 if best.len() > 1 {
                     let idx = rng.gen_range(0..best.len());
                     return Some(best[idx]);
@@ -459,7 +473,7 @@ mod tests {
         for seed in 0..8u64 {
             let mut rng = ChaCha8Rng::seed_from_u64(seed);
             let cell = lib
-                .get_cell_for_section(&pool, "fill", Some((4, 4)), &mut rng, Some("blast"))
+                .get_cell_for_section(&pool, "fill", Some((4, 4)), &mut rng, Some("blast"), true)
                 .expect("fill section must resolve");
             assert_eq!(cell.role, "fill");
             assert_eq!(cell.time_sig, (4, 4));
@@ -472,10 +486,41 @@ mod tests {
         // Odd meter: 7/8 fill exists and is chosen.
         let mut rng = ChaCha8Rng::seed_from_u64(1);
         let cell = lib
-            .get_cell_for_section(&pool, "fill", Some((7, 8)), &mut rng, Some("blast"))
+            .get_cell_for_section(&pool, "fill", Some((7, 8)), &mut rng, Some("blast"), true)
             .expect("7/8 fill must resolve");
         assert_eq!(cell.time_sig, (7, 8));
         assert_eq!(cell.role, "fill");
+    }
+
+    /// The telegraph announces the section name, so the section had better get
+    /// the cell it asked for. Regression: generative narrowing ran BEFORE
+    /// scoring, so build/blast/breakdown all collapsed onto the style's single
+    /// probability grid and the fixed blast cell was unreachable — the plugin
+    /// said "BLAST NOW" over the same groove as the verse.
+    #[test]
+    fn section_intent_outranks_generative_preference() {
+        let lib = CellLibrary::new();
+        // (style, section, tag the chosen cell must carry)
+        let cases = [
+            ("screamo", "blast", "blast"),
+            ("screamo", "breakdown", "breakdown"),
+            ("liturgy", "blast", "blast"),
+            ("euro_screamo", "blast", "blast"),
+        ];
+        for (style, section, want_tag) in cases {
+            let pool = lib.get_pool(style);
+            for seed in 0..6u64 {
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+                let cell = lib
+                    .get_cell_for_section(&pool, section, Some((4, 4)), &mut rng, None, true)
+                    .expect("section must resolve");
+                assert!(
+                    cell.has_tag(want_tag),
+                    "{style}/{section} seed {seed}: picked '{}' ({:?}), which is not a {want_tag} cell",
+                    cell.name, cell.tags
+                );
+            }
+        }
     }
 
     #[test]

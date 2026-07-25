@@ -3555,13 +3555,18 @@ def get_pool(style):
 
 
 def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None,
-                         next_section=None):
+                         next_section=None, prefer_generative=False):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
     Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
     If requested_time_sig is given, prefer cells matching that time signature.
     If rng is provided, ties are broken randomly; otherwise the first match is used.
+
+    prefer_generative narrows EQUALLY-SCORING candidates to probability/euclidean
+    cells, so the dice keeps re-rolling a section without ever overriding what
+    the section actually asked for. It is a tiebreak, never a filter — see the
+    comment in assemble_arrangement for the bug that taught us the difference.
 
     "fill" sections pick from role=="fill" cells library-wide (fills live
     outside style pools by design), meter-filtered, preferring fills whose
@@ -3610,6 +3615,10 @@ def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=
         best_score = max(s for s, _ in scored)
         if best_score > 0:
             best_cells = [cell for score, cell in scored if score == best_score]
+            if prefer_generative and len(best_cells) > 1:
+                gen = [c for c in best_cells if c.get("type") in ("probability", "euclidean")]
+                if gen:
+                    best_cells = gen
             if rng and len(best_cells) > 1:
                 return rng.choice(best_cells)
             return best_cells[0]
