@@ -113,6 +113,9 @@ struct Drumgen {
     was_playing: bool,
     last_end_samples: Option<i64>,
     sample_rate: f32,
+    /// Host is rendering faster than real time (bounce/freeze). Generation then
+    /// waits inline — nothing is audible, and a stale pattern would be baked in.
+    offline: bool,
 
     /// Number of styles, for the editor's Style picker wrap-around.
     n_styles: usize,
@@ -170,6 +173,7 @@ impl Default for Drumgen {
             was_playing: false,
             last_end_samples: None,
             sample_rate: 44100.0,
+            offline: false,
             n_styles,
         }
     }
@@ -193,6 +197,16 @@ impl Drumgen {
     fn next_gen(&mut self) -> u64 {
         self.gen_counter += 1;
         self.gen_counter
+    }
+
+    /// Block until the worker delivers the pattern we just requested. ONLY for
+    /// offline rendering — never call this from a real-time buffer.
+    fn await_pending(&mut self) {
+        let Some(p) = self.worker.as_ref().and_then(|w| w.recv_blocking()) else { return };
+        let stale = self.pending.replace(p);
+        if let (Some(w), Some(stale)) = (&self.worker, stale) {
+            w.retire(stale);
+        }
     }
 
     /// Emit note-offs for every sounding note and clear the active set.
@@ -257,29 +271,34 @@ impl Plugin for Drumgen {
     ) -> bool {
         self.sample_rate = buffer_config.sample_rate;
         self.settle_samples = (SETTLE_SECS * buffer_config.sample_rate) as i64;
+        self.offline = buffer_config.process_mode == ProcessMode::Offline;
 
         // Spawn the worker once, moving the parsed manager into it. Then do ONE
         // synchronous generation from the (possibly host-restored) param values
         // so playback starts on the correct pattern with no first-buffer regen.
         if self.worker.is_none() {
-            if let Some(gen) = self.gen_manager.take() {
-                let worker = GenWorker::spawn(gen);
-                // Real transport tempo isn't known yet; first process() will
-                // regenerate if it differs (off the audio thread).
-                let desired = self.inputs(120.0, (0, 0));
-                let g = self.next_gen();
-                worker.request(desired.to_request(g));
-                if let Some(p) = worker.recv_blocking() {
-                    self.current = p;
-                    // Not the audio thread yet — a plain lock is fine here.
-                    // A poisoned lock (editor panicked) still yields the slot.
-                    *self.pattern_view.lock().unwrap_or_else(|e| e.into_inner()) =
-                        self.current.clone();
-                }
-                self.requested = desired;
-                self.last_desired = desired;
-                self.worker = Some(worker);
+            // The manager is parked here by `default()` and MOVED into the worker,
+            // so after a deactivate/initialize cycle it is gone — re-parse then.
+            // ponytail: re-parsing the embedded JSON on a re-init costs a few ms
+            // on the main thread; keeping a second copy alive just to avoid it
+            // would double the library's memory for a once-per-session event.
+            let gen = self.gen_manager.take().unwrap_or_else(GenerationManager::new);
+            let worker = GenWorker::spawn(gen);
+            // Real transport tempo isn't known yet; first process() will
+            // regenerate if it differs (off the audio thread).
+            let desired = self.inputs(120.0, (0, 0));
+            let g = self.next_gen();
+            worker.request(desired.to_request(g));
+            if let Some(p) = worker.recv_blocking() {
+                self.current = p;
+                // Not the audio thread yet — a plain lock is fine here.
+                // A poisoned lock (editor panicked) still yields the slot.
+                *self.pattern_view.lock().unwrap_or_else(|e| e.into_inner()) =
+                    self.current.clone();
             }
+            self.requested = desired;
+            self.last_desired = desired;
+            self.worker = Some(worker);
         }
 
         nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
@@ -300,23 +319,36 @@ impl Plugin for Drumgen {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         // 1. Pick up any freshly generated pattern (audio-thread safe, drains to newest).
+        // Anything this thread lets go of is handed to the worker's bin so the
+        // free() happens over there — see GenWorker::retire.
         if let Some(w) = &self.worker {
             if let Some(p) = w.try_recv_latest() {
-                self.pending = Some(p);
+                if let Some(stale) = self.pending.replace(p) {
+                    w.retire(stale);
+                }
             }
         }
         // Publish the newest pattern for the GUI. try_lock so the audio thread
         // never blocks on the editor; a contended buffer just retries next
-        // buffer. Runs unconditionally — an Arc clone when the slot is stale,
-        // effectively a refcount touch when it already holds the newest.
+        // buffer.
         {
             let newest = self.pending.as_ref().unwrap_or(&self.current);
-            match self.pattern_view.try_lock() {
-                Ok(mut view) => *view = newest.clone(),
+            let mut slot = match self.pattern_view.try_lock() {
+                Ok(v) => Some(v),
                 // Editor thread panicked while holding the guard: the data is
                 // just an Arc, still valid — keep publishing instead of dying.
-                Err(std::sync::TryLockError::Poisoned(p)) => *p.into_inner() = newest.clone(),
-                Err(std::sync::TryLockError::WouldBlock) => {}
+                Err(std::sync::TryLockError::Poisoned(p)) => Some(p.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            };
+            if let Some(view) = slot.as_deref_mut() {
+                // Skip the clone (and the retire) when the slot already holds
+                // the newest — the common case, once per buffer.
+                if !Arc::ptr_eq(view, newest) {
+                    let stale = std::mem::replace(view, newest.clone());
+                    if let Some(w) = &self.worker {
+                        w.retire(stale);
+                    }
+                }
             }
         }
 
@@ -361,12 +393,14 @@ impl Plugin for Drumgen {
         // `requested` is only advanced when the worker ACCEPTED the request; a
         // dropped send (full queue) leaves it stale so the change is re-detected
         // and re-sent next buffer instead of silently ignored forever.
+        let mut sent_now = false;
         if discrete_changed {
             let g = self.next_gen();
             let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
             if sent {
                 self.requested = desired;
                 self.settle_remaining = 0;
+                sent_now = true;
             }
         } else if continuous_changed {
             if desired.changed(&self.last_desired) {
@@ -378,10 +412,18 @@ impl Plugin for Drumgen {
                 let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
                 if sent {
                     self.requested = desired;
+                    sent_now = true;
                 }
             }
         }
         self.last_desired = desired;
+
+        // Offline render: this thread is not real time (the host is rendering
+        // as fast as it can), so wait for the pattern we just asked for instead
+        // of baking the previous one into the next few buffers of the bounce.
+        if sent_now && self.offline {
+            self.await_pending();
+        }
 
         // 4. Stopped: flush once, apply any pending swap immediately, silence.
         if !playing {
@@ -391,7 +433,10 @@ impl Plugin for Drumgen {
                 self.was_playing = false;
             }
             if let Some(p) = self.pending.take() {
-                self.current = p;
+                let stale = std::mem::replace(&mut self.current, p);
+                if let Some(w) = &self.worker {
+                    w.retire(stale);
+                }
             }
             self.last_end_samples = None;
             silence_buffer(buffer);
@@ -422,9 +467,16 @@ impl Plugin for Drumgen {
         // ponytail: immediate swap over bar-boundary gating — the gating could
         // strand a pending pattern on 1-bar/looping material. Bar-quantized swap
         // is a musical nicety to revisit, not a correctness need.
-        let mut need_flush = discontinuity && !just_started;
+        // Flush on a locate/loop jump. Also flush on transport start if the mask
+        // is dirty: the stop branch clears it, but a host that yanks the
+        // transport (or a swap mid-buffer right before a stop) can leak a bit,
+        // and a stuck drum note is silent-but-real state the sampler holds.
+        let mut need_flush = (discontinuity && !just_started) || (just_started && self.active != 0);
         if let Some(p) = self.pending.take() {
-            self.current = p;
+            let stale = std::mem::replace(&mut self.current, p);
+            if let Some(w) = &self.worker {
+                w.retire(stale);
+            }
             need_flush = true;
         }
         if need_flush {

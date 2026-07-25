@@ -247,7 +247,10 @@ pub fn song_str(index: i32) -> &'static str {
     }
 }
 
-fn song_label(index: i32) -> String {
+/// Display name for a song index — built-in preset or user songs.txt entry.
+/// The worker stamps this onto the Pattern for the GUI/telegraph, so it must
+/// cover the user table too (indexing SONGS alone left user songs unnamed).
+pub fn song_label(index: i32) -> String {
     let i = index as usize;
     if i < SONGS.len() {
         SONGS[i].0.to_string()
