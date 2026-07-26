@@ -41,7 +41,7 @@ python drumgen.py --style faraquet --generative --variations 3 --tempo 140 --bar
 python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
 
 # Mixed meters in arrangement mode
-python drumgen.py --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+python drumgen.py --style fugazi -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
 
 # Run GUI
 ./run-drumgen              # auto-activates venv
@@ -61,7 +61,7 @@ python -m pytest test_drumgen.py -v
 # Validate the MIDI pipeline across many configurations
 python validate_midi.py                  # quick mode (8 styles)
 python validate_midi.py --full           # exhaustive matrix
-python validate_midi.py --style shellac  # single style
+python validate_midi.py --style fugazi   # single style
 ```
 
 ### VST3/CLAP Plugin (Rust / nih-plug)
@@ -85,7 +85,7 @@ cd plugin && ./build-linux.sh            # --check to build without installing
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
 
-# Run Rust tests (73)
+# Run Rust tests (74)
 cd plugin && cargo test
 
 # CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +

@@ -321,6 +321,265 @@ def _posthardcore_halftime_breakdown():
     }
 
 
+# ── Kidcrash / Lord Snow: hand-authored from the brainsnares transcriptions ──
+# Re-authored per the mined-cells policy: the transcriptions stay raw material
+# in user_cells/; these cells distill the highest-recurrence figures (the x17,
+# x15, x11 bars that carried the songs) with velocities recomposed (the
+# transcriber anchors everything at accent) and kick/snare interplay composed
+# where the transcription was weakest. Toms and crash-riding kept as verified.
+
+
+def _kidcrash_inverted_drive():
+    """The Kidcrash trademark: backbeat INVERTED — snare on 1 and 3, paired
+    kick doubles on 2 and 4, hats riding eighths. From kc_snares_01 (x17,
+    the most-recurring bar on the record)."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (2, 0.0, "kick", "accent"),
+        (2, 0.5, "kick", "normal"),
+        (4, 0.0, "kick", "accent"),
+        (4, 0.5, "kick", "normal"),
+        # composed: a ghost answer ahead of the beat-3 statement
+        (2, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_inverted_drive",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "groovy", "verse"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_syncopated_groove():
+    """Straight backbeat over a pushing double-kick (1, 1.5 / 3, 3.5), the
+    hat opening on the offs of 2 and 4. From kc_collections_01 (x17)."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+    hits += [
+        (2, 0.5, "hihat_open", "normal"),
+        (4, 0.5, "hihat_open", "normal"),
+        (1, 0.0, "kick", "accent"),
+        (1, 0.5, "kick", "normal"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "kick", "normal"),
+        (2, 0.0, "snare", "accent"),
+        (4, 0.0, "snare", "accent"),
+        # composed: ghost drag into the next downbeat
+        (4, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_syncopated_groove",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "groovy", "chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_tumble():
+    """Snare states beat 1 and then the kit tumbles: kick clusters late in
+    the bar, a floor-tom color where the figure turns over. From kc_were_01
+    (x15), tom voice added per the verified-good tom reading."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.5, "tom_low", "normal"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "kick", "normal"),
+        (4, 0.5, "kick", "accent"),
+        # composed: ghost where the ear expects the missing backbeat
+        (3, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_tumble",
+        "tags": ["kidcrash", "skramz", "math", "angular", "sparse", "verse", "groovy"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_crash_wash():
+    """Crash-riding climax, two-bar statement and answer. Bar 1 rides the
+    crash with the snare answering mid-bar (kc_wave_01, x11); bar 2 flips
+    the kick to the offs (kc_wave_02, x11). The wash IS the part."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((1, beat, 0.0, "crash_1", "accent"))
+        hits.append((1, beat, 0.5, "crash_1", "normal"))
+        hits.append((2, beat, 0.0, "crash_1", "accent"))
+        hits.append((2, beat, 0.5, "crash_1", "normal"))
+    hits += [
+        # bar 1: kick 2, 3.5, 4.5 / snare 1, 2.5, 3
+        (1, 1, 0.0, "snare", "accent"),
+        (1, 2, 0.0, "kick", "accent"),
+        (1, 2, 0.5, "snare", "normal"),
+        (1, 3, 0.0, "snare", "accent"),
+        (1, 3, 0.5, "kick", "normal"),
+        (1, 4, 0.5, "kick", "normal"),
+        # bar 2: kick 1, 2.5, 4 / snare 2, 3
+        (2, 1, 0.0, "kick", "accent"),
+        (2, 2, 0.0, "snare", "accent"),
+        (2, 2, 0.5, "kick", "normal"),
+        (2, 3, 0.0, "snare", "accent"),
+        (2, 4, 0.0, "kick", "accent"),
+    ]
+    return {
+        "name": "kidcrash_crash_wash",
+        "tags": ["kidcrash", "skramz", "math", "intense", "driving", "climax", "chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_kidcrash_4_4():
+    """Kidcrash generative comp: two-bar phrase logic. Odd passes state the
+    inverted backbeat, even passes answer with the straight one — the dice
+    picks the syncopation, never whether the groove exists."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.95, "accent"))
+        grid.append((beat, 0.5, "hihat_closed", 0.7, "normal"))
+    grid += [
+        # statement (odd passes): snare 1 & 3, kick doubles 2 & 4
+        (1, 0.0, "snare", 0.92, "accent", "1:2"),
+        (3, 0.0, "snare", 0.92, "accent", "1:2"),
+        (2, 0.0, "kick", 0.9, "accent", "1:2"),
+        (2, 0.5, "kick", 0.6, "normal", "1:2"),
+        (4, 0.0, "kick", 0.9, "accent", "1:2"),
+        (4, 0.5, "kick", 0.5, "normal", "1:2"),
+        # answer (even passes): straight backbeat, pushing kick
+        (2, 0.0, "snare", 0.92, "accent", "2:2"),
+        (4, 0.0, "snare", 0.92, "accent", "2:2"),
+        (1, 0.0, "kick", 0.9, "accent", "2:2"),
+        (1, 0.5, "kick", 0.55, "normal", "2:2"),
+        (3, 0.0, "kick", 0.9, "accent", "2:2"),
+        (3, 0.5, "kick", 0.55, "normal", "2:2"),
+        # the dice's own voice: hat opens and ghost chatter, any pass
+        (2, 0.5, "hihat_open", 0.35, "normal"),
+        (4, 0.5, "hihat_open", 0.35, "normal"),
+        (2, 0.75, "snare_ghost", 0.4, "ghost"),
+        (4, 0.75, "snare_ghost", 0.35, "ghost"),
+    ]
+    return {
+        "name": "prob_kidcrash_4_4",
+        "type": "probability",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _lord_snow_twinkle_comp():
+    """Ghost-laced comping under riding hats — the twinkle side. Snare
+    chatters between statements, kicks stay soft 16th pickups. From
+    lord_snow_discontent_03 (x5), velocities recomposed to breathe."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (1, 0.5, "snare_ghost", "ghost"),
+        (1, 0.75, "snare", "normal"),
+        (2, 0.5, "snare", "accent"),
+        (3, 0.0, "snare_ghost", "ghost"),
+        (3, 0.25, "snare", "accent"),
+        (4, 0.0, "snare", "normal"),
+        (2, 0.0, "kick", "soft"),
+        (3, 0.5, "kick", "soft"),
+    ]
+    return {
+        "name": "lord_snow_twinkle_comp",
+        "tags": ["lord_snow", "emoviolence", "math", "angular", "groovy", "melodic", "verse"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _lord_snow_static_wall():
+    """The wall: kick and crash locked on every eighth. Bar 1 is the pure
+    wall (lord_snow_discontent_01, x10 — genuinely snareless); bar 2 lets
+    the snare cut through on 2 and 4 so the phrase lands."""
+    hits = []
+    for bar in (1, 2):
+        for beat in range(1, 5):
+            hits.append((bar, beat, 0.0, "crash_1", "accent"))
+            hits.append((bar, beat, 0.5, "crash_1", "normal"))
+            hits.append((bar, beat, 0.0, "kick", "accent"))
+            hits.append((bar, beat, 0.5, "kick", "normal"))
+    hits += [
+        (2, 2, 0.0, "snare", "accent"),
+        (2, 4, 0.0, "snare", "accent"),
+    ]
+    return {
+        "name": "lord_snow_static_wall",
+        "tags": ["lord_snow", "emoviolence", "intense", "driving", "build", "crescendo"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _lord_snow_blast_lift():
+    """The lift into blast: 16th-leaning hats, snare crowding the quarters
+    with pickups, kick on 16th offsets. From lord_snow_cloud_03 (tagged
+    blast by the miner), thinned so the accents actually read."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.25, "hihat_closed", "normal"))
+        hits.append((beat, 0.75, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.0, "snare", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (3, 0.25, "snare", "normal"),
+        (4, 0.0, "snare", "accent"),
+        (4, 0.75, "snare_ghost", "ghost"),
+        (1, 0.25, "kick", "normal"),
+        (2, 0.25, "kick", "normal"),
+        (3, 0.5, "kick", "soft"),
+        (4, 0.25, "kick", "normal"),
+    ]
+    return {
+        "name": "lord_snow_blast_lift",
+        "tags": ["lord_snow", "emoviolence", "blast", "intense", "extreme"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
 def _blackmetal_halftime_breakdown():
     """The landing after a blast, black metal / blackgaze.
 
@@ -3338,6 +3597,14 @@ CELLS = {cell["name"]: cell for cell in [
     _noise_rock_floor_breakdown(),
     _posthardcore_halftime_breakdown(),
     _blackmetal_halftime_breakdown(),
+    _kidcrash_inverted_drive(),
+    _kidcrash_syncopated_groove(),
+    _kidcrash_tumble(),
+    _kidcrash_crash_wash(),
+    _prob_kidcrash_4_4(),
+    _lord_snow_twinkle_comp(),
+    _lord_snow_static_wall(),
+    _lord_snow_blast_lift(),
     _emoviolence_blast_crash(),
     _daitro_quiet_build(),
     _daitro_tremolo_drive(),
@@ -3499,6 +3766,8 @@ TAG_TO_POOLS = {
     "motorik": ["sonic_youth", "post_punk", "preoccupations", "dry_cleaning"],
     "post_punk": ["post_punk", "wipers", "preoccupations", "dry_cleaning", "shame"],
     "slint": ["slint", "noise_rock"],
+    "kidcrash": ["kidcrash"],
+    "lord_snow": ["lord_snow"],
     "athletic": ["drive_like_jehu", "q_and_not_u", "atdi", "blood_brothers", "posthardcore"],
     "krautrock": ["sonic_youth"],
     "sonic_youth": ["sonic_youth"],
@@ -3564,6 +3833,10 @@ STYLE_POOLS = {
                  "motorik_build", "slint_explosion", "prob_postrock_6_4", "posthardcore_halftime_breakdown"],
     # Zona: jazz-on-emoviolence. prob_jazz_comp FIRST — it anchors the pool
     # and sets song-mode ghost clustering via the "jazz" tag (0.65).
+    "kidcrash": ["kidcrash_inverted_drive", "kidcrash_syncopated_groove", "kidcrash_tumble",
+                 "kidcrash_crash_wash", "prob_kidcrash_4_4", "posthardcore_halftime_breakdown"],
+    "lord_snow": ["lord_snow_twinkle_comp", "lord_snow_static_wall", "lord_snow_blast_lift",
+                  "emoviolence_angular_breakdown"],
     "zona": ["prob_jazz_comp_4_4", "zona_comp_7_8", "zona_broken_4_4",
              "euclid_zona_broken_4_4", "zona_bomb_blast_4_4", "zona_atmos_4_4",
              "zona_comp_6_8", "zona_lift_6_8", "posthardcore_halftime_breakdown"],

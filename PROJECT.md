@@ -88,16 +88,16 @@ telegraph "alright", audio takes recorded successfully, and a generated
 parentheses, x-notehead cymbals, accents), the notation chain is proven
 end-to-end.
 
-Scale: 109 cells (27 probability grids, 5 Euclidean, 26 fills) across 29
+Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~5,500 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 289 Python + 73 Rust tests green.
+Python engine/tools, 289 Python + 74 Rust tests green.
 
 ### Feature inventory
 
 | Area | State |
 |---|---|
-| Style pools | 29 in plugin; every style produces distinct MIDI (regression-tested) |
+| Style pools | 30 in plugin; every style produces distinct MIDI (regression-tested) |
 | Cell types | fixed hits, probability grids (per-seed realization), Euclidean limbs (polymeter) |
 | Trig conditions | `A:B` pass ratios, `1st`, `last`, `pre`, `!pre`: memory across the pattern |
 | Shaped randomness | syncopation guard (Witek inverted-U band), tension envelope per pattern |

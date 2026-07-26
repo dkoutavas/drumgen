@@ -36,7 +36,7 @@ in memory.)
 
 | Control | Does |
 |---|---|
-| STYLE | 29 genre pools: each produces a distinctly different beat |
+| STYLE | 30 genre pools: each produces a distinctly different beat |
 | SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
 | DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
 | HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
@@ -74,7 +74,7 @@ Details and the Guitar Pro verdict in [NOTATION.md](NOTATION.md).
 
 ```bash
 # A pattern
-python drumgen.py --style shellac --tempo 130 --bars 8 -o verse.mid
+python drumgen.py --style kidcrash --tempo 165 --bars 8 -o verse.mid
 
 # A song form
 python drumgen.py --style euro_screamo -a "2:intro 8:build 1:fill 4:blast" --tempo 140
@@ -107,7 +107,7 @@ A Streamlit GUI covers the same ground: `./run-drumgen` (or
 
 ## Library
 
-109 cells across 29 plugin style pools — 27 probability grids, 5 Euclidean
+117 cells across 30 plugin style pools — 28 probability grids, 5 Euclidean
 polymeter cells, 26 fills, the rest fixed patterns. `python drumgen.py
 --list-cells` prints the current inventory; `styles/drumgen-style-dna.md`
 documents the rhythmic vocabulary per genre.
@@ -152,7 +152,7 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 python -m pytest test_drumgen.py -q     # 289 tests
 python validate_midi.py                  # pipeline sanity across configs
 python export_cells.py                   # after ANY cell_library.py edit
-cd plugin && cargo test                  # 73 tests
+cd plugin && cargo test                  # 74 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 
