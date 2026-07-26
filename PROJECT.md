@@ -74,12 +74,14 @@ notes, forever. A groove you loved is recoverable by writing down a number.
 Taste is data. The cell library is a curated vocabulary rather than a dataset.
 The author's ear is the training signal, applied at authoring time.
 
-## 4. Where it stands (2026-07-25)
+## 4. Where it stands (2026-07-26)
 
-`main` is tagged v0.1.0, the first ear-verified release (CI builds Linux
-/ Windows / macOS artifacts). Active work lands on `plugin-hardening`
-(currently ~7 commits ahead), merged to main only after the author confirms
-by listening.
+`main` is tagged v0.2.0 (2026-07-26): the hardening batch, the vocabulary
+work, kidcrash/lord_snow, and the dice roll, merged after the author's
+listening pass (the final dice commit was waived onto the tag on his call,
+covered by the permutation + audibility tests). CI builds Linux / Windows /
+macOS artifacts and cuts the GitHub Release from the tag. Active work
+continues on `plugin-hardening`, merged to main only after ears.
 
 Verified in Bitwig by ear: styles are distinct, Song Mode arcs work
 ("skramz arc build up actually works"), zona grooves after a phrasing rework,
