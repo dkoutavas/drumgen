@@ -86,7 +86,10 @@ Verified in Bitwig by ear: styles are distinct, Song Mode arcs work
 telegraph "alright", audio takes recorded successfully, and a generated
 `atdi` take rendered to a correct PDF drum chart (3/4 → 7/8 → 3/4, ghosts in
 parentheses, x-notehead cymbals, accents), the notation chain is proven
-end-to-end.
+end-to-end. From the 2026-07-26 session: the kidcrash style is "awesome"
+(the mined-to-authored pipeline works), the forced-meter silence fix
+holds, and lord_snow reads as "pretty confined" — three cells don't span
+Eric Baldoni's range yet; widen it as more Lord Snow material gets mined.
 
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
