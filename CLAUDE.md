@@ -255,6 +255,61 @@ Imported cells are stored as JSON in `user_cells/` and loaded automatically into
 
 **Full pipeline:** Use `als_extractor.py` to get .mid files from Ableton projects, then `midi_reader.py` to convert them to cells. Or upload .mid files directly through the Streamlit GUI's "Import MIDI as Cell" expander (supports preview, auto-tagging, and validation).
 
+## Mined cells from reference records (`brainsnares`, 2026-07-26)
+
+`user_cells/` currently holds 49 cells transcribed from reference records:
+Kidcrash *Snacks* (40), Lord Snow, and Ruined Families. They came from
+brainsnares (`~/dev/brainsnares`, named after Kidcrash *Snacks* track 6), which
+runs demucs → LarsNet per-drum stems → onset transcription → interpretation →
+recurring-bar clustering. Its `README.md` covers why it exists and what failed,
+and its `CLAUDE.md` covers the pipeline commands and measured parameters. Treat
+it as drumgen's companion tool for the library-building phase.
+
+That tool measures and counts. It detects onsets, arbitrates energy between
+stems, and finds consensus over repeated bars, so no model generates notes and
+the anti-generative-AI line holds. The cells are still transcriptions rather
+than authored vocabulary, and that distinction drives everything below.
+
+### Identifying them
+
+Tagged `mined` plus the source band (`kidcrash`, `lord_snow`,
+`ruined_families`), on top of the usual `imported` and content-derived tags.
+Names follow `<band>_<track>_<rank>_x<recurrence>`, as in
+`kc_mountains_01_x13`, where `x13` means that bar figure recurred 13 times in
+the track. Higher recurrence means the figure carried more of the song.
+
+### Treat them as raw material
+
+- Velocities skew accent-heavy, because the transcriber anchors velocity at the
+  95th percentile of each drum's hit energy, which maps to 120. Hand-edit
+  levels in the JSON if a cell reads hot.
+- Kick and snare interplay is the weakest part of the transcription. Toms,
+  crash-riding, and overall density were verified good by ear.
+- Everything is quantized to sixteenths. The source drummer's microtiming could
+  not be recovered, since the beat grid is unreliable on this material, so feel
+  has to come from the humanizer rather than the imported timing.
+
+### Do not ship them
+
+`export_cells.py` skips `source == "imported"`, so mined cells never reach
+`plugin/cells/builtin.json` or the VST. That is deliberate, so keep it that
+way. They are for the Python CLI and GUI, and for dragging into the DAW.
+
+Rhythms are not copyrightable, but transcriptions of identifiable songs should
+not be published. If a mined figure earns permanence, hand-author it into
+`cell_library.py` as its own cell, which is also the only form that reaches the
+plugin. That re-authoring step is the intended path rather than a formality.
+
+### Importing more of them
+
+`auto_tag_cell` rebuilds the tag set from scratch and silently discards
+caller-supplied `--tags`, and `_import_directory` accepts no `--name` or
+`--tags` at all. Bulk directory import therefore yields doubled
+`_<bpm>bpm_<bpm>bpm` names and no provenance. Import per file with an explicit
+`--name`, then patch tags into the JSON afterwards, which is how the current 49
+were done. Two source cells were correctly rejected by `validate_cell` as
+pure-cymbal patterns. That guardrail is working, so do not `--force` past it.
+
 ## Physical Constraints
 
 Cells must respect real drummer limb constraints (documented in `styles/drumgen-style-dna.md` section 13): no ride+crash simultaneously, no hi-hat+ride simultaneously, no snare+tom simultaneously, no cymbals during fills (except crash at the end). Hand+foot combinations are legal (`hihat_pedal` counts as a foot and coexists with cymbals). The assembler enforces these after realization via `_validate_physical_constraints` / `validate_physical_constraints`.
