@@ -39,10 +39,10 @@ The tool exists so that writing a demo does not require programming drums
 by hand for an evening. It replaces the session drummer he doesn't have at
 his desk. The composer stays him; so does the drummer in the room.
 
-Also for: the gen-Z bedroom skramz kids resurging in the 2020s, and the elder
-emos raised on the classics. A niche tool for a niche scene, made properly.
+Also for: younger players rediscovering skramz in the 2020s, and older
+listeners raised on the classics. A niche tool for a niche scene.
 
-## 3. What we believe (non-negotiable)
+## 3. What we believe
 
 Honesty. Never claim something works because tests pass. Nothing is
 "done" until it has been *heard* in the DAW. Commit messages record what is
@@ -50,13 +50,15 @@ unverified. When a diagnosis is wrong, say so and find the real cause. Every
 big feature in this project's history was gated on the author's ears, and
 several confident fixes turned out to be wrong, that record stays visible.
 
-Anti-slop, pro-tool. Suno-style generative music replaces the composer;
-we refuse that. This replaces the *session player*. The author still chooses
-the form, the seed, the keepers, where the stops land, and what gets deleted.
-The creative decisions stay human. That distinction is the project's spine, protect it in every design choice.
+A tool, not a generator. Suno-style generative music takes over the
+composer's job; this project deliberately stays on the other side of that
+line and stands in for the session player only. The author still chooses the
+form, the seed, the keepers, where the stops land, and what gets deleted.
+The creative decisions stay human, and every design choice should protect
+that.
 
-Creativity over correctness theatre. Musical payoff per session beats
-architectural elegance. When output feels dead, the fix is usually musical
+Musical payoff first. Musical payoff per session beats architectural
+elegance. When output feels dead, the fix is usually musical
 (phrasing, dynamics, structure), not more infrastructure.
 
 Practicality / DIY. Laziest thing that works ships first (ponytail
@@ -91,7 +93,7 @@ parentheses, x-notehead cymbals, accents), the notation chain is proven
 end-to-end. From the 2026-07-26 session: the kidcrash style is "awesome"
 (the mined-to-authored pipeline works), the forced-meter silence fix
 holds, and lord_snow reads as "pretty confined" — three cells don't span
-Eric Baldoni's range yet; widen it as more Lord Snow material gets mined.
+Erik Anderson's range yet; widen it as more Lord Snow material gets mined.
 
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
@@ -287,7 +289,7 @@ saved projects never break.
 
 ## 9. Working style that fits this author
 
-Terse, technical, no cheerleading. He is burnt out and has taste, respect
+Terse and technical. He has limited hours and strong taste; respect
 both. Lead with the outcome. When he reports something feels wrong, believe
 him and find the mechanism; his instincts have been right every time so far
 (the fills *were* mechanically static; the styles *were* bit-identical; the

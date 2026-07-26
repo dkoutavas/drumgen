@@ -4,9 +4,9 @@ A drum-part generator for labyrinthine heavy music. Hand-authored rhythmic
 cells, assembled by seeded algorithms, humanized like a player, emitted live
 from a native VST3/CLAP plugin, or written to `.mid` from a CLI.
 
-No AI. No model. No inference. Every note traces back to a musical decision
-someone made on purpose. This replaces the session drummer you don't have at
-your desk. The composer stays you; so does the drummer in the room.
+No AI, no model, no inference: every note traces back to a musical decision
+someone made on purpose. It stands in for the session drummer you don't have
+at your desk, and leaves the composing to you.
 
 Built for Bitwig Studio on native Linux + Ugritone drums. Targets
 screamo/emoviolence, post-hardcore, math rock, noise rock, post-rock,
@@ -54,8 +54,8 @@ My Maze | 2:atmospheric 3:verse@7/8 1:fill 2:blast 3:verse@7/8 4:build 1:fill 4:
 ```
 
 Sections: `intro build verse chorus drive blast breakdown atmospheric silence
-fill outro`. Meters via `@N/M`. Bad lines are rejected whole and logged — a
-typo never silently becomes a mediocre song.
+fill outro`. Meters via `@N/M`. A bad line is rejected whole and logged
+rather than silently played wrong.
 
 ### Charts for your drummer
 
@@ -166,4 +166,5 @@ CI builds Linux, Windows and macOS bundles on push; a `v*` tag cuts a release.
 
 ## License
 
-DIY. Open source. No cloud, no accounts, no telemetry — it all runs on your box.
+Open source and self-hosted: no cloud, no accounts, no telemetry.
+Everything runs on your own machine.
