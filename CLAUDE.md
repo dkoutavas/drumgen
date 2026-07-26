@@ -85,7 +85,7 @@ cd plugin && ./build-linux.sh            # --check to build without installing
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
 
-# Run Rust tests (74)
+# Run Rust tests (75)
 cd plugin && cargo test
 
 # CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +
@@ -218,7 +218,7 @@ Processing order in `_process_bar()`: position_to_ticks → swing → humanize_t
 
 At humanize=0, all advanced features early-return with no RNG calls, preserving backward compatibility.
 
-Plugin GUI (8-bit): Sweetie-16 palette, Press Start 2P at 8/16px, feathering off, `CornerRadius::ZERO`. 720×440 with a plugin-side resize grip (the DAW's own border cannot resize it, nih-plug limitation); the detail grid absorbs any dragged space. Elements: style picker, HUMANIZE/SWING pixel knobs, BARS/METER/FILL/SONG steppers, DICE (seed+1) + drag-scrub SEED + SAVE .MID, a telegraph countdown line (`CHORUS ▸ BLAST IN 2` → `▸ BLAST NOW`), a horizon strip (current bar + next three in miniature with a sweeping playhead cursor), and the step grid (6 lanes × up to 24 sixteenths, velocity-shaded, pageable, BAR/NOW/NEXT follow modes). Repaint is 16ms while playing, 100ms stopped. If you change the window size, bump the `#[persist = "editor-state-vN"]` key or saved projects will restore the old size forever.
+Plugin GUI (8-bit): Sweetie-16 palette, Press Start 2P at 8/16px, feathering off, `CornerRadius::ZERO`. 720×440 with a plugin-side resize grip (the DAW's own border cannot resize it, nih-plug limitation); the detail grid absorbs any dragged space. Elements: style picker, HUMANIZE/SWING pixel knobs, BARS/METER/FILL/SONG steppers, DICE (prime-stride seed roll) + drag-scrub SEED + SAVE .MID, a telegraph countdown line (`CHORUS ▸ BLAST IN 2` → `▸ BLAST NOW`), a horizon strip (current bar + next three in miniature with a sweeping playhead cursor), and the step grid (6 lanes × up to 24 sixteenths, velocity-shaded, pageable, BAR/NOW/NEXT follow modes). Repaint is 16ms while playing, 100ms stopped. If you change the window size, bump the `#[persist = "editor-state-vN"]` key or saved projects will restore the old size forever.
 
 Output: The plugin writes to `~/drumgen_output/` (auto-incrementing filenames, time signature in the name for non-4/4) and then spawns `~/.config/drumgen/on_save` if present. The Python CLI/GUI default to `output/` on Linux (legacy WSL/Windows detection remains in `drumgen.py`/`app.py`); the GUI folder is configurable and persisted in `.drumgen_config.json`.
 

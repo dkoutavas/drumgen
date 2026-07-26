@@ -275,26 +275,6 @@ impl CellLibrary {
         fills
     }
 
-    /// True if the style's pool has a probability cell REACHABLE under the
-    /// given meter ((0,0) = Auto = any). Mirrors assemble()'s meter filter:
-    /// when a forced meter narrows selection to fixed cells only, realization
-    /// can't vary notes per seed and the caller's vary floor must engage.
-    pub fn style_has_prob(&self, style: &str, meter: (i32, i32)) -> bool {
-        // Euclidean cells also re-realize per seed (dice_rotate), so they
-        // count as generative for the vary-floor decision.
-        let generative = |c: &&Cell| c.is_probability() || c.is_euclidean();
-        let pool = self.get_pool(style);
-        if meter == (0, 0) {
-            return pool.iter().any(generative);
-        }
-        let ts_match: Vec<&Cell> = pool.iter().filter(|c| c.time_sig == meter).copied().collect();
-        if ts_match.is_empty() {
-            // assemble() falls back to the full pool when nothing matches.
-            pool.iter().any(generative)
-        } else {
-            ts_match.iter().any(generative)
-        }
-    }
 
     /// Get all available style names.
     /// Every cell in the library, pooled or not — fills and transitions live

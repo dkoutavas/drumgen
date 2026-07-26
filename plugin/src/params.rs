@@ -247,6 +247,25 @@ pub fn song_str(index: i32) -> &'static str {
     }
 }
 
+/// One DICE roll: a prime stride through the 0..10000 seed space.
+/// It is a dice, so it must FEEL like one — the old seed+1 read as a counter.
+/// Chosen over real randomness on purpose: no RNG state anywhere in the GUI,
+/// the same press-path from the same start forever (determinism is a feature),
+/// one automatable/undoable param touch, and the SEED display still names the
+/// exact take.
+///
+/// Why a prime stride and not an LCG scramble: the engine turns the seed into
+/// a cell-rotation index (`salted % pool_len`), and an LCG's consecutive
+/// outputs can differ by a multiple of the pool length — measured on
+/// noise_rock, two presses in eight landed on the same sparse fixed cell and
+/// changed nothing audible. 7919 is prime, so consecutive rolls can never
+/// agree modulo any real pool size; the rotation is guaranteed to advance,
+/// exactly the property seed+1 had. Coprime to 10000 → all 10000 seeds are
+/// visited once before the path repeats, and no seed maps to itself.
+pub fn dice_roll(seed: i32) -> i32 {
+    (seed + 7919) % 10000
+}
+
 /// Display name for a song index — built-in preset or user songs.txt entry.
 /// The worker stamps this onto the Pattern for the GUI/telegraph, so it must
 /// cover the user table too (indexing SONGS alone left user songs unnamed).
@@ -330,6 +349,25 @@ impl Default for DrumgenParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dice_roll_is_a_full_permutation_with_no_fixed_points() {
+        // Every seed must be reachable (10000 rolls visit all 10000 seeds
+        // exactly once) and no press may leave the seed unchanged — a dice
+        // that can roll its own number again is a dead press.
+        let mut seen = vec![false; 10000];
+        let mut s = 0i32;
+        for _ in 0..10000 {
+            s = dice_roll(s);
+            assert!((0..10000).contains(&s));
+            assert!(!seen[s as usize], "cycle shorter than 10000 at seed {s}");
+            seen[s as usize] = true;
+        }
+        assert!(seen.iter().all(|&v| v), "not a full permutation");
+        for seed in 0..10000 {
+            assert_ne!(dice_roll(seed), seed, "fixed point at {seed}");
+        }
+    }
 
     #[test]
     fn every_builtin_song_passes_the_strict_validator() {

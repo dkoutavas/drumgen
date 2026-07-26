@@ -91,7 +91,7 @@ end-to-end.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~5,500 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 289 Python + 74 Rust tests green.
+Python engine/tools, 289 Python + 75 Rust tests green.
 
 ### Feature inventory
 

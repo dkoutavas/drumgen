@@ -785,9 +785,9 @@ pub fn create(
                                 [96.0, 40.0],
                                 egui::Button::new(egui::RichText::new("⚄ DICE").color(BG)).fill(ACCENT_A),
                             )
-                            .on_hover_text("new groove (seed +1)");
+                            .on_hover_text("roll a new groove (deterministic — the seed names the take)");
                         if dice.clicked() {
-                            let next = (params.seed.value() + 1) % 10000;
+                            let next = params::dice_roll(params.seed.value());
                             setter.begin_set_parameter(&params.seed);
                             setter.set_parameter(&params.seed, next);
                             setter.end_set_parameter(&params.seed);

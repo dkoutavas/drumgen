@@ -224,6 +224,18 @@ fn euclid_pattern(pulses: i32, steps: i32) -> Vec<bool> {
 /// reset (polymeter). `dice_rotate` limbs add a seed-derived rotation; anchor
 /// limbs stay put. Slots are sixteenths: 4 per beat in /4 meters, 2 per
 /// (eighth-)beat in /8. Deterministic — consumes no RNG. Mirrors Python.
+/// FNV-1a over (seed LE bytes, limb index). Mirrors _mix_seed in assembler.py
+/// byte for byte — no RNG stream, both engines agree exactly.
+fn mix_seed(seed: u64, limb_index: usize) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in seed.to_le_bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h ^= (limb_index & 0xFF) as u64;
+    h.wrapping_mul(0x100000001b3)
+}
+
 fn realize_euclidean(cell: &Cell, bars: i32, seed: u64) -> Vec<Hit> {
     let (num, den) = cell.time_sig;
     let slots_per_beat: i32 = if den == 8 { 2 } else { 4 };
@@ -235,7 +247,11 @@ fn realize_euclidean(cell: &Cell, bars: i32, seed: u64) -> Vec<Hit> {
         let pattern = euclid_pattern(limb.pulses, steps);
         let mut rot = limb.rotation;
         if limb.dice_rotate {
-            rot += ((seed >> li) % steps as u64) as i32;
+            // Hashed, not `(seed >> li) % steps`: with the raw seed, two seeds
+            // whose difference is a multiple of `steps` rotated identically,
+            // so a dice jump could land on a byte-identical realization — a
+            // press that changed nothing. Mirrors _mix_seed in assembler.py.
+            rot += (mix_seed(seed, li) % steps as u64) as i32;
         }
         for g in 0..(bars * spb) {
             if pattern[((g + rot).rem_euclid(steps)) as usize] {

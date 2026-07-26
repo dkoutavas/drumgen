@@ -305,6 +305,16 @@ def _euclid_pattern(pulses, steps):
     return [(i * pulses) % steps < pulses for i in range(steps)]
 
 
+def _mix_seed(seed, limb_index):
+    """FNV-1a over (seed LE bytes, limb index). Mirrors mix_seed in
+    assembler.rs byte for byte — no RNG stream, both engines agree exactly."""
+    h = 0xcbf29ce484222325
+    for b in (int(seed) & 0xFFFFFFFFFFFFFFFF).to_bytes(8, "little") + bytes([limb_index & 0xFF]):
+        h ^= b
+        h = (h * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
 def realize_euclidean(cell, bars, seed):
     """Realize a Euclidean cell's per-limb patterns over the whole output.
 
@@ -324,7 +334,13 @@ def realize_euclidean(cell, bars, seed):
         pattern = _euclid_pattern(limb["pulses"], steps)
         rot = limb.get("rotation", 0)
         if limb.get("dice_rotate", True):
-            rot += (seed >> li) % steps
+            # Hash the seed per limb (FNV-1a; identical integer math in the
+            # Rust engine) instead of `(seed >> li) % steps`: with the raw
+            # seed, two seeds whose difference is a multiple of `steps`
+            # rotated identically, so a dice jump could land on a
+            # byte-identical euclid realization — a press that changed
+            # nothing. Hashing decouples seed distance from rotation distance.
+            rot += _mix_seed(seed, li) % steps
         vel = limb.get("velocity", "normal")
         inst = limb["instrument"]
         for g in range(bars * spb):

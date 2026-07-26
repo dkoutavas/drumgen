@@ -64,11 +64,14 @@ impl GenerationManager {
         // every style its own offset into the stream.
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
 
-        // Vary floor: when no probability cell is reachable (none in the pool,
-        // or a forced meter narrows selection to fixed cells only), the dice
-        // would only re-roll feel, never notes. A small vary gives repeated
-        // bars per-seed motion; styles that re-realize per seed are untouched.
-        let vary = if self.library.style_has_prob(style_name, meter) { 0.0 } else { 0.25 };
+        // Vary floor is UNCONDITIONAL, matching Song Mode. Two reasons a press
+        // can land on the same FIXED cell as the last one: a forced meter
+        // narrowing the pool, and — now that DICE is a scrambled jump instead
+        // of seed+1 — two successive rolls agreeing mod the pool length
+        // (~1/len of presses). `vary` only mutates repeated bars of a fixed
+        // cell, so probability/euclidean realization is untouched, and any
+        // seed change is guaranteed to move notes, not just feel.
+        let vary = 0.25;
 
         assembler::assemble(
             &self.library,
@@ -330,9 +333,13 @@ mod tests {
     fn dice_is_audible_for_every_style() {
         // The dice is the hero interaction: one press must ALWAYS change what
         // you hear. test_all_styles_produce_distinct_patterns compares styles
-        // against each other at a fixed seed — this sweeps the other axis,
-        // seed k vs k+1 within each style, which is what the button actually
-        // does. Humanize 0.0 so a changed groove is proved, not changed feel.
+        // against each other at a fixed seed — this sweeps the other axis:
+        // consecutive DICE presses (the dice_roll path the button actually
+        // walks) and seed+1 (the drag-scrub path), within each style.
+        // Humanize 0.0 so a changed groove is proved, not changed feel. A
+        // roll can land on the same rotation slot as the previous seed
+        // (~1/pool-len of presses), which is exactly what the unconditional
+        // vary floor exists to cover — this test is what holds it honest.
         let gen = GenerationManager::new();
         let notes = |style: i32, seed: u64| -> Vec<(i64, crate::engine::cell::Instrument)> {
             gen.generate(style, 0.0, 4, seed, 0.0, true, 140.0, (0, 0), 0)
@@ -345,9 +352,19 @@ mod tests {
         let mut dead = Vec::new();
         for i in 0..gen.num_styles() as i32 {
             let name = gen.style_name(i as usize).unwrap_or("?").to_string();
+            // Eight consecutive dice presses from seed 0.
+            let mut s: i32 = 0;
+            for press in 0..8 {
+                let next = crate::params::dice_roll(s);
+                if notes(i, s as u64) == notes(i, next as u64) {
+                    dead.push(format!("{name} press {press}: roll {s} == {next}"));
+                }
+                s = next;
+            }
+            // Scrub path: adjacent seeds.
             for seed in 0..4u64 {
                 if notes(i, seed) == notes(i, seed + 1) {
-                    dead.push(format!("{name} seed {seed} == {}", seed + 1));
+                    dead.push(format!("{name} scrub {seed} == {}", seed + 1));
                 }
             }
         }
@@ -447,4 +464,5 @@ mod tests {
         assert_eq!(res.total_bars, 32, "Post-Rock is 32 bars");
     }
 }
+
 
