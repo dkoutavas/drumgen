@@ -70,7 +70,13 @@ def export(output_path):
     for style, names in sorted(STYLE_POOLS.items()):
         if style in style_aliases:
             canonical = style_aliases[style]
-            if sorted(names) == sorted(STYLE_POOLS.get(canonical, [])):
+            # Compare what actually SHIPS: imported cells auto-integrate into
+            # pools via TAG_TO_POOLS but are excluded from the export, so the
+            # runtime pools can diverge (mined cells routed to math but not
+            # faraquet) while the exported pools stay identical.
+            mine = sorted(n for n in names if n in builtin_cells)
+            twin = sorted(n for n in STYLE_POOLS.get(canonical, []) if n in builtin_cells)
+            if mine == twin:
                 aliased.append(f"{style} -> {canonical}")
                 continue
             # Pool diverged from its twin — export it and warn loudly.

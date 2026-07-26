@@ -356,7 +356,7 @@ def validate_pipeline(style=None, cell_name=None, bars=4, tempo=120, time_sig="4
 
 # ── Tier 3: Test matrix runners ───────────────────────────────────────────────
 
-QUICK_STYLES = ["blast", "shellac", "faraquet", "post_punk", "screamo",
+QUICK_STYLES = ["blast", "noise_rock", "faraquet", "post_punk", "screamo",
                 "euro_screamo", "black_metal", "slint"]
 
 

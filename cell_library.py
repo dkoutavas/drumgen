@@ -3515,7 +3515,6 @@ STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4",
               "prob_blast_4_4", "blackmetal_halftime_breakdown"],
     "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4", "posthardcore_halftime_breakdown"],
-    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "noise_rock_floor_breakdown"],
     "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
                "prob_fugazi_4_4", "posthardcore_halftime_breakdown"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",

@@ -41,7 +41,7 @@ VALID_VELOCITY_LEVELS = {"ghost", "soft", "normal", "accent"}
 VALID_DENOMINATORS = {2, 4, 8, 16}
 
 REQUIRED_STYLES = [
-    "blast", "dbeat", "shellac", "fugazi", "faraquet", "raein",
+    "blast", "dbeat", "fugazi", "faraquet", "raein",
     "posthardcore", "noise_rock", "screamo", "emoviolence", "math",
     "euro_screamo", "daitro", "liturgy", "black_metal", "deafheaven",
     # Phase 3: Style palette expansion
@@ -399,12 +399,12 @@ class TestStylePools:
 
     def test_time_sig_aware_selection(self):
         """When a style has a matching time sig cell, it should be selected."""
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "verse", requested_time_sig=(7, 8))
         assert tuple(cell["time_sig"]) == (7, 8)
 
     def test_shellac_5_4_selection(self):
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "verse", requested_time_sig=(5, 4))
         assert tuple(cell["time_sig"]) == (5, 4)
 
@@ -428,7 +428,7 @@ class TestStylePools:
         assert len(ts_match) >= 1, "No 6/8 cell in fugazi pool"
 
     def test_silence_section_returns_none(self):
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "silence")
         assert cell is None
 
@@ -443,7 +443,7 @@ class TestAssembler:
     """Assembly and arrangement mode tests."""
 
     def test_assemble_returns_required_keys(self):
-        result = assemble(style="shellac", tempo=120, bars=4, time_sig="4/4", seed=42)
+        result = assemble(style="fugazi", tempo=120, bars=4, time_sig="4/4", seed=42)
         assert "events" in result
         assert "tempo" in result
         assert "time_signatures" in result
@@ -451,7 +451,7 @@ class TestAssembler:
 
     def test_assemble_arrangement_returns_extra_keys(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse 4:chorus",
+            style="fugazi", arrangement_str="4:verse 4:chorus",
             tempo=120, time_sig="4/4", seed=42,
         )
         assert "total_bars" in result
@@ -461,7 +461,7 @@ class TestAssembler:
     def test_silence_section_no_events(self):
         """A pure silence arrangement should produce no note events."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:silence",
+            style="fugazi", arrangement_str="4:silence",
             tempo=120, time_sig="4/4", seed=42,
         )
         assert len(result["events"]) == 0
@@ -479,9 +479,9 @@ class TestAssembler:
 
     def test_vary_changes_output(self):
         """With vary > 0, repeated bars should differ from non-varied."""
-        r_no_vary = assemble(style="shellac", tempo=120, bars=8, time_sig="4/4",
+        r_no_vary = assemble(style="fugazi", tempo=120, bars=8, time_sig="4/4",
                              seed=42, vary=0.0)
-        r_vary = assemble(style="shellac", tempo=120, bars=8, time_sig="4/4",
+        r_vary = assemble(style="fugazi", tempo=120, bars=8, time_sig="4/4",
                           seed=42, vary=0.8)
         # vary introduces mutations on repeated bars, so event count or content should differ
         assert r_no_vary["events"] != r_vary["events"]
@@ -564,7 +564,7 @@ class TestHumanizer:
 class TestMidiEngine:
     """MIDI file output integrity tests."""
 
-    def _make_midi(self, style="shellac", time_sig="4/4", bars=4, tempo=120):
+    def _make_midi(self, style="fugazi", time_sig="4/4", bars=4, tempo=120):
         mid, note_ons, path = _generate_and_write(
             style, tempo, bars, time_sig, seed=42,
         )
@@ -619,7 +619,7 @@ class TestMidiEngine:
             os.unlink(path)
 
     def test_time_sig_metadata_7_8(self):
-        mid, _, path = self._make_midi(style="shellac", time_sig="7/8")
+        mid, _, path = self._make_midi(style="fugazi", time_sig="7/8")
         try:
             ts_msgs = [m for t in mid.tracks for m in t
                        if m.type == "time_signature"]
@@ -666,7 +666,7 @@ class TestEndToEnd:
     # ── Odd meter combos ──
 
     @pytest.mark.parametrize("style", [
-        "shellac", "faraquet", "blast", "dbeat", "posthardcore", "black_metal",
+        "fugazi", "faraquet", "blast", "dbeat", "posthardcore", "black_metal",
     ])
     def test_styles_7_8(self, style):
         mid, note_ons, path = _generate_and_write(style, 140, 4, "7/8")
@@ -675,7 +675,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "faraquet", "blast", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "faraquet", "blast", "posthardcore"])
     def test_styles_5_4(self, style):
         mid, note_ons, path = _generate_and_write(style, 130, 4, "5/4")
         try:
@@ -683,7 +683,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "blast", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "blast", "posthardcore"])
     def test_styles_3_4(self, style):
         mid, note_ons, path = _generate_and_write(style, 150, 4, "3/4")
         try:
@@ -691,7 +691,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "posthardcore"])
     def test_styles_6_8(self, style):
         mid, note_ons, path = _generate_and_write(style, 130, 4, "6/8")
         try:
@@ -713,7 +713,7 @@ class TestEndToEnd:
 
     def test_arrangement_7_8(self):
         mid, note_ons, path, result = _generate_arrangement_and_write(
-            "shellac", "4:verse 4:drive", 140, "7/8",
+            "fugazi", "4:verse 4:drive", 140, "7/8",
         )
         try:
             assert note_ons > 0
@@ -723,7 +723,7 @@ class TestEndToEnd:
 
     def test_arrangement_with_silence(self):
         mid, note_ons, path, result = _generate_arrangement_and_write(
-            "shellac", "2:verse 2:silence 2:drive", 120, "4/4",
+            "fugazi", "2:verse 2:silence 2:drive", 120, "4/4",
         )
         try:
             # Should have notes from verse and drive, but not silence
@@ -735,8 +735,8 @@ class TestEndToEnd:
     # ── Vary flag ──
 
     def test_vary_produces_different_output(self):
-        _, n1, p1 = _generate_and_write("shellac", 120, 8, "4/4", vary=0.0, seed=42)
-        _, n2, p2 = _generate_and_write("shellac", 120, 8, "4/4", vary=0.8, seed=42)
+        _, n1, p1 = _generate_and_write("fugazi", 120, 8, "4/4", vary=0.0, seed=42)
+        _, n2, p2 = _generate_and_write("fugazi", 120, 8, "4/4", vary=0.8, seed=42)
         try:
             mid1 = open(p1, "rb").read()
             mid2 = open(p2, "rb").read()
@@ -872,7 +872,7 @@ class TestProbabilityGrids:
 
     def test_assemble_arrangement_generative(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse 2:blast",
+            style="fugazi", arrangement_str="4:verse 2:blast",
             tempo=130, generative=True, seed=42,
         )
         assert len(result["events"]) > 0
@@ -1054,7 +1054,7 @@ class TestMixedMeters:
 
     def test_assemble_arrangement_mixed_meters(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse@7/8 2:verse@4/4 4:verse@7/8",
+            style="fugazi", arrangement_str="4:verse@7/8 2:verse@4/4 4:verse@7/8",
             tempo=130, seed=42,
         )
         assert result["total_bars"] == 10
@@ -1064,7 +1064,7 @@ class TestMixedMeters:
 
     def test_assemble_arrangement_single_meter(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse@4/4 4:drive@4/4",
+            style="fugazi", arrangement_str="4:verse@4/4 4:drive@4/4",
             tempo=120, seed=42,
         )
         assert len(result["time_signatures"]) == 1
@@ -1072,7 +1072,7 @@ class TestMixedMeters:
     def test_mixed_meter_midi_output(self):
         """Write mixed meter arrangement to MIDI and verify time sig meta messages and note spread."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@7/8 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@7/8 2:drive@4/4",
             tempo=130, seed=42,
         )
         with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
@@ -1110,7 +1110,7 @@ class TestMixedMeters:
     def test_mixed_meter_note_positions(self):
         """Regression: notes in each section land within that section's tick range."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@7/8 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@7/8 2:drive@4/4",
             tempo=130, seed=42,
         )
         ts = result["time_signatures"]
@@ -1191,7 +1191,7 @@ class TestVariations:
 
     def test_generative_midi_output(self):
         """Full pipeline: generative -> MIDI file."""
-        result = assemble(style="shellac", bars=4, tempo=120, generative=True, seed=42)
+        result = assemble(style="fugazi", bars=4, tempo=120, generative=True, seed=42)
         with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
             tmp_path = f.name
         try:
@@ -1534,7 +1534,7 @@ class TestAdvancedHumanization:
         assert ticks == sorted(ticks)
 
     def test_all_ticks_non_negative(self):
-        for style in ["faraquet", "shellac", "blast", "raein"]:
+        for style in ["faraquet", "noise_rock", "blast", "raein"]:
             result = assemble(style=style, bars=4, tempo=160, seed=42)
             for tick, inst, vel in result["events"]:
                 assert tick >= 0, f"Negative tick {tick} for {inst} in style {style}"
@@ -1620,7 +1620,7 @@ class TestEndOfTrackBarAlignment:
     def test_end_of_track_mixed_meter(self, tmp_path):
         """2 bars 3/4 + 2 bars 4/4 = 2*3*480 + 2*4*480 = 6720."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@3/4 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@3/4 2:drive@4/4",
             tempo=120, humanize=0.0, seed=42)
         out = str(tmp_path / "test_mixed.mid")
         write_midi(result["events"], result["tempo"],
@@ -1740,7 +1740,7 @@ class TestMidiNoOvershoot:
             tmp_path = f.name
         try:
             result = assemble(
-                style="shellac", tempo=tempo, bars=4, time_sig=time_sig,
+                style="fugazi", tempo=tempo, bars=4, time_sig=time_sig,
                 seed=42, humanize=0.7, swing=0.0, vary=0.0,
             )
             write_midi(
@@ -1774,7 +1774,7 @@ from validate_midi import validate_pipeline, run_quick
 
 
 class TestMidiValidation:
-    @pytest.mark.parametrize("style", ["shellac", "blast", "faraquet", "post_punk",
+    @pytest.mark.parametrize("style", ["noise_rock", "blast", "faraquet", "post_punk",
                                         "screamo", "euro_screamo", "black_metal", "slint"])
     def test_pipeline_validation(self, style):
         result = validate_pipeline(style=style, bars=4, tempo=120, time_sig="4/4",
@@ -1782,7 +1782,7 @@ class TestMidiValidation:
         assert result.passed, f"{result.label}: {result.errors}"
 
     def test_arrangement_validation(self):
-        result = validate_pipeline(style="shellac", bars=4, tempo=130, time_sig="4/4",
+        result = validate_pipeline(style="fugazi", bars=4, tempo=130, time_sig="4/4",
                                    humanize=0.0, mode="arrangement",
                                    arrangement_str="2:verse 2:drive", kit_name="ugritone", seed=42)
         assert result.passed, f"{result.label}: {result.errors}"

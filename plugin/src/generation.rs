@@ -197,11 +197,12 @@ mod tests {
     #[test]
     fn forced_meter_still_varies_per_seed() {
         // Regression: style_has_prob used to ignore the meter, so forcing e.g.
-        // 7/8 on shellac (whose only prob cell is 4/4) selected a single fixed
+        // 7/8 on a style whose only prob cell is 4/4 selected a single fixed
         // cell with vary=0.0 — every seed produced byte-identical notes and
         // the dice only re-rolled feel. The vary floor must engage there.
+        // fugazi: prob_fugazi_4_4 is its only prob cell; driving_7_8 is fixed.
         let gen = GenerationManager::new();
-        let idx = gen.style_names().iter().position(|s| s == "shellac").expect("shellac exists") as i32;
+        let idx = gen.style_names().iter().position(|s| s == "fugazi").expect("fugazi exists") as i32;
         let key = |seed: u64| -> Vec<(i64, crate::engine::cell::Instrument)> {
             // humanize 0.0 isolates note content from feel.
             gen.generate(idx, 0.0, 4, seed, 0.0, true, 120.0, (7, 8), 0)
@@ -430,7 +431,7 @@ mod tests {
         // it). Pins the Post-Rock preset, whose one @6/8 section is the only
         // meter change in it.
         let gen = GenerationManager::new();
-        let idx = gen.style_names().iter().position(|s| s == "shellac").expect("shellac exists") as i32;
+        let idx = gen.style_names().iter().position(|s| s == "fugazi").expect("fugazi exists") as i32;
         let res = gen.generate_arrangement(
             idx, crate::params::song_str(6), 0.0, 5, 0.0, true, 120.0, (4, 4),
         );
