@@ -15,6 +15,12 @@ pub struct AssembleResult {
     pub time_signatures: Vec<TimeSigEntry>,
     pub seed: u64,
     pub total_bars: i32,
+    /// Name of the cell each arrangement section actually resolved to, in
+    /// section order ("" for silence). Empty in loop mode. The GUI needs this
+    /// to report what is PLAYING — the section type is only what the song form
+    /// asked for, and a style with no blast cell does not start blasting just
+    /// because the form said "blast".
+    pub section_cells: Vec<String>,
 }
 
 /// Seed-keyed rotation into a candidate cell list — the "dice" for fixed-cell
@@ -23,26 +29,34 @@ fn rotate_pick<'a>(list: &[&'a Cell], seed: u64) -> &'a Cell {
     list[(seed as usize) % list.len()]
 }
 
-/// Velocity drift direction per section type.
-fn drift_direction(section_type: &str) -> &'static str {
+/// Per-section dynamics: (vel_base, vel_slope_per_bar, tension_mult).
+/// Mirrors Python SECTION_DYNAMICS — vel_base shifts every hit's velocity,
+/// vel_slope ramps it per bar, tension_mult scales the probability-grid
+/// tension envelope so loud sections also run DENSER, not just harder.
+fn section_dynamics(section_type: &str) -> (f64, f64, f64) {
     match section_type {
-        "verse" | "chorus" | "drive" | "build" | "intro" => "up",
-        "outro" => "down",
-        _ => "none", // blast, breakdown, atmospheric, silence, fill
+        "intro" => (-6.0, 0.5, 0.9),
+        "atmospheric" => (-14.0, 0.0, 0.85),
+        "verse" => (-3.0, 0.6, 1.0),
+        "build" => (-12.0, 2.2, 1.05),
+        "chorus" => (5.0, 0.4, 1.08),
+        "drive" => (3.0, 0.5, 1.05),
+        "blast" => (7.0, 0.0, 1.1),
+        "breakdown" => (7.0, -0.8, 0.92),
+        "outro" => (-2.0, -2.0, 0.9),
+        "fill" => (4.0, 0.0, 1.0),
+        _ => (0.0, 0.0, 1.0),
     }
 }
 
-/// Calculate velocity offset for a bar within a section.
-fn drift_offset(bar_index: i32, total_bars: i32, direction: &str) -> i32 {
-    if direction == "none" || total_bars <= 1 {
-        return 0;
-    }
-    let center = total_bars as f64 / 2.0;
-    match direction {
-        "up" => ((bar_index as f64 - center) * 1.5) as i32,
-        "down" => ((center - bar_index as f64) * 1.5) as i32,
-        _ => 0,
-    }
+/// Velocity offset for a bar within a section: base + slope * bar.
+fn section_vel_offset(section_type: &str, bar_index: i32) -> i32 {
+    let (base, slope, _) = section_dynamics(section_type);
+    ((base + slope * bar_index as f64) as i32).clamp(-20, 20)
+}
+
+fn section_tension(section_type: &str) -> f64 {
+    section_dynamics(section_type).2
 }
 
 /// Validate physical constraints at each position in a bar.
@@ -167,7 +181,12 @@ fn roll_bar(
 /// entries by cell pass, a tension envelope ramps mid-band probabilities, and
 /// a syncopation guard re-rolls a bar once when kick/snare leave the sweet
 /// spot. Mirrors Python realize_probability_grid.
-fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec<Hit> {
+fn realize_probability_grid(
+    cell: &Cell,
+    bars: i32,
+    rng: &mut ChaCha8Rng,
+    tension_mult: f64,
+) -> Vec<Hit> {
     let cell_num_bars = cell.num_bars;
     let total_passes = (bars + cell_num_bars - 1) / cell_num_bars;
     let mut all_hits = Vec::new();
@@ -176,8 +195,9 @@ fn realize_probability_grid(cell: &Cell, bars: i32, rng: &mut ChaCha8Rng) -> Vec
         let output_bar = bar_idx + 1;
         let cell_bar = (bar_idx % cell_num_bars) + 1;
         let pass_num = bar_idx / cell_num_bars + 1;
-        let tension = TENSION_START
-            + (TENSION_END - TENSION_START) * (bar_idx as f64 / (bars - 1).max(1) as f64);
+        let tension = tension_mult
+            * (TENSION_START
+                + (TENSION_END - TENSION_START) * (bar_idx as f64 / (bars - 1).max(1) as f64));
 
         let mut bar_hits =
             roll_bar(cell, cell_bar, output_bar, pass_num, total_passes, tension, rng);
@@ -204,6 +224,18 @@ fn euclid_pattern(pulses: i32, steps: i32) -> Vec<bool> {
 /// reset (polymeter). `dice_rotate` limbs add a seed-derived rotation; anchor
 /// limbs stay put. Slots are sixteenths: 4 per beat in /4 meters, 2 per
 /// (eighth-)beat in /8. Deterministic — consumes no RNG. Mirrors Python.
+/// FNV-1a over (seed LE bytes, limb index). Mirrors _mix_seed in assembler.py
+/// byte for byte — no RNG stream, both engines agree exactly.
+fn mix_seed(seed: u64, limb_index: usize) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in seed.to_le_bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h ^= (limb_index & 0xFF) as u64;
+    h.wrapping_mul(0x100000001b3)
+}
+
 fn realize_euclidean(cell: &Cell, bars: i32, seed: u64) -> Vec<Hit> {
     let (num, den) = cell.time_sig;
     let slots_per_beat: i32 = if den == 8 { 2 } else { 4 };
@@ -215,7 +247,11 @@ fn realize_euclidean(cell: &Cell, bars: i32, seed: u64) -> Vec<Hit> {
         let pattern = euclid_pattern(limb.pulses, steps);
         let mut rot = limb.rotation;
         if limb.dice_rotate {
-            rot += ((seed >> li) % steps as u64) as i32;
+            // Hashed, not `(seed >> li) % steps`: with the raw seed, two seeds
+            // whose difference is a multiple of `steps` rotated identically,
+            // so a dice jump could land on a byte-identical realization — a
+            // press that changed nothing. Mirrors _mix_seed in assembler.py.
+            rot += (mix_seed(seed, li) % steps as u64) as i32;
         }
         for g in 0..(bars * spb) {
             if pattern[((g + rot).rem_euclid(steps)) as usize] {
@@ -453,11 +489,39 @@ fn process_bar(
     };
     humanizer.humanize_amount = h_amount;
 
-    for hit in active_hits {
-        if hit.bar != cell_bar {
-            continue;
-        }
+    let bar_hits: Vec<&Hit> = active_hits.iter().filter(|h| h.bar == cell_bar).collect();
 
+    // Meter adapter. The bar's meter can differ from the cell's: a song-mode
+    // section keeps its declared meter while the fallback cell keeps its own
+    // beats. A 4/4 cell in a 6/4 bar covered beats 1-4 and left 5-6
+    // structurally silent in EVERY bar — audible as the arc "entering silence"
+    // under any forced non-4/4 meter. Vamp the head of the figure to fill the
+    // bar (what a drummer does when the riff is short of the bar), and clip
+    // hits past the barline (a wider cell used to bleed into the next bar).
+    // Deterministic, order-stable, consumes no RNG. Mirrors _process_bar.
+    let bar_beats = midi_math::get_time_sig_for_bar(bar_number, time_sig_list).0;
+    let cell_beats = cell.time_sig.0;
+    let adapted: Vec<Hit>;
+    let bar_hits: Vec<&Hit> = if cell_beats != bar_beats {
+        let mut hits: Vec<Hit> = bar_hits
+            .iter()
+            .filter(|h| h.beat <= bar_beats)
+            .map(|&h| h.clone())
+            .collect();
+        let mut shift = cell_beats;
+        while shift < bar_beats {
+            for h in bar_hits.iter().filter(|h| h.beat + shift <= bar_beats) {
+                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
+            }
+            shift += cell_beats;
+        }
+        adapted = hits;
+        adapted.iter().collect()
+    } else {
+        bar_hits
+    };
+
+    for hit in bar_hits {
         let mut abs_tick = midi_math::position_to_ticks(bar_number, hit.beat, hit.sub, time_sig_list, ppq);
 
         if swing > 0.0 {
@@ -585,7 +649,7 @@ pub fn assemble(
     };
 
     let cell_hits = if is_prob {
-        realize_probability_grid(cell, bars, &mut rng)
+        realize_probability_grid(cell, bars, &mut rng, 1.0)
     } else if is_euclid {
         realize_euclidean(cell, bars, seed)
     } else {
@@ -669,6 +733,7 @@ pub fn assemble(
         time_signatures,
         seed,
         total_bars: bars,
+        section_cells: Vec::new(),
     }
 }
 
@@ -768,38 +833,60 @@ pub fn assemble_arrangement(
 
     let mut events = Vec::new();
     let mut bar_cursor = 0;
+    // Cells actually chosen, for the ghost-clustering amount below.
+    let mut used_cells: Vec<&Cell> = Vec::with_capacity(sections.len());
+    // Same, but positional (one entry per section, "" for silence) so the GUI
+    // can report what is playing instead of what the form asked for.
+    let mut section_cells: Vec<String> = Vec::with_capacity(sections.len());
 
-    for section in &sections {
+    for (sec_idx, section) in sections.iter().enumerate() {
         let (sec_num, sec_den) = section.time_sig;
         let beat_ticks = ppq * 4 / sec_den as i64;
+        // The upcoming section steers fill choice (into_* tags).
+        let next_section = sections.get(sec_idx + 1).map(|sec| sec.section_type.as_str());
 
-        // In generative mode, prefer probability cells
-        let section_pool: Vec<&Cell> = if generative {
-            let prob_match: Vec<&Cell> = pool.iter()
-                .filter(|c| (c.is_probability() || c.is_euclidean()) && c.time_sig == (sec_num, sec_den))
-                .copied()
-                .collect();
-            if !prob_match.is_empty() { prob_match } else { pool.clone() }
-        } else {
-            pool.clone()
-        };
-
+        // Score the WHOLE pool against the section, then prefer a per-seed
+        // varying cell only among equal scorers.
+        //
+        // This used to narrow the pool to probability/euclidean cells BEFORE
+        // scoring, which subordinated section intent to generativity: most
+        // styles own one or two grids, so build, blast and breakdown all
+        // collapsed onto the same cell and the fixed blast cell was
+        // unreachable. The telegraph announced "BLAST NOW" over the same
+        // groove as the verse, eight bars louder. blast_traditional scores 7
+        // for a blast section against prob_screamo_4_4's 3 — let the score
+        // say so.
         let cell = match library.get_cell_for_section(
-            &section_pool, &section.section_type,
-            Some((sec_num, sec_den)), &mut rng,
+            &pool, &section.section_type,
+            Some((sec_num, sec_den)), &mut rng, next_section, generative,
         ) {
             Some(c) => c,
             None => {
                 // Silence section
+                section_cells.push(String::new());
                 bar_cursor += section.bars;
                 continue;
             }
         };
+        used_cells.push(cell);
+        section_cells.push(cell.name.clone());
+
+        // The section's bar grid stays at the REQUESTED meter (it is what the
+        // arrangement asked for and what the host follows); when no cell in the
+        // pool matches, the fallback cell's own meter differs and the groove
+        // reads oddly against that grid. Python prints the same warning.
+        if cell.time_sig != (sec_num, sec_den) {
+            nih_plug::nih_log!(
+                "drumgen: section '{}' has no {}/{} cell — using {}/{} cell '{}'",
+                section.section_type, sec_num, sec_den,
+                cell.time_sig.0, cell.time_sig.1, cell.name
+            );
+        }
 
         let is_prob = cell.is_probability();
         let is_euclid = cell.is_euclidean();
         let cell_hits = if is_prob {
-            realize_probability_grid(cell, section.bars, &mut rng)
+            realize_probability_grid(cell, section.bars, &mut rng, section_tension(&section.section_type))
         } else if is_euclid {
             realize_euclidean(cell, section.bars, seed)
         } else {
@@ -823,7 +910,6 @@ pub fn assemble_arrangement(
             events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
         }
 
-        let drift_dir = drift_direction(&section.section_type);
         let mut seen_cell_bars = std::collections::HashSet::new();
 
         for i in 0..section.bars {
@@ -838,7 +924,7 @@ pub fn assemble_arrangement(
                 (i % cell.num_bars) + 1
             };
 
-            let vel_offset = drift_offset(i, section.bars, drift_dir);
+            let vel_offset = section_vel_offset(&section.section_type, i);
 
             let mut current_hits = cell_hits.clone();
             if !(is_prob || is_euclid) && vary > 0.0 && seen_cell_bars.contains(&cell_bar) {
@@ -881,9 +967,14 @@ pub fn assemble_arrangement(
 
     // Post-processing
     events = humanizer.apply_flam(&events, tempo, ppq);
-    let cluster_amt = get_cluster_amount(
-        &pool.first().map(|c| c.tags.clone()).unwrap_or_default()
-    );
+    // Ghost clustering follows the cells actually PLAYED, not pool[0] — a
+    // shellac section (0.0) next to a faraquet one (0.7) should take the
+    // busier amount, exactly as Python's `max(... for c in used_cells)` does.
+    let cluster_amt = used_cells
+        .iter()
+        .map(|c| get_cluster_amount(&c.tags))
+        .fold(f64::NEG_INFINITY, f64::max);
+    let cluster_amt = if cluster_amt.is_finite() { cluster_amt } else { 0.3 };
     events = humanizer.apply_ghost_clustering(&events, cluster_amt, tempo, ppq);
     events.sort_by(|a, b| a.tick.cmp(&b.tick).then_with(|| a.instrument.as_str().cmp(b.instrument.as_str())));
 
@@ -893,6 +984,7 @@ pub fn assemble_arrangement(
         time_signatures,
         seed,
         total_bars,
+        section_cells,
     }
 }
 
@@ -930,8 +1022,15 @@ pub fn assemble_layered(
         }
     }
 
+    // Python: `min(humanize_values) if humanize_values else 0.3`. The old
+    // `.min(0.3)` capped every layered pattern at 0.3 humanize, which is not
+    // what the reference does — 0.3 is the EMPTY default, not a ceiling.
     let humanize_amount = humanize.unwrap_or_else(|| {
-        humanize_values.iter().cloned().fold(f64::INFINITY, f64::min).min(0.3)
+        if humanize_values.is_empty() {
+            0.3
+        } else {
+            humanize_values.iter().cloned().fold(f64::INFINITY, f64::min)
+        }
     });
     let mut humanizer = Humanizer::new(humanize_amount, seed);
 
@@ -959,7 +1058,7 @@ pub fn assemble_layered(
             let cell_bar = (bar_idx % cell.num_bars) + 1;
 
             let layer_hits: Vec<Hit> = if cell.is_probability() {
-                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng);
+                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng, 1.0);
                 realized.into_iter().filter(|h| h.bar == cell_bar).collect()
             } else if cell.is_euclidean() {
                 let realized = realize_euclidean(cell, cell.num_bars, seed);
@@ -1009,6 +1108,7 @@ pub fn assemble_layered(
         time_signatures,
         seed,
         total_bars: bars,
+        section_cells: Vec::new(),
     }
 }
 
@@ -1296,5 +1396,225 @@ mod tests {
         );
         assert!(!result.events.is_empty());
         assert_eq!(result.total_bars, 8);
+    }
+
+    /// A forced home meter wider than any cell the style owns must not leave
+    /// the tail of every bar silent. unwound has no 6/4 cell, so before the
+    /// meter adapter every 6/4 bar died after beat 4 — "the arc enters
+    /// silence" — the fallback 4/4 cell simply had no beats 5-6. The adapter
+    /// vamps the figure's head to fill the bar.
+    #[test]
+    fn forced_wide_meter_fills_the_whole_bar() {
+        let lib = CellLibrary::new();
+        let arr = "2:intro 4:verse 3:chorus 2:outro";
+        let res = assemble_arrangement(&lib, "unwound", arr, 140.0, (6, 4), Some(0.0), 0.0, 5, 0.25, true);
+        let bar_ticks = 6 * PPQ; // 6/4
+        let mut starved = Vec::new();
+        for bar in 0..11i64 {
+            let (lo, hi) = (bar * bar_ticks, (bar + 1) * bar_ticks);
+            let max_beat = res
+                .events
+                .iter()
+                .filter(|e| e.tick >= lo && e.tick < hi)
+                .map(|e| (e.tick - lo) / PPQ)
+                .max();
+            match max_beat {
+                Some(m) if m <= 3 => starved.push(bar + 1),
+                None => starved.push(bar + 1),
+                _ => {}
+            }
+        }
+        assert!(
+            starved.is_empty(),
+            "6/4 bars with nothing past beat 4: {starved:?}"
+        );
+    }
+
+    /// The GUI labels the viewed bar from this, so it must line up with the
+    /// sections one-for-one — including silence, which contributes a bar span
+    /// but no cell. An off-by-one here relabels every section after a silence.
+    #[test]
+    fn section_cells_line_up_with_the_sections() {
+        let lib = CellLibrary::new();
+        // Two silences, one of them not last, plus a fill.
+        let arr = "2:intro 1:silence 3:blast 1:fill 2:silence 2:outro";
+        let res = assemble_arrangement(&lib, "unwound", arr, 140.0, (4, 4), Some(0.4), 0.0, 9, 0.25, true);
+        let sections = parse_arrangement(arr, (4, 4));
+
+        assert_eq!(res.section_cells.len(), sections.len(), "one entry per section");
+        for (sec, name) in sections.iter().zip(res.section_cells.iter()) {
+            if sec.section_type == "silence" {
+                assert!(name.is_empty(), "silence names no cell, got '{name}'");
+            } else {
+                assert!(!name.is_empty(), "{} resolved to nothing", sec.section_type);
+            }
+        }
+        // unwound owns no blast cell; the label must therefore NOT claim one.
+        let blast_idx = sections.iter().position(|s| s.section_type == "blast").unwrap();
+        let played = &res.section_cells[blast_idx];
+        assert!(
+            !lib.get_cell(played).map_or(false, |c| c.has_tag("blast")),
+            "unwound has no blast cell, so '{played}' should not be tagged blast"
+        );
+    }
+
+    /// The cross-engine golden vector: Python is the reference engine, and on
+    /// the least-random configuration available (fixed-hit cell, humanize 0,
+    /// swing 0, vary 0, no fill) the Rust port must reproduce its output.
+    ///
+    /// Tick, instrument and MIDI note are fully deterministic and pinned
+    /// exactly. Velocity is NOT: `humanize_velocity` floors scaled_variance at
+    /// 3, so both engines draw `randint(center-3, center+3)` even at
+    /// humanize=0, and Mersenne Twister vs ChaCha8 cannot agree. Two draws in
+    /// the same 7-wide band differ by at most 6 — anything beyond that is a
+    /// real divergence (wrong velocity level, wrong contour, wrong section
+    /// offset), which is what this bound catches.
+    ///
+    /// Fixture generated by `python export_golden.py`.
+    #[test]
+    fn golden_vector_matches_python_engine() {
+        #[derive(serde::Deserialize)]
+        struct Golden {
+            params: GoldenParams,
+            events: Vec<(i64, u8, i32, String)>,
+        }
+        #[derive(serde::Deserialize)]
+        struct GoldenParams {
+            cell_name: String,
+            bars: i32,
+            tempo: f64,
+            seed: u64,
+        }
+
+        let golden: Golden =
+            serde_json::from_str(include_str!("../../fixtures/golden_vector.json"))
+                .expect("golden_vector.json parses");
+
+        let lib = CellLibrary::new();
+        let res = assemble(
+            &lib, None, Some(&golden.params.cell_name), golden.params.bars,
+            golden.params.tempo, (4, 4), Some(0.0), 0.0, 0, golden.params.seed, 0.0, false,
+        );
+
+        let ours: Vec<(i64, u8, i32, String)> = res
+            .events
+            .iter()
+            .map(|e| (e.tick, e.instrument.midi_note(), e.velocity, e.instrument.as_str().to_string()))
+            .collect();
+
+        assert_eq!(
+            ours.len(),
+            golden.events.len(),
+            "event count diverged from the Python engine"
+        );
+        // Rerun export_golden.py ONLY if the reference engine changed on purpose.
+        for (i, (got, want)) in ours.iter().zip(golden.events.iter()).enumerate() {
+            assert_eq!(
+                (got.0, got.1, &got.3),
+                (want.0, want.1, &want.3),
+                "event {i}: tick/note/instrument diverged from the Python engine"
+            );
+            assert!(
+                (got.2 - want.2).abs() <= 6,
+                "event {i} ({}): velocity {} is outside the ±6 same-band window around Python's {}",
+                got.3, got.2, want.2
+            );
+        }
+    }
+
+    /// A real drummer has two hands and two feet. At humanize=0 (no timing
+    /// jitter to blur coincidences) no assembled pattern may put two different
+    /// cymbals, or a snare and a tom, on the same tick. Mirrors
+    /// validate_midi.check_physical_constraints across every shipped style:
+    /// conflict == two instruments of DIFFERENT priority in the same group,
+    /// hihat_pedal exempt (it is a foot), auto-crash tick excluded.
+    #[test]
+    fn physical_constraints_hold_across_styles() {
+        use std::collections::{BTreeMap, BTreeSet};
+        let lib = CellLibrary::new();
+        let styles: Vec<String> = lib.style_names().to_vec();
+        let mut violations = Vec::new();
+
+        for style in &styles {
+            for bars in [4, 8] {
+                let res = assemble(
+                    &lib, Some(style), None, bars, 140.0, (0, 0), Some(0.0), 0.0, 0, 7, 0.0, true,
+                );
+                // The bar-1 auto-crash is added after constraint validation, so
+                // it may legitimately share beat 1 with the cell's own cymbal.
+                let crash_tick = res.events.iter().map(|e| e.tick).min().unwrap_or(0);
+
+                let mut by_tick: BTreeMap<i64, BTreeSet<Instrument>> = BTreeMap::new();
+                for e in &res.events {
+                    by_tick.entry(e.tick).or_default().insert(e.instrument);
+                }
+                for (tick, insts) in by_tick {
+                    if tick == crash_tick {
+                        continue;
+                    }
+                    let cymbal_prios: BTreeSet<i32> = insts
+                        .iter()
+                        .filter(|i| i.is_cymbal() && **i != Instrument::HihatPedal)
+                        .map(|i| i.cymbal_priority())
+                        .collect();
+                    if cymbal_prios.len() > 1 {
+                        violations.push(format!(
+                            "{style} bars={bars} tick {tick}: cymbal conflict {insts:?}"
+                        ));
+                    }
+                    let stick_prios: BTreeSet<i32> = insts
+                        .iter()
+                        .filter(|i| i.is_stick())
+                        .map(|i| i.stick_priority())
+                        .collect();
+                    if stick_prios.len() > 1 {
+                        violations.push(format!(
+                            "{style} bars={bars} tick {tick}: stick conflict {insts:?}"
+                        ));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "{} physical-constraint violations:\n{}",
+            violations.len(),
+            violations.join("\n")
+        );
+    }
+
+    /// The Rust engine hardcodes its instrument→MIDI-note map; the Python side
+    /// reads kit_mappings/ugritone.json. They must not drift, or the plugin and
+    /// the CLI would drive different pads on the same kit.
+    #[test]
+    fn midi_notes_match_the_ugritone_kit() {
+        #[derive(serde::Deserialize)]
+        struct Kit {
+            mapping: std::collections::BTreeMap<String, u8>,
+        }
+        let kit: Kit =
+            serde_json::from_str(include_str!("../../../kit_mappings/ugritone.json"))
+                .expect("ugritone.json parses");
+
+        let mut mismatches = Vec::new();
+        for inst in Instrument::ALL {
+            match kit.mapping.get(inst.as_str()) {
+                Some(&note) if note == inst.midi_note() => {}
+                Some(&note) => mismatches.push(format!(
+                    "{}: kit {} != engine {}",
+                    inst.as_str(),
+                    note,
+                    inst.midi_note()
+                )),
+                None => mismatches.push(format!("{}: absent from the kit", inst.as_str())),
+            }
+        }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+        assert_eq!(
+            kit.mapping.len(),
+            Instrument::ALL.len(),
+            "kit has instruments the engine cannot emit"
+        );
     }
 }

@@ -1,60 +1,82 @@
 # drumgen — Quick Start
 
-## Windows (first time)
+Five minutes from clone to drums in Bitwig.
 
-1. Install Python from [python.org](https://www.python.org/downloads/) — check **"Add Python to PATH"**
-2. Double-click `setup.bat`
-3. Double-click `drumgen.bat`
-
-The GUI opens in your browser. Output files go to `Documents/drumgen_output/`.
-
-## Linux / macOS / WSL
+## 1. Setup (once)
 
 ```bash
-./setup.sh
-source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate          # or .venv/bin/activate.fish
+pip install -r requirements.txt
 ```
 
-## Generate your first pattern
+## 2. Build + install the plugin (once, then after every change)
+
+```bash
+cd plugin && ./build-linux.sh      # → ~/.vst3/ and ~/.clap/
+```
+
+Bitwig: Settings → Locations → make sure `~/.vst3` and `~/.clap` are scanned.
+
+> After reinstalling, restart Bitwig, the old plugin binary stays loaded
+> in memory otherwise.
+
+## 3. Play
+
+One instrument track, device chain in this order:
+
+```
+drumgen  →  your drum sampler (e.g. Ugritone via yabridge)
+```
+
+Press play. Notes flow downstream in the chain — no routing needed. drumgen
+itself is silent by design; the sampler makes the sound.
+
+Then:
+
+- STYLE: pick a genre (posthardcore, screamo, zona, black_metal, …)
+- SONG: step past *Off* for a whole song skeleton (try Skramz Arc)
+- DICE: re-roll. Same SEED always gives the same notes back.
+- SAVE .MID: drops the pattern in `~/drumgen_output/`
+
+Full wiring, recording takes to audio or MIDI clips, and yabridge notes:
+[BITWIG.md](BITWIG.md).
+
+## 4. Optional: charts for your drummer
+
+```bash
+./scripts/install-notation-hook.sh
+```
+
+Every SAVE .MID now also writes a `.musicxml`, open it in MuseScore 4 and
+export a PDF. See [NOTATION.md](NOTATION.md).
+
+## 5. Optional: your own song forms
+
+Edit `~/.config/drumgen/songs.txt` (a commented starter file is created on
+first plugin load), add a line, restart the DAW:
+
+```
+My Maze | 2:atmospheric 3:verse@7/8 1:fill 2:blast 4:build 1:fill 4:blast 2:outro
+```
+
+---
+
+## Without a DAW: the CLI
 
 ```bash
 python drumgen.py --style screamo --tempo 180 --bars 4
-```
-
-Output goes to `Documents/drumgen_output/` on WSL/Windows, or `output/` on Linux/macOS. Open the `.mid` file in your DAW.
-
-## More examples
-
-```bash
-# Arrangement mode — chain sections into one MIDI file
-python drumgen.py --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
-
-# Mixed meters
-python drumgen.py --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
-
-# Layer mode — mix kick from one cell, cymbals from another
-python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
-
-# Generative mode — probability-based, different each time
-python drumgen.py --style faraquet --generative --tempo 140 --bars 8
-
-# See all available styles and cells
+python drumgen.py --style euro_screamo -a "2:intro 8:build 1:fill 4:blast" --tempo 140
 python drumgen.py --list-cells
 ```
 
-## GUI
+Files land in `output/`. A browser GUI is available too: `./run-drumgen`.
 
-```bash
-./run-drumgen
-```
+Optional WAV preview in the GUI needs FluidSynth
+(`sudo zypper install fluidsynth fluid-soundfont-gm` on openSUSE) — it uses
+General MIDI sounds, so it won't match your real kit.
 
-Opens a browser-based interface with the same generation options. On WSL, the browser auto-opens via `explorer.exe`.
+---
 
-## Audio preview (optional)
-
-The GUI can render a WAV preview if FluidSynth is installed:
-- **Debian/Ubuntu:** `sudo apt install fluidsynth fluid-soundfont-gm`
-- **macOS:** `brew install fluid-synth`
-- **openSUSE:** `sudo zypper install fluidsynth fluid-soundfont-gm`
-
-The preview uses General MIDI sounds — your Ugritone/AD kit will sound different.
+New here and after the reasoning behind the buttons? Read
+[PROJECT.md](PROJECT.md).

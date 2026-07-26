@@ -41,7 +41,7 @@ VALID_VELOCITY_LEVELS = {"ghost", "soft", "normal", "accent"}
 VALID_DENOMINATORS = {2, 4, 8, 16}
 
 REQUIRED_STYLES = [
-    "blast", "dbeat", "shellac", "fugazi", "faraquet", "raein",
+    "blast", "dbeat", "fugazi", "faraquet", "raein",
     "posthardcore", "noise_rock", "screamo", "emoviolence", "math",
     "euro_screamo", "daitro", "liturgy", "black_metal", "deafheaven",
     # Phase 3: Style palette expansion
@@ -115,6 +115,85 @@ class TestCellLibrary:
 
     def test_all_builtin_cells_registered(self):
         assert len(BUILTIN_CELLS) >= 55  # 44 original + 11 new (phase 3)
+
+    # ── Tag vocabulary validator ─────────────────────────────────────────
+    # Tags are written as prose on cells and read as an enum by the scorer and
+    # the humanizer, and nothing checked the intersection. That is how `accent`
+    # came to sit in the chorus preferences matching zero cells, and how
+    # `half_time` sat in the humanizer while every cell was tagged `halftime`
+    # — a lookup that silently never fired. These tests close that gap: a tag
+    # that reads nothing is a bug, not a harmless leftover.
+
+    def _live_tags(self):
+        return {t for c in BUILTIN_CELLS.values() for t in c["tags"]}
+
+    def test_every_section_preference_tag_matches_a_cell(self):
+        from cell_library import SECTION_PREFERENCES
+        live = self._live_tags()
+        dead = sorted(
+            {(sec, t) for sec, prefs in SECTION_PREFERENCES.items()
+             for t in prefs if t not in live}
+        )
+        assert not dead, (
+            "SECTION_PREFERENCES tags matching no cell (the section silently "
+            f"loses that preference): {dead}"
+        )
+
+    def test_every_humanizer_tag_matches_a_cell(self):
+        from humanizer import _CLUSTER_TAG_AMOUNTS, _SECTION_TYPE_TAGS
+        live = self._live_tags()
+        dead_cluster = sorted(t for t in _CLUSTER_TAG_AMOUNTS if t not in live)
+        assert not dead_cluster, (
+            f"_CLUSTER_TAG_AMOUNTS keys matching no cell: {dead_cluster}"
+        )
+        dead_infer = sorted(
+            {t for _, tags in _SECTION_TYPE_TAGS for t in tags if t not in live}
+        )
+        assert not dead_infer, (
+            f"infer_section_type tags matching no cell: {dead_infer}"
+        )
+
+    def test_functionally_mute_cells_do_not_multiply(self):
+        """A groove carrying no preference tag can never win a section.
+
+        Scoring gives every built-in a +1 bonus, so a cell with no functional
+        tag scores 1 against a tagged sibling's 4+ and is unreachable in Song
+        Mode — material that never plays. 19 such cells exist today (faraquet
+        and math are ALL of their pool, which is why those styles pick at
+        random). This is a ratchet, not a pass: drive it down, never up.
+        """
+        from cell_library import SECTION_PREFERENCES
+        functional = {t for prefs in SECTION_PREFERENCES.values() for t in prefs}
+        mute = sorted(
+            name for name, cell in BUILTIN_CELLS.items()
+            if cell["role"] == "groove" and not (set(cell["tags"]) & functional)
+        )
+        assert len(mute) <= 19, (
+            f"{len(mute)} functionally-mute grooves (was 19). New ones are "
+            f"unreachable in Song Mode: {mute}"
+        )
+
+    def test_no_two_cells_hold_the_same_material(self):
+        """Duplicate cells make the plugin's dice press change nothing.
+
+        The plugin rotates through a style's pool by seed, so two cells with
+        identical hits are a dead press. motorik_pulse (== postpunk_machine)
+        and prob_shellac_4_4 (== shellac_floor_tom_drive with every probability
+        pinned at 0.98-1.0) were both deleted for exactly this reason.
+        """
+        import json
+        seen = {}
+        dupes = []
+        for name, cell in BUILTIN_CELLS.items():
+            key = json.dumps(
+                [tuple(cell["time_sig"]), cell.get("hits"), cell.get("grid"), cell.get("limbs")],
+                sort_keys=True, default=list,
+            )
+            if key in seen:
+                dupes.append(f"{seen[key]} == {name}")
+            else:
+                seen[key] = name
+        assert not dupes, "duplicate cell material:\n" + "\n".join(dupes)
 
     def test_required_fields(self):
         required_base = {"name", "tags", "time_sig", "num_bars", "humanize"}
@@ -320,12 +399,12 @@ class TestStylePools:
 
     def test_time_sig_aware_selection(self):
         """When a style has a matching time sig cell, it should be selected."""
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "verse", requested_time_sig=(7, 8))
         assert tuple(cell["time_sig"]) == (7, 8)
 
     def test_shellac_5_4_selection(self):
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "verse", requested_time_sig=(5, 4))
         assert tuple(cell["time_sig"]) == (5, 4)
 
@@ -349,7 +428,7 @@ class TestStylePools:
         assert len(ts_match) >= 1, "No 6/8 cell in fugazi pool"
 
     def test_silence_section_returns_none(self):
-        pool = get_pool("shellac")
+        pool = get_pool("fugazi")
         cell = get_cell_for_section(pool, "silence")
         assert cell is None
 
@@ -364,7 +443,7 @@ class TestAssembler:
     """Assembly and arrangement mode tests."""
 
     def test_assemble_returns_required_keys(self):
-        result = assemble(style="shellac", tempo=120, bars=4, time_sig="4/4", seed=42)
+        result = assemble(style="fugazi", tempo=120, bars=4, time_sig="4/4", seed=42)
         assert "events" in result
         assert "tempo" in result
         assert "time_signatures" in result
@@ -372,7 +451,7 @@ class TestAssembler:
 
     def test_assemble_arrangement_returns_extra_keys(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse 4:chorus",
+            style="fugazi", arrangement_str="4:verse 4:chorus",
             tempo=120, time_sig="4/4", seed=42,
         )
         assert "total_bars" in result
@@ -382,7 +461,7 @@ class TestAssembler:
     def test_silence_section_no_events(self):
         """A pure silence arrangement should produce no note events."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:silence",
+            style="fugazi", arrangement_str="4:silence",
             tempo=120, time_sig="4/4", seed=42,
         )
         assert len(result["events"]) == 0
@@ -400,9 +479,9 @@ class TestAssembler:
 
     def test_vary_changes_output(self):
         """With vary > 0, repeated bars should differ from non-varied."""
-        r_no_vary = assemble(style="shellac", tempo=120, bars=8, time_sig="4/4",
+        r_no_vary = assemble(style="fugazi", tempo=120, bars=8, time_sig="4/4",
                              seed=42, vary=0.0)
-        r_vary = assemble(style="shellac", tempo=120, bars=8, time_sig="4/4",
+        r_vary = assemble(style="fugazi", tempo=120, bars=8, time_sig="4/4",
                           seed=42, vary=0.8)
         # vary introduces mutations on repeated bars, so event count or content should differ
         assert r_no_vary["events"] != r_vary["events"]
@@ -485,7 +564,7 @@ class TestHumanizer:
 class TestMidiEngine:
     """MIDI file output integrity tests."""
 
-    def _make_midi(self, style="shellac", time_sig="4/4", bars=4, tempo=120):
+    def _make_midi(self, style="fugazi", time_sig="4/4", bars=4, tempo=120):
         mid, note_ons, path = _generate_and_write(
             style, tempo, bars, time_sig, seed=42,
         )
@@ -540,7 +619,7 @@ class TestMidiEngine:
             os.unlink(path)
 
     def test_time_sig_metadata_7_8(self):
-        mid, _, path = self._make_midi(style="shellac", time_sig="7/8")
+        mid, _, path = self._make_midi(style="fugazi", time_sig="7/8")
         try:
             ts_msgs = [m for t in mid.tracks for m in t
                        if m.type == "time_signature"]
@@ -587,7 +666,7 @@ class TestEndToEnd:
     # ── Odd meter combos ──
 
     @pytest.mark.parametrize("style", [
-        "shellac", "faraquet", "blast", "dbeat", "posthardcore", "black_metal",
+        "fugazi", "faraquet", "blast", "dbeat", "posthardcore", "black_metal",
     ])
     def test_styles_7_8(self, style):
         mid, note_ons, path = _generate_and_write(style, 140, 4, "7/8")
@@ -596,7 +675,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "faraquet", "blast", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "faraquet", "blast", "posthardcore"])
     def test_styles_5_4(self, style):
         mid, note_ons, path = _generate_and_write(style, 130, 4, "5/4")
         try:
@@ -604,7 +683,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "blast", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "blast", "posthardcore"])
     def test_styles_3_4(self, style):
         mid, note_ons, path = _generate_and_write(style, 150, 4, "3/4")
         try:
@@ -612,7 +691,7 @@ class TestEndToEnd:
         finally:
             os.unlink(path)
 
-    @pytest.mark.parametrize("style", ["shellac", "posthardcore"])
+    @pytest.mark.parametrize("style", ["fugazi", "posthardcore"])
     def test_styles_6_8(self, style):
         mid, note_ons, path = _generate_and_write(style, 130, 4, "6/8")
         try:
@@ -634,7 +713,7 @@ class TestEndToEnd:
 
     def test_arrangement_7_8(self):
         mid, note_ons, path, result = _generate_arrangement_and_write(
-            "shellac", "4:verse 4:drive", 140, "7/8",
+            "fugazi", "4:verse 4:drive", 140, "7/8",
         )
         try:
             assert note_ons > 0
@@ -644,7 +723,7 @@ class TestEndToEnd:
 
     def test_arrangement_with_silence(self):
         mid, note_ons, path, result = _generate_arrangement_and_write(
-            "shellac", "2:verse 2:silence 2:drive", 120, "4/4",
+            "fugazi", "2:verse 2:silence 2:drive", 120, "4/4",
         )
         try:
             # Should have notes from verse and drive, but not silence
@@ -656,8 +735,8 @@ class TestEndToEnd:
     # ── Vary flag ──
 
     def test_vary_produces_different_output(self):
-        _, n1, p1 = _generate_and_write("shellac", 120, 8, "4/4", vary=0.0, seed=42)
-        _, n2, p2 = _generate_and_write("shellac", 120, 8, "4/4", vary=0.8, seed=42)
+        _, n1, p1 = _generate_and_write("fugazi", 120, 8, "4/4", vary=0.0, seed=42)
+        _, n2, p2 = _generate_and_write("fugazi", 120, 8, "4/4", vary=0.8, seed=42)
         try:
             mid1 = open(p1, "rb").read()
             mid2 = open(p2, "rb").read()
@@ -712,7 +791,7 @@ class TestProbabilityGrids:
 
     def test_prob_cells_registered(self):
         prob_names = [
-            "prob_faraquet_4_4", "prob_shellac_4_4", "prob_posthardcore_4_4",
+            "prob_faraquet_4_4", "prob_posthardcore_4_4",
             "prob_dbeat_4_4", "prob_blast_4_4", "prob_euro_screamo_4_4",
             "prob_faraquet_7_8",
         ]
@@ -725,7 +804,6 @@ class TestProbabilityGrids:
     def test_prob_cells_in_style_pools(self):
         assert "prob_faraquet_4_4" in STYLE_POOLS["faraquet"]
         assert "prob_faraquet_7_8" in STYLE_POOLS["faraquet"]
-        assert "prob_shellac_4_4" in STYLE_POOLS["shellac"]
         assert "prob_posthardcore_4_4" in STYLE_POOLS["posthardcore"]
         assert "prob_dbeat_4_4" in STYLE_POOLS["dbeat"]
         assert "prob_blast_4_4" in STYLE_POOLS["blast"]
@@ -733,7 +811,7 @@ class TestProbabilityGrids:
         assert "prob_faraquet_4_4" in STYLE_POOLS["math"]
 
     def test_normalize_grid_5tuple(self):
-        cell = CELLS["prob_shellac_4_4"]
+        cell = CELLS["prob_dbeat_4_4"]
         normalized = _normalize_grid(cell)
         for entry in normalized:
             assert len(entry) == 7, f"Expected 7-tuple (bar,...,cond), got {entry}"
@@ -742,7 +820,7 @@ class TestProbabilityGrids:
 
     def test_realize_produces_hits(self):
         import random
-        cell = CELLS["prob_shellac_4_4"]
+        cell = CELLS["prob_dbeat_4_4"]
         rng = random.Random(42)
         hits = realize_probability_grid(cell, 4, rng)
         assert len(hits) > 0
@@ -771,13 +849,6 @@ class TestProbabilityGrids:
         for bar in bars_present:
             assert 1 <= bar <= 4
 
-    def test_realize_near_deterministic_shellac(self):
-        import random
-        cell = CELLS["prob_shellac_4_4"]
-        hits = realize_probability_grid(cell, 1, random.Random(42))
-        instruments = {h[3] for h in hits}
-        assert "ride" in instruments
-
     def test_validate_physical_constraints(self):
         bar_hits = [
             (1, 1, 0.0, "ride", "normal"),
@@ -801,7 +872,7 @@ class TestProbabilityGrids:
 
     def test_assemble_arrangement_generative(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse 2:blast",
+            style="fugazi", arrangement_str="4:verse 2:blast",
             tempo=130, generative=True, seed=42,
         )
         assert len(result["events"]) > 0
@@ -913,6 +984,28 @@ class TestLayerMode:
 class TestMixedMeters:
     """Test mixed meters in arrangement mode."""
 
+    def test_forced_wide_meter_fills_the_whole_bar(self):
+        """A forced home meter wider than any cell the style owns must not
+        leave the tail of every bar silent.
+
+        unwound has no 6/4 cell, so before the meter adapter every 6/4 bar
+        died after beat 4 — the fallback 4/4 cell simply had no beats 5-6,
+        heard as the arc "entering silence" for the extra beats. The adapter
+        vamps the figure's head to fill the bar.
+        """
+        from midi_engine import DEFAULT_PPQ
+        r = assemble_arrangement("unwound", "2:intro 4:verse 3:chorus 2:outro",
+                                 tempo=140, time_sig="6/4", seed=5,
+                                 humanize=0.0, generative=True)
+        bar_ticks = 6 * DEFAULT_PPQ
+        starved = []
+        for bar in range(11):
+            lo, hi = bar * bar_ticks, (bar + 1) * bar_ticks
+            beats = [(t - lo) // DEFAULT_PPQ for t, _, _ in r["events"] if lo <= t < hi]
+            if not beats or max(beats) <= 3:
+                starved.append(bar + 1)
+        assert not starved, f"6/4 bars with nothing past beat 4: {starved}"
+
     def test_parse_arrangement_default_time_sig(self):
         sections = parse_arrangement("4:verse 2:blast")
         assert len(sections) == 2
@@ -961,7 +1054,7 @@ class TestMixedMeters:
 
     def test_assemble_arrangement_mixed_meters(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse@7/8 2:verse@4/4 4:verse@7/8",
+            style="fugazi", arrangement_str="4:verse@7/8 2:verse@4/4 4:verse@7/8",
             tempo=130, seed=42,
         )
         assert result["total_bars"] == 10
@@ -971,7 +1064,7 @@ class TestMixedMeters:
 
     def test_assemble_arrangement_single_meter(self):
         result = assemble_arrangement(
-            style="shellac", arrangement_str="4:verse@4/4 4:drive@4/4",
+            style="fugazi", arrangement_str="4:verse@4/4 4:drive@4/4",
             tempo=120, seed=42,
         )
         assert len(result["time_signatures"]) == 1
@@ -979,7 +1072,7 @@ class TestMixedMeters:
     def test_mixed_meter_midi_output(self):
         """Write mixed meter arrangement to MIDI and verify time sig meta messages and note spread."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@7/8 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@7/8 2:drive@4/4",
             tempo=130, seed=42,
         )
         with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
@@ -1017,7 +1110,7 @@ class TestMixedMeters:
     def test_mixed_meter_note_positions(self):
         """Regression: notes in each section land within that section's tick range."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@7/8 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@7/8 2:drive@4/4",
             tempo=130, seed=42,
         )
         ts = result["time_signatures"]
@@ -1098,7 +1191,7 @@ class TestVariations:
 
     def test_generative_midi_output(self):
         """Full pipeline: generative -> MIDI file."""
-        result = assemble(style="shellac", bars=4, tempo=120, generative=True, seed=42)
+        result = assemble(style="fugazi", bars=4, tempo=120, generative=True, seed=42)
         with tempfile.NamedTemporaryFile(suffix=".mid", delete=False) as f:
             tmp_path = f.name
         try:
@@ -1121,15 +1214,6 @@ class TestVariations:
 
 class TestNewStyleCells:
     """Cell-specific assertions for Phase 3 style palette expansion."""
-
-    def test_motorik_pulse_no_ghost_no_ride(self):
-        cell = CELLS["motorik_pulse"]
-        instruments = {h[2] for h in cell["hits"]}
-        velocities = {h[3] for h in cell["hits"]}
-        assert "ride" not in instruments
-        assert "ghost" not in velocities
-        hh_hits = [h for h in cell["hits"] if h[2] == "hihat_closed"]
-        assert len(hh_hits) == 8
 
     def test_motorik_build_structure(self):
         cell = CELLS["motorik_build"]
@@ -1450,7 +1534,7 @@ class TestAdvancedHumanization:
         assert ticks == sorted(ticks)
 
     def test_all_ticks_non_negative(self):
-        for style in ["faraquet", "shellac", "blast", "raein"]:
+        for style in ["faraquet", "noise_rock", "blast", "raein"]:
             result = assemble(style=style, bars=4, tempo=160, seed=42)
             for tick, inst, vel in result["events"]:
                 assert tick >= 0, f"Negative tick {tick} for {inst} in style {style}"
@@ -1536,7 +1620,7 @@ class TestEndOfTrackBarAlignment:
     def test_end_of_track_mixed_meter(self, tmp_path):
         """2 bars 3/4 + 2 bars 4/4 = 2*3*480 + 2*4*480 = 6720."""
         result = assemble_arrangement(
-            style="shellac", arrangement_str="2:verse@3/4 2:drive@4/4",
+            style="fugazi", arrangement_str="2:verse@3/4 2:drive@4/4",
             tempo=120, humanize=0.0, seed=42)
         out = str(tmp_path / "test_mixed.mid")
         write_midi(result["events"], result["tempo"],
@@ -1656,7 +1740,7 @@ class TestMidiNoOvershoot:
             tmp_path = f.name
         try:
             result = assemble(
-                style="shellac", tempo=tempo, bars=4, time_sig=time_sig,
+                style="fugazi", tempo=tempo, bars=4, time_sig=time_sig,
                 seed=42, humanize=0.7, swing=0.0, vary=0.0,
             )
             write_midi(
@@ -1690,7 +1774,7 @@ from validate_midi import validate_pipeline, run_quick
 
 
 class TestMidiValidation:
-    @pytest.mark.parametrize("style", ["shellac", "blast", "faraquet", "post_punk",
+    @pytest.mark.parametrize("style", ["noise_rock", "blast", "faraquet", "post_punk",
                                         "screamo", "euro_screamo", "black_metal", "slint"])
     def test_pipeline_validation(self, style):
         result = validate_pipeline(style=style, bars=4, tempo=120, time_sig="4/4",
@@ -1698,7 +1782,7 @@ class TestMidiValidation:
         assert result.passed, f"{result.label}: {result.errors}"
 
     def test_arrangement_validation(self):
-        result = validate_pipeline(style="shellac", bars=4, tempo=130, time_sig="4/4",
+        result = validate_pipeline(style="fugazi", bars=4, tempo=130, time_sig="4/4",
                                    humanize=0.0, mode="arrangement",
                                    arrangement_str="2:verse 2:drive", kit_name="ugritone", seed=42)
         assert result.passed, f"{result.label}: {result.errors}"
@@ -1810,3 +1894,161 @@ class TestStage1ShapedRandomness:
         fill_meters = {tuple(c["time_sig"]) for c in all_cells.values() if c["role"] == "fill"}
         for meter in [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)]:
             assert meter in fill_meters, f"no fill cell for {meter}"
+
+
+class TestPhaseBSectionDynamics:
+    """Section dynamics table, into-aware fill sections."""
+
+    def test_section_vel_offset_ramps(self):
+        from assembler import _section_vel_offset
+        # Build rises from -12 toward +3 across 8 bars.
+        assert _section_vel_offset("build", 0) == -12
+        assert _section_vel_offset("build", 7) > 0
+        # Atmospheric stays down; blast stays up; unknown sections are neutral.
+        assert _section_vel_offset("atmospheric", 3) == -14
+        assert _section_vel_offset("blast", 3) == 7
+        assert _section_vel_offset("nonsense", 5) == 0
+
+    def test_fill_section_picks_into_aware_fill(self):
+        import random
+        from cell_library import get_cell_for_section
+        for seed in range(8):
+            rng = random.Random(seed)
+            cell = get_cell_for_section([], "fill", requested_time_sig=(4, 4),
+                                        rng=rng, next_section="blast")
+            assert cell is not None and cell["role"] == "fill"
+            assert tuple(cell["time_sig"]) == (4, 4)
+            assert "into_blast" in cell["tags"], cell["name"]
+        # Odd meter fills resolve too.
+        cell = get_cell_for_section([], "fill", requested_time_sig=(7, 8),
+                                    rng=random.Random(1), next_section="blast")
+        assert cell is not None and tuple(cell["time_sig"]) == (7, 8)
+
+    def test_arrangement_with_fill_section(self):
+        result = assemble_arrangement("screamo", "1:verse 1:fill 1:blast",
+                                      tempo=160, humanize=0.0, seed=4, generative=True)
+        assert len(result["events"]) > 0
+        assert result["total_bars"] == 3
+
+    def test_quiet_sections_quieter_than_loud(self):
+        result = assemble_arrangement(
+            "euro_screamo", "4:atmospheric 4:blast", tempo=140, humanize=0.0,
+            seed=0, generative=True)
+        bar_ticks = 4 * 480
+        quiet = [v for t, _, v in result["events"] if t < 4 * bar_ticks]
+        loud = [v for t, _, v in result["events"] if t >= 4 * bar_ticks]
+        assert quiet and loud
+        assert sum(loud) / len(loud) > sum(quiet) / len(quiet) + 8
+
+
+class TestZonaPool:
+    """The jazz-on-emoviolence pool: format discipline for the comping cells."""
+
+    def _zona_cells(self):
+        from cell_library import CELLS, STYLE_POOLS
+        return [CELLS[n] for n in STYLE_POOLS["zona"]]
+
+    def test_zona_pool_exists_with_comp_anchor_first(self):
+        from cell_library import STYLE_POOLS
+        assert STYLE_POOLS["zona"][0] == "prob_jazz_comp_4_4"
+        # The anchor's POSITION is what this pins (it sets song-mode ghost
+        # clustering via the "jazz" tag). The pool is allowed to grow as
+        # section vocabulary gets filled in, so this is a floor, not an equality.
+        assert len(STYLE_POOLS["zona"]) >= 8
+
+    def test_zona_subs_stay_on_the_sixteenth_grid(self):
+        # Swing purity: the SWING param supplies the triplet lean at runtime;
+        # authored subs must stay on the straight grid, never pre-swung.
+        legal = {0.0, 0.25, 0.5, 0.75}
+        for cell in self._zona_cells():
+            entries = cell.get("grid", [])
+            for e in entries:
+                sub = e[1] if isinstance(e[2], str) else (e[1] if len(e) == 5 else e[2])
+                assert sub in legal, f"{cell['name']}: sub {sub} off-grid"
+
+    def test_zona_prob_cells_keep_an_on_beat_anchor(self):
+        # At least one kick/snare entry at sub 0.0 per prob cell keeps the
+        # syncopation guard in its band (all-offbeat bars re-roll forever).
+        from assembler import _normalize_grid
+        for cell in self._zona_cells():
+            if cell.get("type") != "probability":
+                continue
+            grid = _normalize_grid(cell)
+            anchors = [g for g in grid if g[3] in ("kick", "snare") and g[2] == 0.0]
+            assert anchors, f"{cell['name']} has no on-beat kick/snare anchor"
+
+    def test_zona_cluster_amount_is_jazz(self):
+        from humanizer import get_cluster_amount
+        from cell_library import CELLS
+        assert get_cluster_amount(CELLS["prob_jazz_comp_4_4"]) == 0.65
+
+
+class TestNotation:
+    """notation.py: .mid -> drummer-readable MusicXML."""
+
+    def _make_mid(self, tmp_path, result, name):
+        from midi_engine import write_midi
+        p = str(tmp_path / name)
+        write_midi(result["events"], result["tempo"], result["time_signatures"],
+                   "kit_mappings/ugritone.json", p)
+        return p
+
+    def test_snap_is_idempotent_and_lossless_at_humanize_zero(self, tmp_path):
+        import notation
+        result = assemble(cell_name="fugazi_driving_chorus", bars=2, tempo=150,
+                          humanize=0.0, seed=1)
+        mid = self._make_mid(tmp_path, result, "clean.mid")
+        events, _, ppq, _ = notation.read_events(mid)
+        sixteenth = ppq // 4
+        # At humanize 0 every tick is already on-grid: snapping changed nothing,
+        # so slot * sixteenth reproduces the original tick set exactly.
+        engine_ticks = sorted({t for t, _, _ in result["events"]})
+        snapped_ticks = sorted({slot * sixteenth for slot, _, _ in events})
+        assert snapped_ticks == engine_ticks
+
+    def test_meter_changes_survive(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble_arrangement("posthardcore", "2:verse@7/8 2:drive@6/8",
+                                      tempo=160, humanize=0.4, seed=2, generative=True)
+        mid = self._make_mid(tmp_path, result, "meters.mid")
+        out = str(tmp_path / "meters.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        times = [(t.find("beats").text, t.find("beat-type").text)
+                 for t in root.findall(".//time")]
+        assert ("7", "8") in times and ("6", "8") in times
+        assert len(root.findall(".//measure")) == 4
+
+    def test_ghosts_and_accents_survive_the_round_trip(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble(style="zona", bars=4, tempo=140, humanize=0.5,
+                          seed=3, generative=True)
+        mid = self._make_mid(tmp_path, result, "zona.mid")
+        out = str(tmp_path / "zona.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        notes = [n for n in root.findall(".//note") if n.find("rest") is None]
+        ghosts = [n for n in notes if n.find("notehead[@parentheses='yes']") is not None]
+        accents = root.findall(".//accent")
+        assert ghosts, "zona ghost chatter must render in parentheses"
+        assert accents, "accents must be marked"
+
+    def test_voice_durations_balance_every_measure(self, tmp_path):
+        import xml.etree.ElementTree as ET
+        import notation
+        result = assemble(style="screamo", bars=4, tempo=180, humanize=0.4,
+                          seed=7, generative=True)
+        mid = self._make_mid(tmp_path, result, "sc.mid")
+        out = str(tmp_path / "sc.musicxml")
+        notation.mid_to_musicxml(mid, out)
+        root = ET.parse(out).getroot()
+        for m in root.findall(".//measure"):
+            sums = {}
+            for n in m.findall("note"):
+                if n.find("chord") is not None:
+                    continue
+                v = n.find("voice").text
+                sums[v] = sums.get(v, 0) + int(n.find("duration").text)
+            assert len(set(sums.values())) <= 1, f"measure {m.get('number')}: {sums}"

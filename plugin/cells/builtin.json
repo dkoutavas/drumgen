@@ -655,6 +655,71 @@
         ]
       ]
     },
+    "blackmetal_halftime_breakdown": {
+      "name": "blackmetal_halftime_breakdown",
+      "tags": [
+        "black_metal",
+        "deafheaven",
+        "liturgy",
+        "blackgaze",
+        "breakdown",
+        "halftime",
+        "heavy",
+        "slow"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "china",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "china",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ]
+      ]
+    },
     "blast_3_4": {
       "name": "blast_3_4",
       "tags": [
@@ -6133,6 +6198,59 @@
         }
       ]
     },
+    "euclid_zona_broken_4_4": {
+      "name": "euclid_zona_broken_4_4",
+      "tags": [
+        "zona",
+        "jazz",
+        "broken",
+        "polymeter",
+        "hypnotic",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "groove",
+      "type": "euclidean",
+      "limbs": [
+        {
+          "instrument": "ride",
+          "pulses": 7,
+          "steps": 12,
+          "rotation": 0,
+          "velocity": "normal",
+          "dice_rotate": false
+        },
+        {
+          "instrument": "kick",
+          "pulses": 4,
+          "steps": 16,
+          "rotation": 0,
+          "velocity": "soft",
+          "dice_rotate": false
+        },
+        {
+          "instrument": "snare",
+          "pulses": 4,
+          "steps": 14,
+          "rotation": 3,
+          "velocity": "accent",
+          "dice_rotate": true
+        },
+        {
+          "instrument": "snare_ghost",
+          "pulses": 5,
+          "steps": 10,
+          "rotation": 1,
+          "velocity": "ghost",
+          "dice_rotate": true
+        }
+      ]
+    },
     "faraquet_5_4": {
       "name": "faraquet_5_4",
       "tags": [
@@ -7430,6 +7548,156 @@
         ]
       ]
     },
+    "fill_drag_run_7_8": {
+      "name": "fill_drag_run_7_8",
+      "tags": [
+        "fill",
+        "odd_meter",
+        "drag",
+        "buildup",
+        "into_blast",
+        "into_drive"
+      ],
+      "time_sig": [
+        7,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          5,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          6,
+          0.5,
+          "tom_low",
+          "accent"
+        ],
+        [
+          7,
+          0.0,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          7,
+          0.5,
+          "kick",
+          "accent"
+        ]
+      ]
+    },
+    "fill_ebb_6_4": {
+      "name": "fill_ebb_6_4",
+      "tags": [
+        "fill",
+        "dynamics",
+        "decrescendo",
+        "into_atmospheric",
+        "into_outro",
+        "into_quiet"
+      ],
+      "time_sig": [
+        6,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_low",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "tom_floor",
+          "soft"
+        ],
+        [
+          6,
+          0.0,
+          "snare_ghost",
+          "ghost"
+        ]
+      ]
+    },
     "fill_floor_tom_sparse": {
       "name": "fill_floor_tom_sparse",
       "tags": [
@@ -7740,6 +8008,75 @@
         ]
       ]
     },
+    "fill_herta_waltz_3_4": {
+      "name": "fill_herta_waltz_3_4",
+      "tags": [
+        "fill",
+        "waltz",
+        "herta",
+        "toms",
+        "into_verse",
+        "into_chorus"
+      ],
+      "time_sig": [
+        3,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "tom_high",
+          "accent"
+        ],
+        [
+          2,
+          0.25,
+          "tom_high",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "tom_low",
+          "accent"
+        ],
+        [
+          3,
+          0.25,
+          "tom_low",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "tom_floor",
+          "normal"
+        ]
+      ]
+    },
     "fill_linear_1bar": {
       "name": "fill_linear_1bar",
       "tags": [
@@ -7925,6 +8262,81 @@
           4,
           0.75,
           "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "fill_ruff_roll_6_8": {
+      "name": "fill_ruff_roll_6_8",
+      "tags": [
+        "fill",
+        "compound",
+        "ruff",
+        "buildup",
+        "into_chorus",
+        "into_blast"
+      ],
+      "time_sig": [
+        6,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          5,
+          0.0,
+          "snare",
+          "soft"
+        ],
+        [
+          5,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          6,
+          0.5,
+          "snare",
           "accent"
         ]
       ]
@@ -8167,6 +8579,87 @@
           4,
           0.75,
           "snare",
+          "accent"
+        ]
+      ]
+    },
+    "fill_stop_cascade_5_4": {
+      "name": "fill_stop_cascade_5_4",
+      "tags": [
+        "fill",
+        "odd_meter",
+        "stops",
+        "toms",
+        "into_drive",
+        "into_blast"
+      ],
+      "time_sig": [
+        5,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "fill",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "tom_high",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "tom_mid",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "tom_mid",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "tom_low",
+          "normal"
+        ],
+        [
+          5,
+          0.0,
+          "tom_low",
+          "accent"
+        ],
+        [
+          5,
+          0.25,
+          "tom_floor",
+          "normal"
+        ],
+        [
+          5,
+          0.5,
+          "tom_floor",
+          "accent"
+        ],
+        [
+          5,
+          0.75,
+          "kick",
           "accent"
         ]
       ]
@@ -8608,6 +9101,535 @@
           0.5,
           "ride",
           "normal"
+        ]
+      ]
+    },
+    "kidcrash_crash_wash": {
+      "name": "kidcrash_crash_wash",
+      "tags": [
+        "kidcrash",
+        "skramz",
+        "math",
+        "intense",
+        "driving",
+        "climax",
+        "chorus"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 2,
+      "humanize": 0.4,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          1,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          1,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          2,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          2,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          2,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          2,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          3,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          3,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          3,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          3,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          4,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          4,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          4,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          4,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          1,
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          2,
+          0.5,
+          "snare",
+          "normal"
+        ],
+        [
+          1,
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          1,
+          3,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          1,
+          4,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          4,
+          0.0,
+          "kick",
+          "accent"
+        ]
+      ]
+    },
+    "kidcrash_inverted_drive": {
+      "name": "kidcrash_inverted_drive",
+      "tags": [
+        "kidcrash",
+        "skramz",
+        "math",
+        "angular",
+        "driving",
+        "groovy",
+        "verse"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ]
+      ]
+    },
+    "kidcrash_syncopated_groove": {
+      "name": "kidcrash_syncopated_groove",
+      "tags": [
+        "kidcrash",
+        "skramz",
+        "math",
+        "angular",
+        "driving",
+        "groovy",
+        "chorus"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_open",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_open",
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ]
+      ]
+    },
+    "kidcrash_tumble": {
+      "name": "kidcrash_tumble",
+      "tags": [
+        "kidcrash",
+        "skramz",
+        "math",
+        "angular",
+        "sparse",
+        "verse",
+        "groovy"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "tom_low",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
+          0.75,
+          "snare_ghost",
+          "ghost"
         ]
       ]
     },
@@ -9100,6 +10122,541 @@
         ]
       ]
     },
+    "lord_snow_blast_lift": {
+      "name": "lord_snow_blast_lift",
+      "tags": [
+        "lord_snow",
+        "emoviolence",
+        "blast",
+        "intense",
+        "extreme"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          1,
+          0.25,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          1,
+          0.75,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.25,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          3,
+          0.25,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          3,
+          0.75,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          4,
+          0.75,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.25,
+          "snare",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.75,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          1,
+          0.25,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          0.25,
+          "kick",
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          "soft"
+        ],
+        [
+          4,
+          0.25,
+          "kick",
+          "normal"
+        ]
+      ]
+    },
+    "lord_snow_static_wall": {
+      "name": "lord_snow_static_wall",
+      "tags": [
+        "lord_snow",
+        "emoviolence",
+        "intense",
+        "driving",
+        "build",
+        "crescendo"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 2,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          1,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          1,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          1,
+          2,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          2,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          1,
+          3,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          3,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          3,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          3,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          1,
+          4,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          1,
+          4,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          1,
+          4,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          4,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          1,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          1,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          2,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          2,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          2,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          2,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          3,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          3,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          3,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          3,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          4,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
+          2,
+          4,
+          0.5,
+          "crash_1",
+          "normal"
+        ],
+        [
+          2,
+          4,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          2,
+          4,
+          0.5,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
+          2,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          2,
+          4,
+          0.0,
+          "snare",
+          "accent"
+        ]
+      ]
+    },
+    "lord_snow_twinkle_comp": {
+      "name": "lord_snow_twinkle_comp",
+      "tags": [
+        "lord_snow",
+        "emoviolence",
+        "math",
+        "angular",
+        "groovy",
+        "melodic",
+        "verse"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_closed",
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          1,
+          0.75,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "snare",
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare_ghost",
+          "ghost"
+        ],
+        [
+          3,
+          0.25,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          "soft"
+        ]
+      ]
+    },
     "motorik_build": {
       "name": "motorik_build",
       "tags": [
@@ -9456,77 +11013,44 @@
         ]
       ]
     },
-    "motorik_pulse": {
-      "name": "motorik_pulse",
+    "noise_rock_floor_breakdown": {
+      "name": "noise_rock_floor_breakdown",
       "tags": [
-        "motorik",
-        "krautrock",
-        "sonic_youth",
+        "noise_rock",
+        "shellac",
+        "unwound",
+        "oxbow",
         "post_punk",
-        "driving",
-        "verse"
+        "breakdown",
+        "halftime",
+        "heavy",
+        "slow"
       ],
       "time_sig": [
         4,
         4
       ],
       "num_bars": 1,
-      "humanize": 0.2,
+      "humanize": 0.25,
       "role": "groove",
       "type": "fixed",
       "hits": [
         [
           1,
           0.0,
-          "hihat_closed",
+          "tom_floor",
           "accent"
-        ],
-        [
-          1,
-          0.5,
-          "hihat_closed",
-          "normal"
-        ],
-        [
-          2,
-          0.0,
-          "hihat_closed",
-          "accent"
-        ],
-        [
-          2,
-          0.5,
-          "hihat_closed",
-          "normal"
-        ],
-        [
-          3,
-          0.0,
-          "hihat_closed",
-          "accent"
-        ],
-        [
-          3,
-          0.5,
-          "hihat_closed",
-          "normal"
-        ],
-        [
-          4,
-          0.0,
-          "hihat_closed",
-          "accent"
-        ],
-        [
-          4,
-          0.5,
-          "hihat_closed",
-          "normal"
         ],
         [
           1,
           0.0,
           "kick",
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "tom_floor",
           "accent"
         ],
         [
@@ -9536,16 +11060,87 @@
           "accent"
         ],
         [
+          3,
+          0.5,
+          "snare",
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          "accent"
+        ]
+      ]
+    },
+    "posthardcore_halftime_breakdown": {
+      "name": "posthardcore_halftime_breakdown",
+      "tags": [
+        "posthardcore",
+        "fugazi",
+        "faraquet",
+        "math",
+        "angular",
+        "breakdown",
+        "halftime",
+        "heavy"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.3,
+      "role": "groove",
+      "type": "fixed",
+      "hits": [
+        [
+          1,
+          0.0,
+          "kick",
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "crash_1",
+          "accent"
+        ],
+        [
           2,
+          0.5,
+          "kick",
+          "accent"
+        ],
+        [
+          3,
           0.0,
           "snare",
           "accent"
         ],
         [
           4,
+          0.75,
+          "kick",
+          "normal"
+        ],
+        [
+          2,
           0.0,
-          "snare",
-          "accent"
+          "ride_bell",
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride_bell",
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "ride_bell",
+          "normal"
         ]
       ]
     },
@@ -11979,6 +13574,400 @@
         ]
       ]
     },
+    "prob_jazz_comp_4_4": {
+      "name": "prob_jazz_comp_4_4",
+      "tags": [
+        "zona",
+        "jazz",
+        "comping",
+        "verse",
+        "build",
+        "groove",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.6,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride",
+          0.95,
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.8,
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.9,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.95,
+          "accent"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.8,
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.9,
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.85,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.85,
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "snare",
+          0.9,
+          "accent",
+          "1:2"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.9,
+          "accent",
+          "1:2"
+        ],
+        [
+          3,
+          0.25,
+          "snare_ghost",
+          0.6,
+          "ghost",
+          "1:2"
+        ],
+        [
+          1,
+          0.75,
+          "snare",
+          0.85,
+          "accent",
+          "2:2"
+        ],
+        [
+          2,
+          0.25,
+          "snare_ghost",
+          0.85,
+          "ghost",
+          "pre"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          0.7,
+          "ghost",
+          "pre"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.85,
+          "accent",
+          "2:2"
+        ],
+        [
+          4,
+          0.25,
+          "snare_ghost",
+          0.8,
+          "ghost",
+          "pre"
+        ],
+        [
+          3,
+          0.75,
+          "snare",
+          0.3,
+          "accent"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          0.85,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.95,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          0.85,
+          "soft"
+        ],
+        [
+          2,
+          0.75,
+          "kick",
+          0.5,
+          "accent",
+          "2:2"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          0.7,
+          "accent",
+          "4:4"
+        ]
+      ]
+    },
+    "prob_kidcrash_4_4": {
+      "name": "prob_kidcrash_4_4",
+      "tags": [
+        "kidcrash",
+        "skramz",
+        "math",
+        "angular",
+        "driving",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.35,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "hihat_closed",
+          0.95,
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "hihat_closed",
+          0.7,
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_closed",
+          0.95,
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_closed",
+          0.7,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_closed",
+          0.95,
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "hihat_closed",
+          0.7,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_closed",
+          0.95,
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_closed",
+          0.7,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "snare",
+          0.92,
+          "accent",
+          "1:2"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          0.92,
+          "accent",
+          "1:2"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          0.9,
+          "accent",
+          "1:2"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          0.6,
+          "normal",
+          "1:2"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          0.9,
+          "accent",
+          "1:2"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          0.5,
+          "normal",
+          "1:2"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          0.92,
+          "accent",
+          "2:2"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.92,
+          "accent",
+          "2:2"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.9,
+          "accent",
+          "2:2"
+        ],
+        [
+          1,
+          0.5,
+          "kick",
+          0.55,
+          "normal",
+          "2:2"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.9,
+          "accent",
+          "2:2"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          0.55,
+          "normal",
+          "2:2"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_open",
+          0.35,
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_open",
+          0.35,
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "snare_ghost",
+          0.4,
+          "ghost"
+        ],
+        [
+          4,
+          0.75,
+          "snare_ghost",
+          0.35,
+          "ghost"
+        ]
+      ]
+    },
     "prob_liturgy_burst_4_4": {
       "name": "prob_liturgy_burst_4_4",
       "tags": [
@@ -13243,80 +15232,6 @@
           0.45,
           "accent",
           "2:2"
-        ]
-      ]
-    },
-    "prob_shellac_4_4": {
-      "name": "prob_shellac_4_4",
-      "tags": [
-        "shellac",
-        "noise_rock",
-        "generative"
-      ],
-      "time_sig": [
-        4,
-        4
-      ],
-      "num_bars": 1,
-      "humanize": 0.2,
-      "role": "groove",
-      "type": "probability",
-      "grid": [
-        [
-          1,
-          0.0,
-          "tom_floor",
-          0.98,
-          "accent"
-        ],
-        [
-          3,
-          0.0,
-          "tom_floor",
-          0.98,
-          "accent"
-        ],
-        [
-          2,
-          0.0,
-          "snare",
-          0.98,
-          "accent"
-        ],
-        [
-          4,
-          0.0,
-          "snare",
-          0.98,
-          "accent"
-        ],
-        [
-          1,
-          0.0,
-          "ride",
-          1.0,
-          "normal"
-        ],
-        [
-          2,
-          0.0,
-          "ride",
-          1.0,
-          "normal"
-        ],
-        [
-          3,
-          0.0,
-          "ride",
-          1.0,
-          "normal"
-        ],
-        [
-          4,
-          0.0,
-          "ride",
-          1.0,
-          "normal"
         ]
       ]
     },
@@ -15715,6 +17630,928 @@
           "normal"
         ]
       ]
+    },
+    "zona_atmos_4_4": {
+      "name": "zona_atmos_4_4",
+      "tags": [
+        "zona",
+        "jazz",
+        "atmospheric",
+        "intro",
+        "outro",
+        "quiet",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.65,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride_bell",
+          0.7,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "ride_bell",
+          0.5,
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.55,
+          "soft"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.8,
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          0.4,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "snare_ghost",
+          0.6,
+          "ghost"
+        ],
+        [
+          2,
+          0.75,
+          "snare_ghost",
+          0.5,
+          "ghost",
+          "pre"
+        ],
+        [
+          4,
+          0.0,
+          "snare_ghost",
+          0.55,
+          "ghost"
+        ],
+        [
+          4,
+          0.25,
+          "snare_ghost",
+          0.45,
+          "ghost",
+          "pre"
+        ],
+        [
+          3,
+          0.25,
+          "snare",
+          0.3,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.65,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.65,
+          "soft"
+        ]
+      ]
+    },
+    "zona_bomb_blast_4_4": {
+      "name": "zona_bomb_blast_4_4",
+      "tags": [
+        "zona",
+        "jazz",
+        "blast",
+        "chaotic",
+        "intense",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "kick",
+          0.92,
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "kick",
+          0.88,
+          "accent"
+        ],
+        [
+          1,
+          0.25,
+          "snare",
+          0.9,
+          "normal"
+        ],
+        [
+          1,
+          0.75,
+          "snare",
+          0.82,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "kick",
+          0.92,
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          0.88,
+          "accent"
+        ],
+        [
+          2,
+          0.25,
+          "snare",
+          0.9,
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "snare",
+          0.82,
+          "normal"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.92,
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          0.88,
+          "accent"
+        ],
+        [
+          3,
+          0.25,
+          "snare",
+          0.9,
+          "normal"
+        ],
+        [
+          3,
+          0.75,
+          "snare",
+          0.82,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          0.92,
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "kick",
+          0.88,
+          "accent"
+        ],
+        [
+          4,
+          0.25,
+          "snare",
+          0.9,
+          "normal"
+        ],
+        [
+          4,
+          0.75,
+          "snare",
+          0.82,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "crash_1",
+          0.4,
+          "accent"
+        ],
+        [
+          2,
+          0.75,
+          "china",
+          0.45,
+          "accent",
+          "2:2"
+        ],
+        [
+          4,
+          0.25,
+          "china",
+          0.4,
+          "accent",
+          "4:4"
+        ],
+        [
+          3,
+          0.75,
+          "tom_floor",
+          0.35,
+          "accent",
+          "pre"
+        ]
+      ]
+    },
+    "zona_broken_4_4": {
+      "name": "zona_broken_4_4",
+      "tags": [
+        "zona",
+        "jazz",
+        "broken",
+        "angular",
+        "drive",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.6,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride",
+          0.95,
+          "accent"
+        ],
+        [
+          1,
+          0.75,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.9,
+          "normal"
+        ],
+        [
+          3,
+          0.25,
+          "ride",
+          0.8,
+          "normal"
+        ],
+        [
+          3,
+          0.75,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.8,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "snare",
+          0.9,
+          "accent"
+        ],
+        [
+          3,
+          0.5,
+          "snare",
+          0.85,
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.8,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.8,
+          "soft"
+        ],
+        [
+          2,
+          0.75,
+          "kick",
+          0.85,
+          "accent",
+          "2:2"
+        ],
+        [
+          4,
+          0.75,
+          "kick",
+          0.7,
+          "accent",
+          "2:2"
+        ],
+        [
+          2,
+          0.25,
+          "snare_ghost",
+          0.8,
+          "ghost",
+          "pre"
+        ],
+        [
+          4,
+          0.25,
+          "snare_ghost",
+          0.7,
+          "ghost",
+          "2:2"
+        ],
+        [
+          1,
+          0.5,
+          "snare_ghost",
+          0.4,
+          "ghost"
+        ]
+      ]
+    },
+    "zona_comp_6_8": {
+      "name": "zona_comp_6_8",
+      "tags": [
+        "zona",
+        "jazz",
+        "comping",
+        "compound",
+        "verse",
+        "generative"
+      ],
+      "time_sig": [
+        6,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.6,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride",
+          0.85,
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.7,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.7,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.85,
+          "accent"
+        ],
+        [
+          5,
+          0.0,
+          "ride",
+          0.7,
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "ride",
+          0.7,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          0.8,
+          "soft"
+        ],
+        [
+          5,
+          0.5,
+          "kick",
+          0.5,
+          "accent",
+          "2:2"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.95,
+          "accent"
+        ],
+        [
+          4,
+          0.5,
+          "snare_ghost",
+          0.8,
+          "ghost",
+          "pre"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          0.5,
+          "ghost",
+          "1:2"
+        ],
+        [
+          6,
+          0.0,
+          "snare",
+          0.75,
+          "normal",
+          "2:2"
+        ],
+        [
+          6,
+          0.5,
+          "snare_ghost",
+          0.7,
+          "ghost",
+          "pre"
+        ]
+      ]
+    },
+    "zona_comp_7_8": {
+      "name": "zona_comp_7_8",
+      "tags": [
+        "zona",
+        "jazz",
+        "comping",
+        "odd_meter",
+        "drive",
+        "generative"
+      ],
+      "time_sig": [
+        7,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride",
+          0.9,
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.75,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.75,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.9,
+          "normal"
+        ],
+        [
+          5,
+          0.0,
+          "ride",
+          0.75,
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "ride",
+          0.9,
+          "normal"
+        ],
+        [
+          7,
+          0.0,
+          "ride",
+          0.75,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "kick",
+          0.85,
+          "soft"
+        ],
+        [
+          6,
+          0.5,
+          "kick",
+          0.6,
+          "accent",
+          "2:2"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          0.9,
+          "accent",
+          "1:2"
+        ],
+        [
+          5,
+          0.0,
+          "snare",
+          0.85,
+          "accent",
+          "1:2"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          0.85,
+          "accent",
+          "2:2"
+        ],
+        [
+          3,
+          0.5,
+          "snare_ghost",
+          0.85,
+          "ghost",
+          "pre"
+        ],
+        [
+          5,
+          0.5,
+          "snare",
+          0.8,
+          "normal",
+          "2:2"
+        ],
+        [
+          7,
+          0.0,
+          "snare",
+          0.8,
+          "accent",
+          "2:2"
+        ],
+        [
+          7,
+          0.5,
+          "snare_ghost",
+          0.7,
+          "ghost",
+          "pre"
+        ],
+        [
+          2,
+          0.5,
+          "snare_ghost",
+          0.35,
+          "ghost"
+        ]
+      ]
+    },
+    "zona_lift_6_8": {
+      "name": "zona_lift_6_8",
+      "tags": [
+        "zona",
+        "jazz",
+        "compound",
+        "build",
+        "chorus",
+        "dynamics",
+        "generative"
+      ],
+      "time_sig": [
+        6,
+        8
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride",
+          0.85,
+          "accent"
+        ],
+        [
+          1,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          5,
+          0.0,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          5,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          6,
+          0.0,
+          "ride",
+          0.85,
+          "normal"
+        ],
+        [
+          6,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.9,
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.6,
+          "normal"
+        ],
+        [
+          5,
+          0.0,
+          "kick",
+          0.7,
+          "normal"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.85,
+          "accent"
+        ],
+        [
+          2,
+          0.0,
+          "tom_floor",
+          0.4,
+          "normal"
+        ],
+        [
+          6,
+          0.0,
+          "tom_low",
+          0.45,
+          "normal"
+        ],
+        [
+          6,
+          0.5,
+          "tom_floor",
+          0.5,
+          "accent",
+          "2:2"
+        ],
+        [
+          1,
+          0.0,
+          "crash_1",
+          0.35,
+          "accent",
+          "4:4"
+        ]
+      ]
     }
   },
   "style_pools": {
@@ -15723,14 +18560,16 @@
       "athletic_angular",
       "prob_angular_athletic_4_4",
       "atdi_relationship_groove",
-      "prob_atdi_4_4"
+      "prob_atdi_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "black_metal": [
       "liturgy_burst_beat",
       "blackmetal_atmospheric",
       "deafheaven_build_to_blast",
       "atmospheric_7_8",
-      "euclid_blackmetal_pulse_4_4"
+      "euclid_blackmetal_pulse_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "blast": [
       "blast_traditional",
@@ -15738,7 +18577,8 @@
       "blast_7_8",
       "blast_5_4",
       "blast_3_4",
-      "prob_blast_4_4"
+      "prob_blast_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "city_of_caterpillar": [
       "city_of_caterpillar_build",
@@ -15750,30 +18590,35 @@
       "daitro_quiet_build",
       "daitro_tremolo_drive",
       "daitro_blast_release",
-      "prob_daitro_4_4"
+      "prob_daitro_4_4",
+      "emoviolence_angular_breakdown"
     ],
     "dbeat": [
       "dbeat_standard",
       "dbeat_7_8",
-      "prob_dbeat_4_4"
+      "prob_dbeat_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "deafheaven": [
       "deafheaven_build_to_blast",
       "blackmetal_atmospheric",
       "deafheaven_shimmer_blast",
-      "prob_blackgaze_4_4"
+      "prob_blackgaze_4_4",
+      "blackmetal_halftime_breakdown"
     ],
     "drive_like_jehu": [
       "athletic_angular",
       "postpunk_busy",
       "slint_explosion",
-      "prob_angular_athletic_4_4"
+      "prob_angular_athletic_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "emoviolence": [
       "emoviolence_blast_crash",
       "emoviolence_angular_breakdown",
       "blast_traditional",
-      "prob_emoviolence_4_4"
+      "prob_emoviolence_4_4",
+      "city_of_caterpillar_build"
     ],
     "euro_screamo": [
       "daitro_tremolo_drive",
@@ -15782,7 +18627,8 @@
       "raein_melodic_drive",
       "prob_euro_screamo_4_4",
       "city_of_caterpillar_build",
-      "euclid_skramz_surge_4_4"
+      "euclid_skramz_surge_4_4",
+      "emoviolence_angular_breakdown"
     ],
     "faraquet": [
       "faraquet_displaced_4_4",
@@ -15790,7 +18636,8 @@
       "faraquet_5_4",
       "prob_faraquet_4_4",
       "prob_faraquet_7_8",
-      "euclid_math_7_8"
+      "euclid_math_7_8",
+      "posthardcore_halftime_breakdown"
     ],
     "fugazi": [
       "fugazi_driving_chorus",
@@ -15799,13 +18646,29 @@
       "driving_3_4",
       "driving_6_8",
       "driving_6_4",
-      "prob_fugazi_4_4"
+      "prob_fugazi_4_4",
+      "posthardcore_halftime_breakdown"
+    ],
+    "kidcrash": [
+      "kidcrash_inverted_drive",
+      "kidcrash_syncopated_groove",
+      "kidcrash_tumble",
+      "kidcrash_crash_wash",
+      "prob_kidcrash_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "liturgy": [
       "liturgy_burst_beat",
       "liturgy_pillar_stabs",
       "prob_liturgy_burst_4_4",
-      "euclid_blackmetal_pulse_4_4"
+      "euclid_blackmetal_pulse_4_4",
+      "blackmetal_halftime_breakdown"
+    ],
+    "lord_snow": [
+      "lord_snow_twinkle_comp",
+      "lord_snow_static_wall",
+      "lord_snow_blast_lift",
+      "emoviolence_angular_breakdown"
     ],
     "noise_rock": [
       "shellac_floor_tom_drive",
@@ -15813,22 +18676,23 @@
       "shellac_5_4",
       "shellac_3_4",
       "shellac_6_8",
-      "prob_shellac_4_4",
       "unwound_dynamics",
       "prob_postpunk_4_4",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "oxbow": [
       "unwound_dynamics",
       "shellac_floor_tom_drive",
       "slint_explosion",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "post_punk": [
       "postpunk_machine",
       "postpunk_busy",
-      "motorik_pulse",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "posthardcore": [
       "fugazi_driving_chorus",
@@ -15846,7 +18710,8 @@
       "athletic_angular",
       "postpunk_busy",
       "slint_explosion",
-      "prob_angular_athletic_4_4"
+      "prob_angular_athletic_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "postrock": [
       "postrock_6_4",
@@ -15854,24 +18719,27 @@
       "city_of_caterpillar_build",
       "motorik_build",
       "slint_explosion",
-      "prob_postrock_6_4"
+      "prob_postrock_6_4",
+      "posthardcore_halftime_breakdown"
     ],
     "preoccupations": [
       "postpunk_machine",
-      "motorik_pulse",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "q_and_not_u": [
       "athletic_angular",
       "postpunk_busy",
       "prob_angular_athletic_4_4",
       "qanu_dancepunk",
-      "prob_qanu_4_4"
+      "prob_qanu_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "raein": [
       "raein_melodic_drive",
       "raein_octopus_groove",
-      "prob_raein_4_4"
+      "prob_raein_4_4",
+      "posthardcore_halftime_breakdown"
     ],
     "screamo": [
       "emoviolence_blast_crash",
@@ -15884,36 +18752,43 @@
     "shame": [
       "postpunk_machine",
       "postpunk_busy",
-      "prob_postpunk_4_4"
-    ],
-    "shellac": [
-      "shellac_floor_tom_drive",
-      "shellac_7_8",
-      "shellac_5_4",
-      "shellac_3_4",
-      "shellac_6_8",
-      "prob_shellac_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "slint": [
       "motorik_build",
       "slint_explosion",
       "unwound_dynamics",
-      "prob_slint_4_4"
+      "prob_slint_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "sonic_youth": [
-      "motorik_pulse",
       "motorik_build",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "unwound": [
       "unwound_dynamics",
       "postpunk_machine",
       "slint_explosion",
-      "euclid_noise_polymeter_4_4"
+      "euclid_noise_polymeter_4_4",
+      "noise_rock_floor_breakdown"
     ],
     "wipers": [
       "postpunk_machine",
-      "prob_postpunk_4_4"
+      "prob_postpunk_4_4",
+      "noise_rock_floor_breakdown"
+    ],
+    "zona": [
+      "prob_jazz_comp_4_4",
+      "zona_comp_7_8",
+      "zona_broken_4_4",
+      "euclid_zona_broken_4_4",
+      "zona_bomb_blast_4_4",
+      "zona_atmos_4_4",
+      "zona_comp_6_8",
+      "zona_lift_6_8",
+      "posthardcore_halftime_breakdown"
     ]
   },
   "section_preferences": {
@@ -15940,8 +18815,7 @@
     ],
     "chorus": [
       "driving",
-      "intense",
-      "accent"
+      "intense"
     ],
     "drive": [
       "driving",

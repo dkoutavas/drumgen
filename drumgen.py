@@ -140,6 +140,8 @@ examples:
     parser.add_argument("--cymbal", type=str, default=None, help="Layer mode: cell for cymbal layer")
     parser.add_argument("--toms", type=str, default=None, help="Layer mode: cell for toms layer")
     parser.add_argument("--list-cells", action="store_true", help="List available cells")
+    parser.add_argument("--musicxml", action="store_true",
+                        help="Also write drummer-readable MusicXML next to the .mid (open in MuseScore)")
     parser.add_argument("--test-mapping", type=str, metavar="MAPPING", help="Generate test MIDI for a kit mapping")
 
     args = parser.parse_args()
@@ -305,6 +307,13 @@ examples:
         kit_mapping_path=args.kit,
         output_path=output_path,
     )
+
+    if args.musicxml:
+        import notation
+        xml_path = os.path.splitext(output_path)[0] + ".musicxml"
+        notation.mid_to_musicxml(output_path, xml_path,
+                                 kit_name=os.path.splitext(os.path.basename(args.kit))[0])
+        print(f"MusicXML saved: {xml_path}")
 
     print(f"Seed: {result['seed']} (use --seed {result['seed']} to reproduce)")
     print(f"Events: {len(result['events'])}")

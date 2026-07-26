@@ -275,28 +275,16 @@ impl CellLibrary {
         fills
     }
 
-    /// True if the style's pool has a probability cell REACHABLE under the
-    /// given meter ((0,0) = Auto = any). Mirrors assemble()'s meter filter:
-    /// when a forced meter narrows selection to fixed cells only, realization
-    /// can't vary notes per seed and the caller's vary floor must engage.
-    pub fn style_has_prob(&self, style: &str, meter: (i32, i32)) -> bool {
-        // Euclidean cells also re-realize per seed (dice_rotate), so they
-        // count as generative for the vary-floor decision.
-        let generative = |c: &&Cell| c.is_probability() || c.is_euclidean();
-        let pool = self.get_pool(style);
-        if meter == (0, 0) {
-            return pool.iter().any(generative);
-        }
-        let ts_match: Vec<&Cell> = pool.iter().filter(|c| c.time_sig == meter).copied().collect();
-        if ts_match.is_empty() {
-            // assemble() falls back to the full pool when nothing matches.
-            pool.iter().any(generative)
-        } else {
-            ts_match.iter().any(generative)
-        }
-    }
 
     /// Get all available style names.
+    /// Every cell in the library, pooled or not — fills and transitions live
+    /// OUTSIDE style pools by design, so walking the pools misses them.
+    /// Iteration order is HashMap order: fine for set-building and counting,
+    /// never use it anywhere the RNG is consumed.
+    pub fn all_cells(&self) -> impl Iterator<Item = &Cell> {
+        self.cells.values()
+    }
+
     pub fn style_names(&self) -> &[String] {
         &self.style_names
     }
@@ -327,14 +315,53 @@ impl CellLibrary {
     /// Score a cell against section preferences and pick the best match.
     /// Filters by time signature if provided. Breaks ties using the RNG.
     pub fn get_cell_for_section<'a>(
-        &self,
+        &'a self,
         pool: &[&'a Cell],
         section_type: &str,
         requested_time_sig: Option<(i32, i32)>,
         rng: &mut ChaCha8Rng,
+        next_section: Option<&str>,
+        // `prefer_generative` narrows EQUALLY-SCORING candidates to probability
+        // /euclidean cells so the dice keeps re-rolling a section. A tiebreak,
+        // never a filter — see the comment in assemble_arrangement.
+        prefer_generative: bool,
     ) -> Option<&'a Cell> {
         if section_type == "silence" {
             return None;
+        }
+
+        // "fill" sections pick from role=="fill" cells library-wide (fills
+        // live outside style pools by design), meter-filtered, preferring
+        // fills whose into_<next_section> tag matches what comes next.
+        // Mirrors Python get_cell_for_section.
+        if section_type == "fill" {
+            let mut fills = self.get_fill_cells();
+            if let Some(ts) = requested_time_sig {
+                let ts_match: Vec<&Cell> =
+                    fills.iter().filter(|f| f.time_sig == ts).copied().collect();
+                if !ts_match.is_empty() {
+                    fills = ts_match;
+                }
+            }
+            if fills.is_empty() {
+                return None;
+            }
+            if let Some(next) = next_section {
+                let into_tag = format!("into_{}", next);
+                let aimed: Vec<&Cell> = fills
+                    .iter()
+                    .filter(|f| f.tags.iter().any(|t| t == &into_tag))
+                    .copied()
+                    .collect();
+                if !aimed.is_empty() {
+                    fills = aimed;
+                }
+            }
+            if fills.len() > 1 {
+                let idx = rng.gen_range(0..fills.len());
+                return Some(fills[idx]);
+            }
+            return Some(fills[0]);
         }
 
         let prefs = self.section_preferences(section_type);
@@ -358,28 +385,60 @@ impl CellLibrary {
             return None;
         }
 
-        // Score each cell by counting matching tags
-        let scored: Vec<(i32, &Cell)> = candidates.iter()
-            .map(|&cell| {
-                let score = prefs.iter()
-                    .filter(|tag| cell.has_tag(tag))
-                    .count() as i32;
-                (score, cell)
-            })
-            .collect();
+        // Score each cell against the section preferences. Earlier prefs weigh
+        // more (first = n points, last = 1) — a flat tag count made the leading
+        // preference no stronger than the last one, so "blast" could lose to a
+        // cell that merely happened to carry two weak tags.
+        if !prefs.is_empty() {
+            let n = prefs.len() as i32;
+            let scored: Vec<(i32, &Cell)> = candidates
+                .iter()
+                .map(|&cell| {
+                    let mut score: i32 = prefs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, tag)| cell.has_tag(tag))
+                        .map(|(i, _)| n - i as i32)
+                        .sum();
+                    // Built-in tiebreak (+1). Every cell in the plugin is
+                    // built-in (export_cells.py excludes user cells), so this
+                    // is constant here — kept so the score matches Python's for
+                    // the same input, and so the `best_score > 0` gate below
+                    // behaves identically.
+                    score += 1;
+                    (score, cell)
+                })
+                .collect();
 
-        let best_score = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
-        let best: Vec<&Cell> = scored.iter()
-            .filter(|(s, _)| *s == best_score)
-            .map(|(_, c)| *c)
-            .collect();
-
-        if best.len() == 1 {
-            Some(best[0])
-        } else {
-            let idx = rng.gen_range(0..best.len());
-            Some(best[idx])
+            let best_score = scored.iter().map(|(s, _)| *s).max().unwrap_or(0);
+            if best_score > 0 {
+                let mut best: Vec<&Cell> = scored
+                    .iter()
+                    .filter(|(s, _)| *s == best_score)
+                    .map(|(_, c)| *c)
+                    .collect();
+                if prefer_generative && best.len() > 1 {
+                    let gen: Vec<&Cell> = best
+                        .iter()
+                        .filter(|c| c.is_probability() || c.is_euclidean())
+                        .copied()
+                        .collect();
+                    if !gen.is_empty() {
+                        best = gen;
+                    }
+                }
+                if best.len() > 1 {
+                    let idx = rng.gen_range(0..best.len());
+                    return Some(best[idx]);
+                }
+                return Some(best[0]);
+            }
         }
+
+        // No preferences for this section type: take the first cell in the pool
+        // deterministically. Drawing from the RNG here (as this used to) shifted
+        // every downstream realization for the same seed, which Python never does.
+        Some(candidates[0])
     }
 
     /// Number of cells loaded.
@@ -391,6 +450,66 @@ impl CellLibrary {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::SeedableRng;
+
+    #[test]
+    fn fill_sections_pick_into_aware_fills() {
+        // A "fill" section must return a role=="fill" cell, meter-matched,
+        // preferring fills tagged into_<next_section>.
+        let lib = CellLibrary::new();
+        let pool = lib.get_pool("screamo");
+        for seed in 0..8u64 {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            let cell = lib
+                .get_cell_for_section(&pool, "fill", Some((4, 4)), &mut rng, Some("blast"), true)
+                .expect("fill section must resolve");
+            assert_eq!(cell.role, "fill");
+            assert_eq!(cell.time_sig, (4, 4));
+            assert!(
+                cell.tags.iter().any(|t| t == "into_blast"),
+                "into_blast fills exist, so the aimed set must win (got {})",
+                cell.name
+            );
+        }
+        // Odd meter: 7/8 fill exists and is chosen.
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let cell = lib
+            .get_cell_for_section(&pool, "fill", Some((7, 8)), &mut rng, Some("blast"), true)
+            .expect("7/8 fill must resolve");
+        assert_eq!(cell.time_sig, (7, 8));
+        assert_eq!(cell.role, "fill");
+    }
+
+    /// The telegraph announces the section name, so the section had better get
+    /// the cell it asked for. Regression: generative narrowing ran BEFORE
+    /// scoring, so build/blast/breakdown all collapsed onto the style's single
+    /// probability grid and the fixed blast cell was unreachable — the plugin
+    /// said "BLAST NOW" over the same groove as the verse.
+    #[test]
+    fn section_intent_outranks_generative_preference() {
+        let lib = CellLibrary::new();
+        // (style, section, tag the chosen cell must carry)
+        let cases = [
+            ("screamo", "blast", "blast"),
+            ("screamo", "breakdown", "breakdown"),
+            ("liturgy", "blast", "blast"),
+            ("euro_screamo", "blast", "blast"),
+        ];
+        for (style, section, want_tag) in cases {
+            let pool = lib.get_pool(style);
+            for seed in 0..6u64 {
+                let mut rng = ChaCha8Rng::seed_from_u64(seed);
+                let cell = lib
+                    .get_cell_for_section(&pool, section, Some((4, 4)), &mut rng, None, true)
+                    .expect("section must resolve");
+                assert!(
+                    cell.has_tag(want_tag),
+                    "{style}/{section} seed {seed}: picked '{}' ({:?}), which is not a {want_tag} cell",
+                    cell.name, cell.tags
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_load_builtin() {

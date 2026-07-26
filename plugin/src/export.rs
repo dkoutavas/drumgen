@@ -101,7 +101,10 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
     let meter_suffix = if meter == (4, 4) { String::new() } else { format!("_{}_{}", meter.0, meter.1) };
-    let base = format!("{}_{:04}{}_{}bars", pattern.style_name, pattern.seed, meter_suffix, bars);
+    let base = format!(
+        "{}_{}bpm_{:04}{}_{}bars",
+        pattern.style_name, pattern.tempo.round() as i64, pattern.seed, meter_suffix, bars
+    );
 
     let mut path = dir.join(format!("{base}.mid"));
     let mut n = 0;
@@ -113,7 +116,35 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
     let bytes = encode_smf(pattern);
     let mut f = std::fs::File::create(&path)?;
     f.write_all(&bytes)?;
+    run_save_hook(&path);
     Ok(path)
+}
+
+/// Fire-and-forget user hook: if `~/.config/drumgen/on_save` exists and is
+/// executable it is spawned with the saved .mid path as its argument. This is
+/// how SAVE .MID grows superpowers (e.g. auto-render a MuseScore-ready score
+/// via notation.py) without the plugin ever depending on Python. Runs on the
+/// GUI thread, detached — never blocks, failures only log.
+fn run_save_hook(path: &std::path::Path) -> bool {
+    let Some(home) = std::env::var_os("HOME") else { return false };
+    let hook = PathBuf::from(home).join(".config/drumgen/on_save");
+    if !hook.is_file() {
+        return false;
+    }
+    match std::process::Command::new(&hook).arg(path).spawn() {
+        Ok(_) => true,
+        Err(e) => {
+            nih_plug::nih_log!("drumgen: on_save hook failed to spawn: {e}");
+            false
+        }
+    }
+}
+
+/// Whether the on-save hook is installed (for the GUI's saved-message).
+pub fn save_hook_installed() -> bool {
+    std::env::var_os("HOME")
+        .map(|h| PathBuf::from(h).join(".config/drumgen/on_save").is_file())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

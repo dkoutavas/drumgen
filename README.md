@@ -1,297 +1,169 @@
 # drumgen
 
-Algorithmic drum MIDI pattern generator. No AI at runtime — pure Python that outputs .mid files from hand-coded rhythmic cells with humanization. CLI, Streamlit GUI, and a native VST3/CLAP plugin (`plugin/`, Rust) that generates MIDI live inside a DAW.
+A drum-part generator for labyrinthine heavy music. Hand-authored rhythmic
+cells, assembled by seeded algorithms, humanized like a player, emitted live
+from a native VST3/CLAP plugin, or written to `.mid` from a CLI.
 
-Built for Bitwig Studio (native Linux) + Ugritone drums — see **[BITWIG.md](BITWIG.md)** for the plugin golden path. Targets post-hardcore, math rock, noise rock, screamo, emoviolence, euro-screamo, and experimental black metal.
+No AI. No model. No inference. Every note traces back to a musical decision
+someone made on purpose. This replaces the session drummer you don't have at
+your desk. The composer stays you; so does the drummer in the room.
 
-## Install
+Built for Bitwig Studio on native Linux + Ugritone drums. Targets
+screamo/emoviolence, post-hardcore, math rock, noise rock, post-rock,
+atmospheric black metal, and jazz-on-hardcore.
 
-```
-python -m venv .venv
-source .venv/bin/activate  # or .venv/bin/activate.fish
+→ [PROJECT.md](PROJECT.md), purpose, beliefs, state, architecture, lessons
+(read this to understand the project)
+→ [BITWIG.md](BITWIG.md), plugin wiring, recording takes, yabridge
+→ [NOTATION.md](NOTATION.md), handing charts to a human drummer
+
+---
+
+## The plugin (daily driver)
+
+```bash
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+cd plugin && ./build-linux.sh     # builds + installs to ~/.vst3 and ~/.clap
 ```
 
-## GUI
+Then in Bitwig: one instrument track, device chain = drumgen → your drum
+sampler, press play. (Restart Bitwig after reinstalling, the old `.so` stays
+in memory.)
+
+### What the plugin gives you
+
+| Control | Does |
+|---|---|
+| STYLE | 30 genre pools: each produces a distinctly different beat |
+| SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
+| DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
+| HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
+| BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
+| Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
+| SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
+
+### Your own song forms
+
+Edit `~/.config/drumgen/songs.txt` (the plugin plants a commented starter file
+on first run), then restart the DAW:
+
+```
+My Maze | 2:atmospheric 3:verse@7/8 1:fill 2:blast 3:verse@7/8 4:build 1:fill 4:blast 2:outro
+```
+
+Sections: `intro build verse chorus drive blast breakdown atmospheric silence
+fill outro`. Meters via `@N/M`. Bad lines are rejected whole and logged — a
+typo never silently becomes a mediocre song.
+
+### Charts for your drummer
 
 ```bash
-./run-drumgen            # Linux / macOS / WSL (auto-opens browser)
-.\run-drumgen.ps1        # Windows PowerShell
+./scripts/install-notation-hook.sh    # once
 ```
 
-Or manually: `streamlit run app.py` (venv must be active). On WSL, the browser auto-opens via `explorer.exe`.
+Now every SAVE .MID also writes a `.musicxml` next to it. Open it in
+MuseScore 4 (free, native Linux) → export PDF: a real drum staff with ghost
+notes in parentheses, x-notehead cymbals, accents, and explicit meter changes.
+Details and the Guitar Pro verdict in [NOTATION.md](NOTATION.md).
 
-The Streamlit GUI provides the same features as the CLI: style/cell selection, arrangement mode, generative mode, layer mode, humanization controls, and kit mapping. All sidebar widgets have tooltip help — hover the (?) icon for guidance on values and ranges. After generation, the pattern preview shows a grid key (`X` = accent, `x` = normal, `o` = ghost, `.` = silent) and the selected cell's tags.
+---
 
-Requires: `pip install streamlit` (included in requirements.txt).
-
-## CLI Usage
+## The CLI (authoring workshop)
 
 ```bash
-# Generate a pattern
-python drumgen.py --style shellac --tempo 130 --bars 8 -o verse.mid
+# A pattern
+python drumgen.py --style kidcrash --tempo 165 --bars 8 -o verse.mid
 
-# Screamo (now maps to emoviolence_blast_crash, not just blast)
-python drumgen.py --style screamo --tempo 180 --bars 4
+# A song form
+python drumgen.py --style euro_screamo -a "2:intro 8:build 1:fill 4:blast" --tempo 140
 
-# Euro-screamo
-python drumgen.py --style euro_screamo --tempo 140 --bars 8
+# Mixed meters per section
+python drumgen.py --style faraquet -a "4:verse@7/8 1:fill 4:drive@6/8" --tempo 150
 
-# Black metal
-python drumgen.py --style black_metal --tempo 130 --bars 4
+# Generative (probability grids + Euclidean cells re-realize per seed)
+python drumgen.py --style zona --generative --tempo 140 --bars 8 --swing 0.4
+python drumgen.py --style faraquet --generative --variations 3 --tempo 140
 
-# Arrangement mode — multi-section songs
-python drumgen.py --style screamo -a "4:blast 1:silence 4:breakdown" --tempo 180
-python drumgen.py --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
-python drumgen.py --style black_metal -a "4:atmospheric 4:build 4:blast" --tempo 130
+# Layer instruments from different cells
+python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4
 
-# Mixed meters in arrangement mode
-python drumgen.py --style shellac -a "4:verse@7/8 2:fill@4/4 4:verse@7/8" --tempo 130
-
-# Generative mode — probability-based patterns, different each seed
-python drumgen.py --style faraquet --generative --tempo 140 --bars 8
-python drumgen.py --style faraquet --generative --variations 3 --tempo 140 --bars 8
-
-# Layer mode — mix instrument layers from different cells
-python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
-python drumgen.py --kick dbeat_standard --snare blast_traditional --cymbal faraquet_displaced_4_4 --bars 4
-
-# Insert a fill every 4 bars
-python drumgen.py --style raein --tempo 135 --bars 8 --fill-every 4
-
-# Use a specific cell directly
-python drumgen.py --cell liturgy_burst_beat --tempo 106 --bars 4
-
-# List available cells and style pools
-python drumgen.py --list-cells
-
-# Test a kit mapping (generates one hit per instrument)
-python drumgen.py --test-mapping ugritone
+# Fills, notation, listings
+python drumgen.py --style raein --bars 8 --fill-every 4
+python drumgen.py --style zona --bars 8 --musicxml       # also writes a chart
+python drumgen.py --list-cells                           # all cells + style pools
+python drumgen.py --test-mapping ugritone                # one hit per instrument
 ```
 
-## CLI Options
+Key options: `--style` / `--cell`, `-a/--arrangement`, `--tempo`, `--bars`,
+`--time-sig`, `--humanize`, `--swing`, `--seed`, `--vary`, `--fill-every`,
+`--generative`, `--variations`, `--kit`, `--musicxml`, `-o`.
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--style` / `-s` | required | Style: blast, dbeat, shellac, fugazi, faraquet, raein, posthardcore, noise_rock, screamo, emoviolence, math, euro_screamo, daitro, liturgy, black_metal, deafheaven, sonic_youth, slint, post_punk, wipers, preoccupations, dry_cleaning, shame, drive_like_jehu, q_and_not_u, atdi, blood_brothers, unwound, city_of_caterpillar, oxbow |
-| `--cell` | | Exact cell name (overrides --style) |
-| `--arrangement` / `-a` | | Arrangement: `"4:build 8:drive@7/8 2:blast"`. Use `@N/M` for per-section time sig. |
-| `--generative` / `-g` | | Use probability grids for generative patterns. Same style, different each time. |
-| `--variations` / `-n` | 1 | Generate N variations (each with different seed). Outputs `_v1.mid`, `_v2.mid`, etc. |
-| `--kick` | | Layer mode: cell name for kick layer |
-| `--snare` | | Layer mode: cell name for snare layer |
-| `--cymbal` | | Layer mode: cell name for cymbal layer |
-| `--toms` | | Layer mode: cell name for toms layer |
-| `--tempo` / `-t` | 120 | BPM |
-| `--bars` / `-b` | 4 | Number of bars (ignored in arrangement mode) |
-| `--time-sig` / `-ts` | 4/4 | Time signature |
-| `--humanize` | per-cell | Humanization amount 0.0-1.0 |
-| `--swing` | 0.0 | Swing amount 0.0-1.0 |
-| `--vary` / `-v` | 0.0 | Variation amount 0.0-1.0 — mutates repeated bars (ghost adds, kick shifts, HH swaps) |
-| `--fill-every` | 0 | Insert fill every N bars (0 = none) |
-| `--seed` | random | Seed for reproducibility |
-| `--kit` | ugritone | Kit mapping name or path |
-| `--output` / `-o` | auto | Output .mid path. Defaults to `Documents/drumgen_output` on WSL/Windows, `output/` on Linux/macOS. Non-4/4 time sigs are included in the filename. |
+A Streamlit GUI covers the same ground: `./run-drumgen` (or
+`streamlit run app.py`).
 
-## Arrangement Mode
+---
 
-Build multi-section drum tracks with `--arrangement` / `-a`. Each token is `bars:section_type` with optional `@time_sig`:
+## Library
+
+117 cells across 30 plugin style pools — 28 probability grids, 5 Euclidean
+polymeter cells, 26 fills, the rest fixed patterns. `python drumgen.py
+--list-cells` prints the current inventory; `styles/drumgen-style-dna.md`
+documents the rhythmic vocabulary per genre.
+
+Three cell kinds:
+
+- fixed: exact hits, the same every time.
+- probability grid: each hit has a firing probability, re-realized per
+  seed. Trig conditions (`A:B` pass ratios, `1st`, `last`, `pre`, `!pre`) give
+  cells memory, so a figure can state itself and then answer itself.
+- Euclidean: per-limb `E(pulses, steps)` cycles that tile across bars
+  without resetting, so co-prime limbs phase for many bars.
+
+Generated bars are steered rather than simply rolled. A syncopation guard keeps each
+bar inside the groove sweet spot, a tension envelope thickens the pattern as it
+progresses, and section dynamics give builds a real rise (velocity floor and
+density climbing together).
+
+## Import your own MIDI
 
 ```bash
-python drumgen.py --style screamo -a "4:blast 1:silence 4:breakdown"
-python drumgen.py --style shellac -a "4:verse@7/8 2:fill@4/4 4:verse@7/8" --tempo 130
-```
-
-Section types: `intro`, `build`, `verse`, `chorus`, `drive`, `blast`, `breakdown`, `atmospheric`, `silence`, `fill`, `outro`
-
-The system automatically selects the best cell from the style pool for each section based on tag matching. Silence sections produce empty bars. Intense sections (chorus, blast, breakdown, drive) get a crash+kick on beat 1. Per-section time signatures (`@N/M`) insert MIDI time signature changes at section boundaries.
-
-## Generative Mode
-
-Probability grids produce unique patterns from each seed while staying true to the style's rhythmic DNA.
-
-```bash
-python drumgen.py --style faraquet --generative --tempo 140 --bars 8
-python drumgen.py --style shellac --generative --variations 5 --tempo 130 --bars 4
-```
-
-Each grid entry has a probability (0.0-1.0). Near-deterministic styles like Shellac (0.98) sound almost identical each time. Angular styles like Faraquet (0.4-0.9) produce wide variation. Physical constraints (no ride+hihat, no snare+tom at same position) are enforced after realization.
-
-Available probability cells: `prob_faraquet_4_4`, `prob_shellac_4_4`, `prob_posthardcore_4_4`, `prob_dbeat_4_4`, `prob_blast_4_4`, `prob_euro_screamo_4_4`, `prob_faraquet_7_8`, `prob_postpunk_4_4`, `prob_angular_athletic_4_4`, `prob_slint_4_4`.
-
-## Layer Mode
-
-Mix instrument layers from different cells into one pattern:
-
-```bash
-python drumgen.py --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
-python drumgen.py --kick dbeat_standard --snare blast_traditional --cymbal faraquet_displaced_4_4 --bars 4
-```
-
-Layer groups: `kick`, `snare` (snare + ghost + rim), `cymbal` (hihat, ride, crash, china, splash), `toms` (high, mid, low, floor). Conflicts at the same beat position are resolved by priority (crash > ride > hihat, snare > tom). Mutually exclusive with `--arrangement`.
-
-## Cells (39)
-
-### Groove Cells
-
-| Cell | Bars | Description |
-|------|------|-------------|
-| blast_traditional | 1 | K/S alternating every 16th, ride every 16th |
-| dbeat_standard | 1 | X.XX kick pattern, snare backbeat, HH eighths |
-| shellac_floor_tom_drive | 1 | Floor tom 1/3, snare 2/4, ride quarters |
-| fugazi_driving_chorus | 1 | Syncopated kick (1, 2+, 3), snare 2/4, ride eighths |
-| faraquet_displaced_4_4 | 2 | Displaced backbeat, ghost snares, ride eighths |
-| raein_melodic_drive | 1 | Dynamic HH accent/ghost, ghost snares |
-| emoviolence_angular_breakdown | 1 | Half-time. K 1/3/3.5, snare 3, floor tom 4.5 |
-| emoviolence_blast_crash | 2 | Blast + crash on every quarter note |
-| daitro_quiet_build | 8 | Ride bell → ride + kick → snare → full. Crescendo humanize. |
-| daitro_tremolo_drive | 1 | Fast kick doubles, snare 2/4, ride eighths |
-| daitro_blast_release | 4 | Bars 1-3 full blast, bar 4 half-blast (receding) |
-| liturgy_burst_beat | 1 | K/S near-simultaneous (flammed) every 16th. 3-over-4 accent. |
-| blackmetal_atmospheric | 1 | Sparse: kick 1, ride bell pings, snare 3, HH pedal |
-| deafheaven_build_to_blast | 8 | Kick quarters → eighths → sixteenths → full blast |
-| motorik_pulse | 1 | HH closed eighths, kick 1/3, snare 2/4. Steady machine beat. |
-| motorik_build | 4 | Motorik crescendo: ghost → soft → normal → accent |
-| slint_explosion | 1 | Heavy kick, snare 2/4, floor tom, ride eighths. Climax. |
-| athletic_angular | 2 | Busy syncopated kick, ride eighths, ghost snares, floor tom |
-| postpunk_machine | 1 | Kick 1/3, snare 2/4, HH eighths. No ghost, no ride. |
-| postpunk_busy | 2 | Athletic kick, ride eighths, ghost snares, HH open accent |
-| unwound_dynamics | 4 | Quiet ride bell/rim → loud ride/kick/snare explosion |
-| city_of_caterpillar_build | 8 | Ride bell → ride eighths → floor tom → full blast. Crescendo. |
-
-### Probability Grid Cells (Generative)
-
-| Cell | Time Sig | Description |
-|------|----------|-------------|
-| prob_faraquet_4_4 | 4/4 | Angular math rock. Ride 0.9 eighths, syncopated kicks 0.4-0.7, displaced snare |
-| prob_shellac_4_4 | 4/4 | Near-deterministic. Floor tom/snare 0.98, ride 1.0 quarters |
-| prob_posthardcore_4_4 | 4/4 | Fugazi driving. Kick 0.9 on 1/3, snare 0.85 on 2/4, ride 0.95 eighths |
-| prob_dbeat_4_4 | 4/4 | D-beat. X.XX kick pattern 0.95, HH 0.9 eighths |
-| prob_blast_4_4 | 4/4 | Blast beat. K/S alternating 16ths 0.92, ride 16ths 0.88 |
-| prob_euro_screamo_4_4 | 4/4 | Daitro-style. Kick 0.85, snare 0.9, ghost 0.35, ride 0.95 |
-| prob_faraquet_7_8 | 7/8 | Angular 7/8. 2+2+3 grouping, ride 0.95, kick on 1/3/5 |
-| prob_postpunk_4_4 | 4/4 | Post-punk. HH closed 1.0, kick/snare 0.95, rare HH open, rare ghost |
-| prob_angular_athletic_4_4 | 4/4 | Athletic angular. Variable kick, ride 0.9 eighths, ghost snares 0.4 |
-| prob_slint_4_4 | 4/4 (4-bar) | Slint dynamic. Quiet ride bell → loud ride/kick/snare explosion |
-
-### Fill Cells
-
-| Cell | Description |
-|------|-------------|
-| fill_linear_1bar | Single-stroke roll descending through kit, velocity crescendo |
-| emoviolence_chaotic_fill | Beats 1-2 silence, 3-4 sixteenths across kit |
-| fill_floor_tom_sparse | 3 floor tom hits only. Massive, sparse. |
-
-### Transition Cells
-
-| Cell | Bars | Description |
-|------|------|-------------|
-| transition_crash_silence | 1 | Crash + kick on beat 1, rest silence |
-| transition_half_time_shift | 2 | Half-time feel, kick syncopation, ride eighths |
-| transition_snare_roll_to_crash | 1 | Beats 1-2 silence, 3-4 snare roll crescendo |
-| transition_cymbal_swell | 2 | Ride bell swell ghost→accent, kick joins bar 2 |
-
-## Style Pools
-
-Each style maps to a pool of cells. In arrangement mode, the best cell is selected per section.
-
-| Style | Pool (includes odd-meter and probability variants) |
-|-------|------|
-| blast | blast_traditional, emoviolence_blast_crash, + odd meters, **prob_blast_4_4** |
-| dbeat | dbeat_standard, dbeat_7_8, **prob_dbeat_4_4** |
-| shellac | shellac_floor_tom_drive, + odd meters, **prob_shellac_4_4** |
-| fugazi | fugazi_driving_chorus, + odd meters |
-| faraquet | faraquet_displaced_4_4, faraquet_7_8, faraquet_5_4, **prob_faraquet_4_4**, **prob_faraquet_7_8** |
-| raein | raein_melodic_drive |
-| posthardcore | fugazi_driving_chorus, faraquet_displaced_4_4, raein_melodic_drive, + odd meters, **prob_posthardcore_4_4** |
-| noise_rock | shellac_floor_tom_drive, + odd meters, **prob_shellac_4_4** |
-| screamo | emoviolence_blast_crash, emoviolence_angular_breakdown, blast_traditional |
-| emoviolence | emoviolence_blast_crash, emoviolence_angular_breakdown, blast_traditional |
-| math | faraquet_displaced_4_4, faraquet_7_8, faraquet_5_4, **prob_faraquet_4_4**, **prob_faraquet_7_8** |
-| euro_screamo | daitro_tremolo_drive, daitro_quiet_build, daitro_blast_release, raein_melodic_drive, **prob_euro_screamo_4_4** |
-| daitro | daitro_quiet_build, daitro_tremolo_drive, daitro_blast_release |
-| liturgy | liturgy_burst_beat |
-| black_metal | liturgy_burst_beat, blackmetal_atmospheric, deafheaven_build_to_blast, atmospheric_7_8 |
-| deafheaven | deafheaven_build_to_blast, blackmetal_atmospheric |
-| sonic_youth | motorik_pulse, motorik_build, **prob_postpunk_4_4** |
-| slint | motorik_build, slint_explosion, unwound_dynamics, **prob_slint_4_4** |
-| post_punk | postpunk_machine, postpunk_busy, motorik_pulse, **prob_postpunk_4_4** |
-| wipers | postpunk_machine, **prob_postpunk_4_4** |
-| preoccupations | postpunk_machine, motorik_pulse, **prob_postpunk_4_4** |
-| dry_cleaning | postpunk_machine, motorik_pulse, **prob_postpunk_4_4** |
-| shame | postpunk_machine, postpunk_busy, **prob_postpunk_4_4** |
-| drive_like_jehu | athletic_angular, postpunk_busy, slint_explosion, **prob_angular_athletic_4_4** |
-| q_and_not_u | athletic_angular, postpunk_busy, **prob_angular_athletic_4_4** |
-| atdi | postpunk_busy, athletic_angular, **prob_angular_athletic_4_4** |
-| blood_brothers | postpunk_busy, athletic_angular, **prob_angular_athletic_4_4** |
-| unwound | unwound_dynamics, postpunk_machine, slint_explosion |
-| city_of_caterpillar | city_of_caterpillar_build, emoviolence_blast_crash, emoviolence_angular_breakdown |
-| oxbow | unwound_dynamics, shellac_floor_tom_drive, slint_explosion |
-
-## Architecture
-
-```
-app.py              Streamlit GUI (generation, generative mode, layer mode, MIDI import)
-preview.py          FluidSynth audio preview (WAV rendering)
-drumgen.py          CLI entry point (generative, variations, layer mode, mixed meters)
-assembler.py        Cell selection, bar layout, arrangement mode, probability grid
-                    realization, layer extraction/conflict resolution, humanization
-cell_library.py     Cell data (fixed + probability grids), style pools, section prefs
-humanizer.py        Seeded RNG, per-instrument velocity/timing tables,
-                    velocity contour, section drift, flam, ghost clustering
-midi_engine.py      Position math, MIDI file writing, note overlap prevention,
-                    interleaved time sig + note event write for mixed meters
-midi_reader.py      MIDI import, auto-tagging, validation, dedup, content hashing
-als_extractor.py    Ableton .als extraction, non-drum track filtering
-test_drumgen.py     Test suite (pytest) — 265 tests
-kit_mappings/       JSON instrument-to-note mappings (ugritone, addictive_drums, GM)
-user_cells/         Imported cell JSON files (gitignored, auto-loaded)
-styles/             Style DNA reference (build-time only)
-```
-
-## MIDI Import
-
-Import your own MIDI drum patterns as cells. Extracted from Ableton projects or uploaded directly.
-
-```bash
-# Extract MIDI clips from Ableton .als projects
-python als_extractor.py /path/to/projects/ --recursive --drums-only -o /tmp/extract/
-
-# Import with auto-tagging (use addictive_drums kit for AD sources)
-python midi_reader.py /tmp/extract/ --auto-tag --kit addictive_drums
+# Ableton projects → .mid → cells
+python als_extractor.py project.als --drums-only -o extracted/
+python midi_reader.py extracted/ --auto-tag --kit addictive_drums
+python drumgen.py --cell my_imported_cell --bars 4 --tempo 120
 
 # Maintenance
-python midi_reader.py --validate --kit addictive_drums
-python midi_reader.py --stats
-python midi_reader.py --retag
-python midi_reader.py --dedup --confirm
+python midi_reader.py --list | --stats | --validate | --retag | --dedup
 ```
 
-Import features: content-based auto-tagging (blast, halftime, backbeat, fill, density, odd meter detection), content hashing for dedup, hit deduplication, trailing bar trim, non-drum track filtering, and validation. Imported cells auto-integrate into style pools based on their tags.
+Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 
-The GUI also supports MIDI import via the sidebar expander with preview, auto-tagging, and validation.
+## Kits
 
-## Kit Mappings
+`kit_mappings/*.json` map instrument names to MIDI notes: `ugritone.json`
+(default, 25 instruments), `addictive_drums.json` (note 48 = snare),
+`general_midi.json`. Kits support an `aliases` field. MIDI channel 10, PPQ 480.
 
-- `ugritone` — Ugritone drum plugin (default)
-- `addictive_drums` — Addictive Drums (note 48 = snare, alias 38 = snare)
-- `general_midi` — Standard GM drums
+## Development
 
-Custom mappings: create a JSON file in `kit_mappings/` or pass a path with `--kit`. Kit files support an `aliases` field for additional note-to-instrument mappings (useful when a source kit maps multiple notes to the same instrument).
+```bash
+python -m pytest test_drumgen.py -q     # 289 tests
+python validate_midi.py                  # pipeline sanity across configs
+python export_cells.py                   # after ANY cell_library.py edit
+cd plugin && cargo test                  # 75 tests
+cd plugin && ./build-linux.sh            # build + install
+```
 
-## Humanization
+The engine is hand-duplicated: Python (`assembler.py`, `cell_library.py`,
+`humanizer.py`, `midi_engine.py`) and Rust (`plugin/src/engine/*.rs`). Changes
+to engine logic must land in both. Cells are data, edit `cell_library.py`,
+run `export_cells.py`. See [CLAUDE.md](CLAUDE.md) for conventions and
+[PROJECT.md](PROJECT.md) for the reasoning behind all of it.
 
-All patterns are humanized by default. The `--humanize` slider (0.0-1.0) controls the intensity of all humanization features. At 0.0, output is perfectly quantized.
+CI builds Linux, Windows and macOS bundles on push; a `v*` tag cuts a release.
 
-**Basic humanization** (per-hit):
-- Per-instrument velocity variance (snare ±18, hihat ±25, etc.)
-- Timing tendencies (snare slightly late, ride slightly early)
-- Swing application
+## License
 
-**Advanced humanization** (physics-based):
-- **Velocity contour** — Cymbal wrist pattern: downbeats louder, weak subdivisions softer. Beat 1 gets extra emphasis. Makes ride/hihat patterns breathe naturally.
-- **Section push/pull drift** — Verses gradually drag behind the beat. Choruses and blasts push ahead. Builds gradually accelerate. Models how real drummers respond to song energy.
-- **Kick-snare flam** — When kick and snare hit simultaneously (both loud), the kick fires 5-12ms early. Creates the natural flam that real drummers produce on accented unison hits.
-- **Ghost note clustering** — Ghost notes gravitate toward nearby snare accents, with style-dependent intensity. Angular styles (faraquet: 0.7) cluster heavily. Precise styles (shellac: 0.0) don't cluster at all.
-
-All advanced features scale from the master humanize slider. Seed reproducibility is preserved — same seed always produces identical output.
+DIY. Open source. No cloud, no accounts, no telemetry — it all runs on your box.

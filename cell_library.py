@@ -268,6 +268,345 @@ def _emoviolence_angular_breakdown():
     }
 
 
+def _noise_rock_floor_breakdown():
+    """Floor-tom breakdown, noise rock. Space does the work.
+
+    style-dna 10C: single floor tom hits, spaced out, every hit rings. No
+    cymbal wash — the room is the cymbal. Shellac/Unwound/Oxbow read.
+    """
+    hits = [
+        (1, 0.0, "tom_floor", "accent"),
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "tom_floor", "accent"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "snare", "accent"),
+        (4, 0.5, "tom_floor", "accent"),
+    ]
+    return {
+        "name": "noise_rock_floor_breakdown",
+        "tags": ["noise_rock", "shellac", "unwound", "oxbow", "post_punk",
+                 "breakdown", "halftime", "heavy", "slow"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.25,  # noise rock is played tight on purpose
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _posthardcore_halftime_breakdown():
+    """Half-time breakdown, post-hardcore/math.
+
+    style-dna 11E: snare moves to 3 instead of 2 and 4, which is what signals
+    the drop. Ride bell marks the quarters so the pulse survives the halving —
+    Fugazi/Faraquet keep time through a breakdown rather than abandoning it.
+    """
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.0, "crash_1", "accent"),
+        (2, 0.5, "kick", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.75, "kick", "normal"),
+    ]
+    hits += [(beat, 0.0, "ride_bell", "normal") for beat in (2, 3, 4)]
+    return {
+        "name": "posthardcore_halftime_breakdown",
+        "tags": ["posthardcore", "fugazi", "faraquet", "math", "angular",
+                 "breakdown", "halftime", "heavy"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.3,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+# ── Kidcrash / Lord Snow: hand-authored from the brainsnares transcriptions ──
+# Re-authored per the mined-cells policy: the transcriptions stay raw material
+# in user_cells/; these cells distill the highest-recurrence figures (the x17,
+# x15, x11 bars that carried the songs) with velocities recomposed (the
+# transcriber anchors everything at accent) and kick/snare interplay composed
+# where the transcription was weakest. Toms and crash-riding kept as verified.
+
+
+def _kidcrash_inverted_drive():
+    """The Kidcrash trademark: backbeat INVERTED — snare on 1 and 3, paired
+    kick doubles on 2 and 4, hats riding eighths. From kc_snares_01 (x17,
+    the most-recurring bar on the record)."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (2, 0.0, "kick", "accent"),
+        (2, 0.5, "kick", "normal"),
+        (4, 0.0, "kick", "accent"),
+        (4, 0.5, "kick", "normal"),
+        # composed: a ghost answer ahead of the beat-3 statement
+        (2, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_inverted_drive",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "groovy", "verse"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_syncopated_groove():
+    """Straight backbeat over a pushing double-kick (1, 1.5 / 3, 3.5), the
+    hat opening on the offs of 2 and 4. From kc_collections_01 (x17)."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+    hits += [
+        (2, 0.5, "hihat_open", "normal"),
+        (4, 0.5, "hihat_open", "normal"),
+        (1, 0.0, "kick", "accent"),
+        (1, 0.5, "kick", "normal"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "kick", "normal"),
+        (2, 0.0, "snare", "accent"),
+        (4, 0.0, "snare", "accent"),
+        # composed: ghost drag into the next downbeat
+        (4, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_syncopated_groove",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "groovy", "chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_tumble():
+    """Snare states beat 1 and then the kit tumbles: kick clusters late in
+    the bar, a floor-tom color where the figure turns over. From kc_were_01
+    (x15), tom voice added per the verified-good tom reading."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.5, "tom_low", "normal"),
+        (3, 0.0, "kick", "accent"),
+        (3, 0.5, "kick", "normal"),
+        (4, 0.5, "kick", "accent"),
+        # composed: ghost where the ear expects the missing backbeat
+        (3, 0.75, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "kidcrash_tumble",
+        "tags": ["kidcrash", "skramz", "math", "angular", "sparse", "verse", "groovy"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _kidcrash_crash_wash():
+    """Crash-riding climax, two-bar statement and answer. Bar 1 rides the
+    crash with the snare answering mid-bar (kc_wave_01, x11); bar 2 flips
+    the kick to the offs (kc_wave_02, x11). The wash IS the part."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((1, beat, 0.0, "crash_1", "accent"))
+        hits.append((1, beat, 0.5, "crash_1", "normal"))
+        hits.append((2, beat, 0.0, "crash_1", "accent"))
+        hits.append((2, beat, 0.5, "crash_1", "normal"))
+    hits += [
+        # bar 1: kick 2, 3.5, 4.5 / snare 1, 2.5, 3
+        (1, 1, 0.0, "snare", "accent"),
+        (1, 2, 0.0, "kick", "accent"),
+        (1, 2, 0.5, "snare", "normal"),
+        (1, 3, 0.0, "snare", "accent"),
+        (1, 3, 0.5, "kick", "normal"),
+        (1, 4, 0.5, "kick", "normal"),
+        # bar 2: kick 1, 2.5, 4 / snare 2, 3
+        (2, 1, 0.0, "kick", "accent"),
+        (2, 2, 0.0, "snare", "accent"),
+        (2, 2, 0.5, "kick", "normal"),
+        (2, 3, 0.0, "snare", "accent"),
+        (2, 4, 0.0, "kick", "accent"),
+    ]
+    return {
+        "name": "kidcrash_crash_wash",
+        "tags": ["kidcrash", "skramz", "math", "intense", "driving", "climax", "chorus"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _prob_kidcrash_4_4():
+    """Kidcrash generative comp: two-bar phrase logic. Odd passes state the
+    inverted backbeat, even passes answer with the straight one — the dice
+    picks the syncopation, never whether the groove exists."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "hihat_closed", 0.95, "accent"))
+        grid.append((beat, 0.5, "hihat_closed", 0.7, "normal"))
+    grid += [
+        # statement (odd passes): snare 1 & 3, kick doubles 2 & 4
+        (1, 0.0, "snare", 0.92, "accent", "1:2"),
+        (3, 0.0, "snare", 0.92, "accent", "1:2"),
+        (2, 0.0, "kick", 0.9, "accent", "1:2"),
+        (2, 0.5, "kick", 0.6, "normal", "1:2"),
+        (4, 0.0, "kick", 0.9, "accent", "1:2"),
+        (4, 0.5, "kick", 0.5, "normal", "1:2"),
+        # answer (even passes): straight backbeat, pushing kick
+        (2, 0.0, "snare", 0.92, "accent", "2:2"),
+        (4, 0.0, "snare", 0.92, "accent", "2:2"),
+        (1, 0.0, "kick", 0.9, "accent", "2:2"),
+        (1, 0.5, "kick", 0.55, "normal", "2:2"),
+        (3, 0.0, "kick", 0.9, "accent", "2:2"),
+        (3, 0.5, "kick", 0.55, "normal", "2:2"),
+        # the dice's own voice: hat opens and ghost chatter, any pass
+        (2, 0.5, "hihat_open", 0.35, "normal"),
+        (4, 0.5, "hihat_open", 0.35, "normal"),
+        (2, 0.75, "snare_ghost", 0.4, "ghost"),
+        (4, 0.75, "snare_ghost", 0.35, "ghost"),
+    ]
+    return {
+        "name": "prob_kidcrash_4_4",
+        "type": "probability",
+        "tags": ["kidcrash", "skramz", "math", "angular", "driving", "generative"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _lord_snow_twinkle_comp():
+    """Ghost-laced comping under riding hats — the twinkle side. Snare
+    chatters between statements, kicks stay soft 16th pickups. From
+    lord_snow_discontent_03 (x5), velocities recomposed to breathe."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.5, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (1, 0.5, "snare_ghost", "ghost"),
+        (1, 0.75, "snare", "normal"),
+        (2, 0.5, "snare", "accent"),
+        (3, 0.0, "snare_ghost", "ghost"),
+        (3, 0.25, "snare", "accent"),
+        (4, 0.0, "snare", "normal"),
+        (2, 0.0, "kick", "soft"),
+        (3, 0.5, "kick", "soft"),
+    ]
+    return {
+        "name": "lord_snow_twinkle_comp",
+        "tags": ["lord_snow", "emoviolence", "math", "angular", "groovy", "melodic", "verse"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _lord_snow_static_wall():
+    """The wall: kick and crash locked on every eighth. Bar 1 is the pure
+    wall (lord_snow_discontent_01, x10 — genuinely snareless); bar 2 lets
+    the snare cut through on 2 and 4 so the phrase lands."""
+    hits = []
+    for bar in (1, 2):
+        for beat in range(1, 5):
+            hits.append((bar, beat, 0.0, "crash_1", "accent"))
+            hits.append((bar, beat, 0.5, "crash_1", "normal"))
+            hits.append((bar, beat, 0.0, "kick", "accent"))
+            hits.append((bar, beat, 0.5, "kick", "normal"))
+    hits += [
+        (2, 2, 0.0, "snare", "accent"),
+        (2, 4, 0.0, "snare", "accent"),
+    ]
+    return {
+        "name": "lord_snow_static_wall",
+        "tags": ["lord_snow", "emoviolence", "intense", "driving", "build", "crescendo"],
+        "time_sig": (4, 4),
+        "num_bars": 2,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _lord_snow_blast_lift():
+    """The lift into blast: 16th-leaning hats, snare crowding the quarters
+    with pickups, kick on 16th offsets. From lord_snow_cloud_03 (tagged
+    blast by the miner), thinned so the accents actually read."""
+    hits = []
+    for beat in range(1, 5):
+        hits.append((beat, 0.0, "hihat_closed", "accent"))
+        hits.append((beat, 0.25, "hihat_closed", "normal"))
+        hits.append((beat, 0.75, "hihat_closed", "normal"))
+    hits += [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.0, "snare", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (3, 0.25, "snare", "normal"),
+        (4, 0.0, "snare", "accent"),
+        (4, 0.75, "snare_ghost", "ghost"),
+        (1, 0.25, "kick", "normal"),
+        (2, 0.25, "kick", "normal"),
+        (3, 0.5, "kick", "soft"),
+        (4, 0.25, "kick", "normal"),
+    ]
+    return {
+        "name": "lord_snow_blast_lift",
+        "tags": ["lord_snow", "emoviolence", "blast", "intense", "extreme"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
+def _blackmetal_halftime_breakdown():
+    """The landing after a blast, black metal / blackgaze.
+
+    style-dna 7B: half or less the blast tempo, huge space, every hit 115+.
+    China holds the decay where a blast had continuous cymbal.
+    """
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.0, "china", "accent"),
+        (2, 0.0, "kick", "accent"),
+        (3, 0.0, "snare", "accent"),
+        (3, 0.0, "china", "accent"),
+        (4, 0.5, "kick", "accent"),
+        (4, 0.5, "tom_floor", "accent"),
+    ]
+    return {
+        "name": "blackmetal_halftime_breakdown",
+        "tags": ["black_metal", "deafheaven", "liturgy", "blackgaze",
+                 "breakdown", "halftime", "heavy", "slow"],
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.35,
+        "role": "groove",
+        "hits": hits,
+    }
+
+
 def _emoviolence_blast_crash():
     """Traditional blast BUT crash on every quarter note. 2-bar cell."""
     hits = []
@@ -1176,33 +1515,6 @@ def _prob_faraquet_4_4():
     }
 
 
-def _prob_shellac_4_4():
-    """Shellac near-deterministic grid. Floor tom + snare + ride. Almost always the same."""
-    grid = [
-        # Floor tom on beats 1 and 3 — near-certain
-        (1, 0.0, "tom_floor", 0.98, "accent"),
-        (3, 0.0, "tom_floor", 0.98, "accent"),
-        # Snare on 2 and 4 — near-certain
-        (2, 0.0, "snare", 0.98, "accent"),
-        (4, 0.0, "snare", 0.98, "accent"),
-        # Ride on every quarter — deterministic
-        (1, 0.0, "ride", 1.0, "normal"),
-        (2, 0.0, "ride", 1.0, "normal"),
-        (3, 0.0, "ride", 1.0, "normal"),
-        (4, 0.0, "ride", 1.0, "normal"),
-    ]
-    return {
-        "name": "prob_shellac_4_4",
-        "type": "probability",
-        "tags": ["shellac", "noise_rock", "generative"],
-        "time_sig": (4, 4),
-        "num_bars": 1,
-        "humanize": 0.2,
-        "role": "groove",
-        "grid": grid,
-    }
-
-
 def _prob_posthardcore_4_4():
     """Post-hardcore/Fugazi driving probability grid. Ride eighths, solid backbeat."""
     grid = []
@@ -1400,29 +1712,6 @@ def _prob_faraquet_7_8():
 
 
 # ── Phase 3: Style palette expansion ──────────────────────────────────────────
-
-def _motorik_pulse():
-    """Motorik 4/4: HH closed eighths, kick 1/3, snare 2/4. Steady machine beat."""
-    hits = []
-    for beat in range(1, 5):
-        hits.append((beat, 0.0, "hihat_closed", "accent"))
-        hits.append((beat, 0.5, "hihat_closed", "normal"))
-    hits.extend([
-        (1, 0.0, "kick", "accent"),
-        (3, 0.0, "kick", "accent"),
-        (2, 0.0, "snare", "accent"),
-        (4, 0.0, "snare", "accent"),
-    ])
-    return {
-        "name": "motorik_pulse",
-        "tags": ["motorik", "krautrock", "sonic_youth", "post_punk", "driving", "verse"],
-        "time_sig": (4, 4),
-        "num_bars": 1,
-        "humanize": 0.2,
-        "role": "groove",
-        "hits": hits,
-    }
-
 
 def _motorik_build():
     """4-bar motorik crescendo: ghost → soft → normal + HH open → accent."""
@@ -2891,6 +3180,409 @@ def _fill_ghost_ruff_snare_4_4():
     }
 
 
+# ── Phase B: fill language in odd meters ─────────────────────────────────────
+# The 4/4 fill-language cells (drags, hertas, ruffs, ebbs) get odd-meter
+# siblings so song forms with @7/8, @3/4, @6/8, @5/4, @6/4 sections keep the
+# vocabulary. into_* tags steer selection toward the NEXT section.
+
+
+def _fill_drag_run_7_8():
+    """7/8 drag-run: ghost drags ahead of accents, crescendo run over the back
+    three eighths — the lurching launch into a blast."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "snare_ghost", "ghost"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "snare", "normal"),
+        (5, 0.5, "snare", "normal"),
+        (6, 0.0, "snare", "accent"),
+        (6, 0.5, "tom_low", "accent"),
+        (7, 0.0, "tom_floor", "accent"),
+        (7, 0.5, "kick", "accent"),
+    ]
+    return {
+        "name": "fill_drag_run_7_8",
+        "tags": ["fill", "odd_meter", "drag", "buildup", "into_blast", "into_drive"],
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_herta_waltz_3_4():
+    """3/4 herta tumble: the two-sixteenth+eighth figure walking down the toms,
+    resolving politely — a turn back into a verse."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (1, 0.5, "snare", "normal"),
+        (2, 0.0, "tom_high", "accent"),
+        (2, 0.25, "tom_high", "normal"),
+        (2, 0.5, "tom_mid", "normal"),
+        (3, 0.0, "tom_low", "accent"),
+        (3, 0.25, "tom_low", "normal"),
+        (3, 0.5, "tom_floor", "normal"),
+    ]
+    return {
+        "name": "fill_herta_waltz_3_4",
+        "tags": ["fill", "waltz", "herta", "toms", "into_verse", "into_chorus"],
+        "time_sig": (3, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_ruff_roll_6_8():
+    """6/8 ruff-into-roll: grace ghosts crowd the accent, then a compound roll
+    crescendos into the downbeat — the gospel-chop cousin for slow emo."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.5, "snare_ghost", "ghost"),
+        (3, 0.0, "snare", "accent"),
+        (4, 0.0, "kick", "normal"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "snare", "soft"),
+        (5, 0.5, "snare", "normal"),
+        (6, 0.0, "snare", "normal"),
+        (6, 0.5, "snare", "accent"),
+    ]
+    return {
+        "name": "fill_ruff_roll_6_8",
+        "tags": ["fill", "compound", "ruff", "buildup", "into_chorus", "into_blast"],
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_stop_cascade_5_4():
+    """5/4 stop-cascade: two beats of groove, a dead-air beat (the stop), then
+    a doubled tom cascade across 4-5 — punctuation before a drive."""
+    hits = [
+        (1, 0.0, "kick", "accent"),
+        (2, 0.0, "snare", "accent"),
+        # beat 3: silence — the stop.
+        (4, 0.0, "tom_high", "accent"),
+        (4, 0.25, "tom_mid", "normal"),
+        (4, 0.5, "tom_mid", "accent"),
+        (4, 0.75, "tom_low", "normal"),
+        (5, 0.0, "tom_low", "accent"),
+        (5, 0.25, "tom_floor", "normal"),
+        (5, 0.5, "tom_floor", "accent"),
+        (5, 0.75, "kick", "accent"),
+    ]
+    return {
+        "name": "fill_stop_cascade_5_4",
+        "tags": ["fill", "odd_meter", "stops", "toms", "into_drive", "into_blast"],
+        "time_sig": (5, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+def _fill_ebb_6_4():
+    """6/4 ebb: a decrescendo that lets all the air out — floor toms and ghosts
+    fading toward whatever quiet comes next."""
+    hits = [
+        (1, 0.0, "snare", "accent"),
+        (2, 0.0, "tom_floor", "normal"),
+        (2, 0.5, "tom_floor", "normal"),
+        (3, 0.0, "tom_low", "normal"),
+        (4, 0.0, "tom_floor", "soft"),
+        (4, 0.5, "snare_ghost", "ghost"),
+        (5, 0.0, "tom_floor", "soft"),
+        (6, 0.0, "snare_ghost", "ghost"),
+    ]
+    return {
+        "name": "fill_ebb_6_4",
+        "tags": ["fill", "dynamics", "decrescendo", "into_atmospheric", "into_outro", "into_quiet"],
+        "time_sig": (6, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "fill",
+        "hits": hits,
+    }
+
+
+# ── Zona: jazz drums on an emoviolence frame ────────────────────────────────
+# Monster Machismo / Zona Mexicana territory: ride-led comping, a snare that
+# CONVERSES (ghost chatter answering accents via pre/!pre chains), feathered
+# kick with occasional bombs, broken time that stays in the pocket. Pair with
+# SWING 0.35-0.50. The "jazz" tag drives ghost clustering at 0.65.
+
+
+def _prob_jazz_comp_4_4():
+    """The core comping engine: jazz ride anchor, conversing snare, kick bombs.
+    First in the zona pool — it sets the song-mode cluster feel."""
+    grid = []
+    # Ride anchor: the jazz pattern skeleton (1, 2&, 3, 4& strong; 2/4 lighter).
+    for beat in (1, 3):
+        grid.append((beat, 0.0, "ride", 0.95, "accent"))
+        grid.append((beat + 1, 0.0, "ride", 0.8, "normal"))
+        grid.append((beat + 1, 0.5, "ride", 0.9, "normal"))
+    # Pedal hat on 2 and 4 — the left foot keeps honest time.
+    grid.append((2, 0.0, "hihat_pedal", 0.85, "soft"))
+    grid.append((4, 0.0, "hihat_pedal", 0.85, "soft"))
+    # Two-bar phrase logic — a drummer states a motif, THEN answers it.
+    # Odd passes (1:2) = the statement: a repeatable, catchy comp figure.
+    # Even passes (2:2) = the answer: ghost runs responding to the statement.
+    # Probability picks WHICH answer per seed; the structure always holds.
+    grid.extend([
+        # Statement (odd bars): backbeat-adjacent accents, held steady.
+        (2, 0.5, "snare", 0.9, "accent", "1:2"),
+        (4, 0.0, "snare", 0.9, "accent", "1:2"),
+        (3, 0.25, "snare_ghost", 0.6, "ghost", "1:2"),
+        # Answer (even bars): the ghost-run response, chained off the accent.
+        (1, 0.75, "snare", 0.85, "accent", "2:2"),
+        (2, 0.25, "snare_ghost", 0.85, "ghost", "pre"),
+        (2, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
+        (4, 0.0, "snare", 0.85, "accent", "2:2"),
+        (4, 0.25, "snare_ghost", 0.8, "ghost", "pre"),
+        # Floating spice, both bars, rare.
+        (3, 0.75, "snare", 0.3, "accent"),
+    ])
+    # Kick: a STEADY feathered pulse (catchy needs a floor), bombs earned.
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "soft"),
+        (2, 0.0, "kick", 0.85, "soft"),
+        (3, 0.0, "kick", 0.95, "soft"),
+        (4, 0.0, "kick", 0.85, "soft"),
+        (2, 0.75, "kick", 0.5, "accent", "2:2"),
+        (3, 0.5, "kick", 0.7, "accent", "4:4"),
+    ])
+    return {
+        "name": "prob_jazz_comp_4_4",
+        "tags": ["zona", "jazz", "comping", "verse", "build", "groove", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_comp_7_8():
+    """7/8 comping: the ride keeps the odd cycle honest while the snare
+    argues with it. Sweep the Leg Johnny in a basement."""
+    grid = []
+    for beat in range(1, 8):
+        grid.append((beat, 0.0, "ride", 0.9 if beat in (1, 4, 6) else 0.75,
+                     "accent" if beat == 1 else "normal"))
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "normal"),
+        (4, 0.0, "kick", 0.85, "soft"),
+        (6, 0.5, "kick", 0.6, "accent", "2:2"),
+        # Statement (odd passes): the 7/8 backbone accents, dependable.
+        (3, 0.0, "snare", 0.9, "accent", "1:2"),
+        (5, 0.0, "snare", 0.85, "accent", "1:2"),
+        # Answer (even passes): the run through the back of the bar.
+        (3, 0.0, "snare", 0.85, "accent", "2:2"),
+        (3, 0.5, "snare_ghost", 0.85, "ghost", "pre"),
+        (5, 0.5, "snare", 0.8, "normal", "2:2"),
+        (7, 0.0, "snare", 0.8, "accent", "2:2"),
+        (7, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
+        (2, 0.5, "snare_ghost", 0.35, "ghost"),
+    ])
+    return {
+        "name": "zona_comp_7_8",
+        "tags": ["zona", "jazz", "comping", "odd_meter", "drive", "generative"],
+        "type": "probability",
+        "time_sig": (7, 8),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_broken_4_4():
+    """Broken time: the ride pattern fractures, holes open where the beat
+    should be, but the pocket never actually leaves."""
+    grid = [
+        # Solid displaced-ride skeleton — the hook you can nod to.
+        (1, 0.0, "ride", 0.95, "accent"),
+        (1, 0.75, "ride", 0.85, "normal"),
+        (2, 0.5, "ride", 0.9, "normal"),
+        (3, 0.25, "ride", 0.8, "normal"),
+        (3, 0.75, "ride", 0.9, "accent"),
+        (4, 0.5, "ride", 0.85, "normal"),
+        # Steady floor.
+        (1, 0.0, "kick", 0.95, "normal"),
+        (3, 0.0, "kick", 0.8, "soft"),
+        (2, 0.0, "snare", 0.9, "accent"),
+        (3, 0.5, "snare", 0.85, "accent"),
+        (2, 0.0, "hihat_pedal", 0.8, "soft"),
+        (4, 0.0, "hihat_pedal", 0.8, "soft"),
+        # The break happens on even passes — displacement as an EVENT.
+        (2, 0.75, "kick", 0.85, "accent", "2:2"),
+        (4, 0.75, "kick", 0.7, "accent", "2:2"),
+        (2, 0.25, "snare_ghost", 0.8, "ghost", "pre"),
+        (4, 0.25, "snare_ghost", 0.7, "ghost", "2:2"),
+        (1, 0.5, "snare_ghost", 0.4, "ghost"),
+    ]
+    return {
+        "name": "zona_broken_4_4",
+        "tags": ["zona", "jazz", "broken", "angular", "drive", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _euclid_zona_broken_4_4():
+    """Euclidean broken time: ride on a 12-cycle drifting against the bar,
+    snare wandering per seed, feather kick anchor. Deterministic vertigo."""
+    return {
+        "name": "euclid_zona_broken_4_4",
+        "tags": ["zona", "jazz", "broken", "polymeter", "hypnotic", "generative"],
+        "type": "euclidean",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "limbs": [
+            {"instrument": "ride", "pulses": 7, "steps": 12, "rotation": 0,
+             "velocity": "normal", "dice_rotate": False},
+            {"instrument": "kick", "pulses": 4, "steps": 16, "rotation": 0,
+             "velocity": "soft", "dice_rotate": False},
+            {"instrument": "snare", "pulses": 4, "steps": 14, "rotation": 3,
+             "velocity": "accent", "dice_rotate": True},
+            {"instrument": "snare_ghost", "pulses": 5, "steps": 10, "rotation": 1,
+             "velocity": "ghost", "dice_rotate": True},
+        ],
+    }
+
+
+def _zona_bomb_blast_4_4():
+    """Emoviolence blast with a jazz brain: the wall has holes, and bombs
+    land where a session drummer would drop them, not on the grid's terms."""
+    grid = []
+    for beat in range(1, 5):
+        grid.append((beat, 0.0, "kick", 0.92, "accent"))
+        grid.append((beat, 0.5, "kick", 0.88, "accent"))
+        grid.append((beat, 0.25, "snare", 0.9, "normal"))
+        grid.append((beat, 0.75, "snare", 0.82, "normal"))
+        grid.append((beat, 0.0, "ride", 0.9, "accent"))
+        grid.append((beat, 0.5, "ride", 0.85, "normal"))
+    grid.extend([
+        (1, 0.0, "crash_1", 0.4, "accent"),
+        (2, 0.75, "china", 0.45, "accent", "2:2"),
+        (4, 0.25, "china", 0.4, "accent", "4:4"),
+        (3, 0.75, "tom_floor", 0.35, "accent", "pre"),
+    ])
+    return {
+        "name": "zona_bomb_blast_4_4",
+        "tags": ["zona", "jazz", "blast", "chaotic", "intense", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_atmos_4_4():
+    """Brushy quiet: bell pings, ghost buzz, feathered kick. The cigarette
+    before the eruption."""
+    grid = [
+        (1, 0.0, "ride_bell", 0.7, "soft"),
+        (3, 0.0, "ride_bell", 0.5, "soft"),
+        (2, 0.5, "ride", 0.6, "soft"),
+        (4, 0.5, "ride", 0.55, "soft"),
+        (1, 0.0, "kick", 0.8, "soft"),
+        (3, 0.5, "kick", 0.4, "soft"),
+        (2, 0.0, "snare_ghost", 0.6, "ghost"),
+        (2, 0.75, "snare_ghost", 0.5, "ghost", "pre"),
+        (4, 0.0, "snare_ghost", 0.55, "ghost"),
+        (4, 0.25, "snare_ghost", 0.45, "ghost", "pre"),
+        (3, 0.25, "snare", 0.3, "soft"),
+        (2, 0.0, "hihat_pedal", 0.65, "soft"),
+        (4, 0.0, "hihat_pedal", 0.65, "soft"),
+    ]
+    return {
+        "name": "zona_atmos_4_4",
+        "tags": ["zona", "jazz", "atmospheric", "intro", "outro", "quiet", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.65,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_comp_6_8():
+    """6/8 comping: compound-time ride wash with the conversation moved to
+    the offbeat eighths. Slow-burn Ampere."""
+    grid = []
+    for beat in range(1, 7):
+        grid.append((beat, 0.0, "ride", 0.85 if beat in (1, 4) else 0.7,
+                     "accent" if beat in (1, 4) else "normal"))
+    grid.extend([
+        (1, 0.0, "kick", 0.95, "normal"),
+        (4, 0.0, "kick", 0.8, "soft"),
+        (5, 0.5, "kick", 0.5, "accent", "2:2"),
+        # The 6/8 backbeat is non-negotiable — catchy lives on beat 4.
+        (4, 0.0, "snare", 0.95, "accent"),
+        (4, 0.5, "snare_ghost", 0.8, "ghost", "pre", ),
+        (2, 0.5, "snare_ghost", 0.5, "ghost", "1:2"),
+        (6, 0.0, "snare", 0.75, "normal", "2:2"),
+        (6, 0.5, "snare_ghost", 0.7, "ghost", "pre"),
+    ])
+    return {
+        "name": "zona_comp_6_8",
+        "tags": ["zona", "jazz", "comping", "compound", "verse", "generative"],
+        "type": "probability",
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.6,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _zona_lift_6_8():
+    """6/8 lift: the compound swell — ride opens up, toms roll under, the
+    section that makes the quiet part feel like it's rising off the floor."""
+    grid = []
+    for beat in range(1, 7):
+        grid.append((beat, 0.0, "ride", 0.85, "accent" if beat == 1 else "normal"))
+        grid.append((beat, 0.5, "ride", 0.6, "soft"))
+    grid.extend([
+        (1, 0.0, "kick", 0.9, "accent"),
+        (3, 0.0, "kick", 0.6, "normal"),
+        (5, 0.0, "kick", 0.7, "normal"),
+        (4, 0.0, "snare", 0.85, "accent"),
+        (2, 0.0, "tom_floor", 0.4, "normal"),
+        (6, 0.0, "tom_low", 0.45, "normal"),
+        (6, 0.5, "tom_floor", 0.5, "accent", "2:2"),
+        (1, 0.0, "crash_1", 0.35, "accent", "4:4"),
+    ])
+    return {
+        "name": "zona_lift_6_8",
+        "tags": ["zona", "jazz", "compound", "build", "chorus", "dynamics", "generative"],
+        "type": "probability",
+        "time_sig": (6, 8),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -2902,6 +3594,17 @@ CELLS = {cell["name"]: cell for cell in [
     _fill_linear_1bar(),
     # Phase 2 grooves
     _emoviolence_angular_breakdown(),
+    _noise_rock_floor_breakdown(),
+    _posthardcore_halftime_breakdown(),
+    _blackmetal_halftime_breakdown(),
+    _kidcrash_inverted_drive(),
+    _kidcrash_syncopated_groove(),
+    _kidcrash_tumble(),
+    _kidcrash_crash_wash(),
+    _prob_kidcrash_4_4(),
+    _lord_snow_twinkle_comp(),
+    _lord_snow_static_wall(),
+    _lord_snow_blast_lift(),
     _emoviolence_blast_crash(),
     _daitro_quiet_build(),
     _daitro_tremolo_drive(),
@@ -2939,14 +3642,12 @@ CELLS = {cell["name"]: cell for cell in [
     _driving_6_4(),
     # Probability grid cells
     _prob_faraquet_4_4(),
-    _prob_shellac_4_4(),
     _prob_posthardcore_4_4(),
     _prob_dbeat_4_4(),
     _prob_blast_4_4(),
     _prob_euro_screamo_4_4(),
     _prob_faraquet_7_8(),
     # Phase 3: Style palette expansion
-    _motorik_pulse(),
     _motorik_build(),
     _slint_explosion(),
     _athletic_angular(),
@@ -2998,6 +3699,21 @@ CELLS = {cell["name"]: cell for cell in [
     _fill_ascending_lift_4_4(),
     _fill_decrescendo_ebb_4_4(),
     _fill_ghost_ruff_snare_4_4(),
+    # Phase B: odd-meter fill language
+    _fill_drag_run_7_8(),
+    _fill_herta_waltz_3_4(),
+    _fill_ruff_roll_6_8(),
+    _fill_stop_cascade_5_4(),
+    _fill_ebb_6_4(),
+    # Zona: jazz drums on an emoviolence frame
+    _prob_jazz_comp_4_4(),
+    _zona_comp_7_8(),
+    _zona_broken_4_4(),
+    _euclid_zona_broken_4_4(),
+    _zona_bomb_blast_4_4(),
+    _zona_atmos_4_4(),
+    _zona_comp_6_8(),
+    _zona_lift_6_8(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
@@ -3050,6 +3766,8 @@ TAG_TO_POOLS = {
     "motorik": ["sonic_youth", "post_punk", "preoccupations", "dry_cleaning"],
     "post_punk": ["post_punk", "wipers", "preoccupations", "dry_cleaning", "shame"],
     "slint": ["slint", "noise_rock"],
+    "kidcrash": ["kidcrash"],
+    "lord_snow": ["lord_snow"],
     "athletic": ["drive_like_jehu", "q_and_not_u", "atdi", "blood_brothers", "posthardcore"],
     "krautrock": ["sonic_youth"],
     "sonic_youth": ["sonic_youth"],
@@ -3064,58 +3782,64 @@ TAG_TO_POOLS = {
 
 STYLE_POOLS = {
     "blast": ["blast_traditional", "emoviolence_blast_crash", "blast_7_8", "blast_5_4", "blast_3_4",
-              "prob_blast_4_4"],
-    "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4"],
-    "shellac": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
-                "prob_shellac_4_4"],
+              "prob_blast_4_4", "blackmetal_halftime_breakdown"],
+    "dbeat": ["dbeat_standard", "dbeat_7_8", "prob_dbeat_4_4", "posthardcore_halftime_breakdown"],
     "fugazi": ["fugazi_driving_chorus", "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
-               "prob_fugazi_4_4"],
+               "prob_fugazi_4_4", "posthardcore_halftime_breakdown"],
     "faraquet": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
-                 "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8"],
-    "raein": ["raein_melodic_drive", "raein_octopus_groove", "prob_raein_4_4"],
+                 "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8", "posthardcore_halftime_breakdown"],
+    "raein": ["raein_melodic_drive", "raein_octopus_groove", "prob_raein_4_4", "posthardcore_halftime_breakdown"],
     "posthardcore": ["fugazi_driving_chorus", "faraquet_displaced_4_4", "raein_melodic_drive",
                      "driving_7_8", "driving_5_4", "driving_3_4", "driving_6_8", "driving_6_4",
                      "faraquet_7_8", "faraquet_5_4", "waltz_punk",
                      "prob_posthardcore_4_4",
-                     "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
-    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8",
-                   "prob_shellac_4_4", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4"],
+                     "athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4", "posthardcore_halftime_breakdown"],
+    "noise_rock": ["shellac_floor_tom_drive", "shellac_7_8", "shellac_5_4", "shellac_3_4", "shellac_6_8", "unwound_dynamics", "prob_postpunk_4_4", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "screamo": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional", "city_of_caterpillar_build",
                 "prob_screamo_4_4", "euclid_skramz_surge_4_4"],
     "emoviolence": ["emoviolence_blast_crash", "emoviolence_angular_breakdown", "blast_traditional",
-                    "prob_emoviolence_4_4"],
+                    "prob_emoviolence_4_4", "city_of_caterpillar_build"],
     "math": ["faraquet_displaced_4_4", "faraquet_7_8", "faraquet_5_4",
-             "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8"],
+             "prob_faraquet_4_4", "prob_faraquet_7_8", "euclid_math_7_8", "posthardcore_halftime_breakdown"],
     "euro_screamo": ["daitro_tremolo_drive", "daitro_quiet_build", "daitro_blast_release", "raein_melodic_drive",
-                     "prob_euro_screamo_4_4", "city_of_caterpillar_build", "euclid_skramz_surge_4_4"],
-    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release", "prob_daitro_4_4"],
+                     "prob_euro_screamo_4_4", "city_of_caterpillar_build", "euclid_skramz_surge_4_4", "emoviolence_angular_breakdown"],
+    "daitro": ["daitro_quiet_build", "daitro_tremolo_drive", "daitro_blast_release", "prob_daitro_4_4", "emoviolence_angular_breakdown"],
     "liturgy": ["liturgy_burst_beat", "liturgy_pillar_stabs", "prob_liturgy_burst_4_4",
-                "euclid_blackmetal_pulse_4_4"],
+                "euclid_blackmetal_pulse_4_4", "blackmetal_halftime_breakdown"],
     "black_metal": ["liturgy_burst_beat", "blackmetal_atmospheric", "deafheaven_build_to_blast", "atmospheric_7_8",
-                    "euclid_blackmetal_pulse_4_4"],
+                    "euclid_blackmetal_pulse_4_4", "blackmetal_halftime_breakdown"],
     "deafheaven": ["deafheaven_build_to_blast", "blackmetal_atmospheric", "deafheaven_shimmer_blast",
-                   "prob_blackgaze_4_4"],
+                   "prob_blackgaze_4_4", "blackmetal_halftime_breakdown"],
     # Phase 3: Style palette expansion
-    "sonic_youth": ["motorik_pulse", "motorik_build", "prob_postpunk_4_4"],
-    "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4"],
-    "post_punk": ["postpunk_machine", "postpunk_busy", "motorik_pulse", "prob_postpunk_4_4"],
-    "wipers": ["postpunk_machine", "prob_postpunk_4_4"],
-    "preoccupations": ["postpunk_machine", "motorik_pulse", "prob_postpunk_4_4"],
-    "dry_cleaning": ["postpunk_machine", "motorik_pulse", "prob_postpunk_4_4"],
-    "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4"],
-    "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4"],
+    "sonic_youth": ["motorik_build", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "slint": ["motorik_build", "slint_explosion", "unwound_dynamics", "prob_slint_4_4", "noise_rock_floor_breakdown"],
+    "post_punk": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "wipers": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "preoccupations": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "dry_cleaning": ["postpunk_machine", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "shame": ["postpunk_machine", "postpunk_busy", "prob_postpunk_4_4", "noise_rock_floor_breakdown"],
+    "drive_like_jehu": ["athletic_angular", "postpunk_busy", "slint_explosion", "prob_angular_athletic_4_4", "posthardcore_halftime_breakdown"],
     "q_and_not_u": ["athletic_angular", "postpunk_busy", "prob_angular_athletic_4_4",
-                    "qanu_dancepunk", "prob_qanu_4_4"],
+                    "qanu_dancepunk", "prob_qanu_4_4", "posthardcore_halftime_breakdown"],
     "atdi": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
-             "atdi_relationship_groove", "prob_atdi_4_4"],
+             "atdi_relationship_groove", "prob_atdi_4_4", "posthardcore_halftime_breakdown"],
     "blood_brothers": ["postpunk_busy", "athletic_angular", "prob_angular_athletic_4_4",
-                       "atdi_relationship_groove", "prob_atdi_4_4"],
-    "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion", "euclid_noise_polymeter_4_4"],
+                       "atdi_relationship_groove", "prob_atdi_4_4", "posthardcore_halftime_breakdown"],
+    "unwound": ["unwound_dynamics", "postpunk_machine", "slint_explosion", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "city_of_caterpillar": ["city_of_caterpillar_build", "emoviolence_blast_crash", "emoviolence_angular_breakdown",
                             "prob_cityofcat_4_4"],
-    "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion", "euclid_noise_polymeter_4_4"],
+    "oxbow": ["unwound_dynamics", "shellac_floor_tom_drive", "slint_explosion", "euclid_noise_polymeter_4_4", "noise_rock_floor_breakdown"],
     "postrock": ["postrock_6_4", "blackmetal_atmospheric", "city_of_caterpillar_build",
-                 "motorik_build", "slint_explosion", "prob_postrock_6_4"],
+                 "motorik_build", "slint_explosion", "prob_postrock_6_4", "posthardcore_halftime_breakdown"],
+    # Zona: jazz-on-emoviolence. prob_jazz_comp FIRST — it anchors the pool
+    # and sets song-mode ghost clustering via the "jazz" tag (0.65).
+    "kidcrash": ["kidcrash_inverted_drive", "kidcrash_syncopated_groove", "kidcrash_tumble",
+                 "kidcrash_crash_wash", "prob_kidcrash_4_4", "posthardcore_halftime_breakdown"],
+    "lord_snow": ["lord_snow_twinkle_comp", "lord_snow_static_wall", "lord_snow_blast_lift",
+                  "emoviolence_angular_breakdown"],
+    "zona": ["prob_jazz_comp_4_4", "zona_comp_7_8", "zona_broken_4_4",
+             "euclid_zona_broken_4_4", "zona_bomb_blast_4_4", "zona_atmos_4_4",
+             "zona_comp_6_8", "zona_lift_6_8", "posthardcore_halftime_breakdown"],
 }
 
 def _integrate_user_cells_into_pools():
@@ -3142,7 +3866,10 @@ SECTION_PREFERENCES = {
     "intro": ["build", "sparse", "atmospheric", "quiet"],
     "build": ["build", "crescendo", "atmospheric"],
     "verse": ["driving", "groovy", "melodic"],
-    "chorus": ["driving", "intense", "accent"],
+    # "accent" was here and matched zero cells — a preference that reads
+    # nothing is invisible rot, so it is gone. See the vocabulary validator in
+    # test_drumgen.py, which now fails if any preference tag goes dead again.
+    "chorus": ["driving", "intense"],
     "drive": ["driving", "intense", "tremolo"],
     "blast": ["blast", "intense", "extreme"],
     "breakdown": ["breakdown", "halftime", "heavy", "slow"],
@@ -3185,17 +3912,45 @@ def get_pool(style):
     return [CELLS[name] for name in STYLE_POOLS[style_lower]]
 
 
-def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None):
+def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=None,
+                         next_section=None, prefer_generative=False):
     """Pick best cell from pool for a section type. Returns None for silence.
 
     Scoring: tags earlier in the preference list score higher (first pref = highest weight).
     Built-in cells get a +1 scoring bonus so they're preferred when equally matched.
     If requested_time_sig is given, prefer cells matching that time signature.
     If rng is provided, ties are broken randomly; otherwise the first match is used.
+
+    prefer_generative narrows EQUALLY-SCORING candidates to probability/euclidean
+    cells, so the dice keeps re-rolling a section without ever overriding what
+    the section actually asked for. It is a tiebreak, never a filter — see the
+    comment in assemble_arrangement for the bug that taught us the difference.
+
+    "fill" sections pick from role=="fill" cells library-wide (fills live
+    outside style pools by design), meter-filtered, preferring fills whose
+    into_<next_section> tag matches what comes next.
     """
     section_lower = section_type.lower()
     if section_lower == "silence":
         return None
+
+    if section_lower == "fill":
+        fills = get_fill_cells()
+        if requested_time_sig:
+            ts_match = [f for f in fills if tuple(f["time_sig"]) == tuple(requested_time_sig)]
+            if ts_match:
+                fills = ts_match
+        if not fills:
+            return None
+        # Prefer fills that lead into what's coming (into_* tags).
+        if next_section:
+            into_tag = f"into_{next_section.lower()}"
+            aimed = [f for f in fills if into_tag in f.get("tags", [])]
+            if aimed:
+                fills = aimed
+        if rng and len(fills) > 1:
+            return rng.choice(fills)
+        return fills[0]
 
     # Filter by time signature if requested
     if requested_time_sig:
@@ -3218,6 +3973,10 @@ def get_cell_for_section(pool_cells, section_type, requested_time_sig=None, rng=
         best_score = max(s for s, _ in scored)
         if best_score > 0:
             best_cells = [cell for score, cell in scored if score == best_score]
+            if prefer_generative and len(best_cells) > 1:
+                gen = [c for c in best_cells if c.get("type") in ("probability", "euclidean")]
+                if gen:
+                    best_cells = gen
             if rng and len(best_cells) > 1:
                 return rng.choice(best_cells)
             return best_cells[0]

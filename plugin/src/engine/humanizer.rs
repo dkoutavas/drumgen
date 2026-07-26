@@ -11,24 +11,27 @@ fn drift_profile(section_type: &str) -> Option<&'static str> {
         "verse" | "atmospheric" | "intro" | "quiet" | "outro" => Some("gradual_drag"),
         "chorus" | "blast" | "drive" => Some("constant_push"),
         "build" | "buildup" | "crescendo" => Some("gradual_push"),
-        "breakdown" | "half_time" => Some("constant_drag"),
+        "breakdown" | "halftime" => Some("constant_drag"),
         "fill" => Some("fill_rush"),
         _ => None,
     }
 }
 
-/// Tag → ghost clustering amount (0.0 = none, 1.0 = max).
+/// Tag → ghost clustering amount (0.0 = none, 1.0 = max). A table rather than
+/// a match so a test can walk the keys and prove each one still names a real
+/// cell tag — see the vocabulary validator in this file's tests.
+pub const CLUSTER_TAG_AMOUNTS: &[(&str, f64)] = &[
+    ("jazz", 0.65), ("comping", 0.65),
+    ("faraquet", 0.7), ("angular", 0.6), ("math", 0.6),
+    ("raein", 0.5), ("euro_screamo", 0.5), ("daitro", 0.5),
+    ("fugazi", 0.4), ("posthardcore", 0.4), ("driving", 0.4),
+    ("screamo", 0.3), ("emoviolence", 0.3),
+    ("shellac", 0.0), ("noise_rock", 0.0), ("blast", 0.0),
+    ("post_punk", 0.0), ("motorik", 0.0),
+];
+
 fn cluster_tag_amount(tag: &str) -> Option<f64> {
-    match tag {
-        "faraquet" => Some(0.7),
-        "angular" => Some(0.6),
-        "math" => Some(0.6),
-        "raein" | "euro_screamo" | "daitro" => Some(0.5),
-        "fugazi" | "posthardcore" | "driving" => Some(0.4),
-        "screamo" | "emoviolence" => Some(0.3),
-        "shellac" | "noise_rock" | "blast" | "post_punk" | "motorik" => Some(0.0),
-        _ => None,
-    }
+    CLUSTER_TAG_AMOUNTS.iter().find(|(t, _)| *t == tag).map(|(_, a)| *a)
 }
 
 /// Get ghost clustering amount for a cell based on its tags.
@@ -43,15 +46,25 @@ pub fn get_cluster_amount(tags: &[String]) -> f64 {
     }
 }
 
+/// Tag → inferred section type, in priority order. A table, not a chain of
+/// ifs, so a test can walk it: the "half_time" spelling sat here matching no
+/// cell at all, and a lookup that never fires is invisible by construction.
+pub const SECTION_TYPE_TAGS: &[(&str, &[&str])] = &[
+    ("blast", &["blast", "extreme"]),
+    ("build", &["build", "crescendo"]),
+    ("breakdown", &["breakdown", "halftime"]),
+    ("atmospheric", &["atmospheric", "sparse", "quiet"]),
+    ("drive", &["driving", "intense"]),
+    ("fill", &["fill"]),
+];
+
 /// Infer section type from cell tags for push/pull drift.
 pub fn infer_section_type(tags: &[String]) -> &'static str {
-    let has = |t: &str| tags.iter().any(|tag| tag == t);
-    if has("blast") || has("extreme") { return "blast"; }
-    if has("build") || has("crescendo") { return "build"; }
-    if has("breakdown") || has("half_time") { return "breakdown"; }
-    if has("atmospheric") || has("sparse") || has("quiet") { return "atmospheric"; }
-    if has("driving") || has("intense") { return "drive"; }
-    if has("fill") { return "fill"; }
+    for (section, triggers) in SECTION_TYPE_TAGS {
+        if triggers.iter().any(|t| tags.iter().any(|tag| tag == t)) {
+            return section;
+        }
+    }
     "verse"
 }
 
@@ -372,6 +385,65 @@ impl Humanizer {
         result.extend(ghosts);
         result.extend(new_ghosts);
         result
+    }
+}
+
+#[cfg(test)]
+mod vocabulary {
+    //! Tags are written as prose on cells and read as an enum here. Nothing
+    //! checked the intersection, which is how "half_time" sat in this file for
+    //! months while every cell was tagged "halftime" — a lookup that silently
+    //! never fired. Python has the mirror of these tests; this side needs its
+    //! own because the humanizer is hand-duplicated, not shared.
+    use super::*;
+    use crate::engine::cell_library::CellLibrary;
+    use std::collections::BTreeSet;
+
+    fn live_tags(lib: &CellLibrary) -> BTreeSet<String> {
+        // ALL cells, not just pooled ones: fills carry the `fill` tag and live
+        // outside style pools by design, so walking pools reports it dead.
+        lib.all_cells().flat_map(|c| c.tags.iter().cloned()).collect()
+    }
+
+    #[test]
+    fn every_humanizer_tag_names_a_real_cell_tag() {
+        let lib = CellLibrary::new();
+        let live = live_tags(&lib);
+
+        let dead_cluster: Vec<&str> = CLUSTER_TAG_AMOUNTS
+            .iter()
+            .map(|(t, _)| *t)
+            .filter(|t| !live.contains(*t))
+            .collect();
+        assert!(dead_cluster.is_empty(), "CLUSTER_TAG_AMOUNTS keys matching no cell: {dead_cluster:?}");
+
+        let dead_infer: Vec<&str> = SECTION_TYPE_TAGS
+            .iter()
+            .flat_map(|(_, tags)| tags.iter().copied())
+            .filter(|t| !live.contains(*t))
+            .collect();
+        assert!(dead_infer.is_empty(), "infer_section_type tags matching no cell: {dead_infer:?}");
+    }
+
+    #[test]
+    fn every_exported_section_preference_names_a_real_cell_tag() {
+        // The preferences ride into the plugin inside builtin.json, so a dead
+        // one is shipped data, not just a Python-side typo.
+        let lib = CellLibrary::new();
+        let live = live_tags(&lib);
+        let sections = [
+            "intro", "build", "verse", "chorus", "drive", "blast",
+            "breakdown", "atmospheric", "fill", "outro",
+        ];
+        let mut dead = Vec::new();
+        for sec in sections {
+            for tag in lib.section_preferences(sec) {
+                if !live.contains(tag) {
+                    dead.push(format!("{sec}:{tag}"));
+                }
+            }
+        }
+        assert!(dead.is_empty(), "exported section preferences matching no cell: {dead:?}");
     }
 }
 
