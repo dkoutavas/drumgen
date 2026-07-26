@@ -473,11 +473,39 @@ fn process_bar(
     };
     humanizer.humanize_amount = h_amount;
 
-    for hit in active_hits {
-        if hit.bar != cell_bar {
-            continue;
-        }
+    let bar_hits: Vec<&Hit> = active_hits.iter().filter(|h| h.bar == cell_bar).collect();
 
+    // Meter adapter. The bar's meter can differ from the cell's: a song-mode
+    // section keeps its declared meter while the fallback cell keeps its own
+    // beats. A 4/4 cell in a 6/4 bar covered beats 1-4 and left 5-6
+    // structurally silent in EVERY bar — audible as the arc "entering silence"
+    // under any forced non-4/4 meter. Vamp the head of the figure to fill the
+    // bar (what a drummer does when the riff is short of the bar), and clip
+    // hits past the barline (a wider cell used to bleed into the next bar).
+    // Deterministic, order-stable, consumes no RNG. Mirrors _process_bar.
+    let bar_beats = midi_math::get_time_sig_for_bar(bar_number, time_sig_list).0;
+    let cell_beats = cell.time_sig.0;
+    let adapted: Vec<Hit>;
+    let bar_hits: Vec<&Hit> = if cell_beats != bar_beats {
+        let mut hits: Vec<Hit> = bar_hits
+            .iter()
+            .filter(|h| h.beat <= bar_beats)
+            .map(|&h| h.clone())
+            .collect();
+        let mut shift = cell_beats;
+        while shift < bar_beats {
+            for h in bar_hits.iter().filter(|h| h.beat + shift <= bar_beats) {
+                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
+            }
+            shift += cell_beats;
+        }
+        adapted = hits;
+        adapted.iter().collect()
+    } else {
+        bar_hits
+    };
+
+    for hit in bar_hits {
         let mut abs_tick = midi_math::position_to_ticks(bar_number, hit.beat, hit.sub, time_sig_list, ppq);
 
         if swing > 0.0 {
@@ -1352,6 +1380,38 @@ mod tests {
         );
         assert!(!result.events.is_empty());
         assert_eq!(result.total_bars, 8);
+    }
+
+    /// A forced home meter wider than any cell the style owns must not leave
+    /// the tail of every bar silent. unwound has no 6/4 cell, so before the
+    /// meter adapter every 6/4 bar died after beat 4 — "the arc enters
+    /// silence" — the fallback 4/4 cell simply had no beats 5-6. The adapter
+    /// vamps the figure's head to fill the bar.
+    #[test]
+    fn forced_wide_meter_fills_the_whole_bar() {
+        let lib = CellLibrary::new();
+        let arr = "2:intro 4:verse 3:chorus 2:outro";
+        let res = assemble_arrangement(&lib, "unwound", arr, 140.0, (6, 4), Some(0.0), 0.0, 5, 0.25, true);
+        let bar_ticks = 6 * PPQ; // 6/4
+        let mut starved = Vec::new();
+        for bar in 0..11i64 {
+            let (lo, hi) = (bar * bar_ticks, (bar + 1) * bar_ticks);
+            let max_beat = res
+                .events
+                .iter()
+                .filter(|e| e.tick >= lo && e.tick < hi)
+                .map(|e| (e.tick - lo) / PPQ)
+                .max();
+            match max_beat {
+                Some(m) if m <= 3 => starved.push(bar + 1),
+                None => starved.push(bar + 1),
+                _ => {}
+            }
+        }
+        assert!(
+            starved.is_empty(),
+            "6/4 bars with nothing past beat 4: {starved:?}"
+        );
     }
 
     /// The GUI labels the viewed bar from this, so it must line up with the

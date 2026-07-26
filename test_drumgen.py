@@ -984,6 +984,28 @@ class TestLayerMode:
 class TestMixedMeters:
     """Test mixed meters in arrangement mode."""
 
+    def test_forced_wide_meter_fills_the_whole_bar(self):
+        """A forced home meter wider than any cell the style owns must not
+        leave the tail of every bar silent.
+
+        unwound has no 6/4 cell, so before the meter adapter every 6/4 bar
+        died after beat 4 — the fallback 4/4 cell simply had no beats 5-6,
+        heard as the arc "entering silence" for the extra beats. The adapter
+        vamps the figure's head to fill the bar.
+        """
+        from midi_engine import DEFAULT_PPQ
+        r = assemble_arrangement("unwound", "2:intro 4:verse 3:chorus 2:outro",
+                                 tempo=140, time_sig="6/4", seed=5,
+                                 humanize=0.0, generative=True)
+        bar_ticks = 6 * DEFAULT_PPQ
+        starved = []
+        for bar in range(11):
+            lo, hi = bar * bar_ticks, (bar + 1) * bar_ticks
+            beats = [(t - lo) // DEFAULT_PPQ for t, _, _ in r["events"] if lo <= t < hi]
+            if not beats or max(beats) <= 3:
+                starved.append(bar + 1)
+        assert not starved, f"6/4 bars with nothing past beat 4: {starved}"
+
     def test_parse_arrangement_default_time_sig(self):
         sections = parse_arrangement("4:verse 2:blast")
         assert len(sections) == 2

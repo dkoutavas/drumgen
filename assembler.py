@@ -4,7 +4,7 @@ import sys
 
 from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS, CELLS
 from humanizer import Humanizer, get_cluster_amount, infer_section_type
-from midi_engine import position_to_ticks, DEFAULT_PPQ
+from midi_engine import position_to_ticks, get_time_sig_for_bar, DEFAULT_PPQ
 
 
 # ── Layer mode constants ──────────────────────────────────────────────────────
@@ -408,10 +408,28 @@ def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
     saved = humanizer.humanize_amount
     humanizer.humanize_amount = h_amount
 
-    for hit_bar, beat, sub, instrument, vel_level in active_hits:
-        if hit_bar != cell_bar:
-            continue
+    bar_hits = [h for h in active_hits if h[0] == cell_bar]
 
+    # Meter adapter. The bar's meter can differ from the cell's: a song-mode
+    # section keeps its declared meter while the fallback cell keeps its own
+    # beats. A 4/4 cell in a 6/4 bar covered beats 1-4 and left 5-6
+    # structurally silent in EVERY bar — audible as the arc "entering silence"
+    # under any forced non-4/4 meter. Vamp the head of the figure to fill the
+    # bar (what a drummer does when the riff is short of the bar), and clip
+    # hits past the barline (a wider cell used to bleed into the next bar).
+    # Deterministic, order-stable, consumes no RNG.
+    bar_beats = get_time_sig_for_bar(bar_number, time_sig_list)[0]
+    cell_beats = active_cell.get("time_sig", (4, 4))[0]
+    if cell_beats != bar_beats:
+        adapted = [h for h in bar_hits if h[1] <= bar_beats]
+        shift = cell_beats
+        while shift < bar_beats:
+            adapted += [(b, beat + shift, s, i, v)
+                        for b, beat, s, i, v in bar_hits if beat + shift <= bar_beats]
+            shift += cell_beats
+        bar_hits = adapted
+
+    for hit_bar, beat, sub, instrument, vel_level in bar_hits:
         abs_tick = position_to_ticks(bar_number, beat, sub, time_sig_list, ppq)
 
         if swing > 0:
