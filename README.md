@@ -1,21 +1,21 @@
 # drumgen
 
-**A drum-part generator for labyrinthine heavy music.** Hand-authored rhythmic
-cells, assembled by seeded algorithms, humanized like a player — emitted live
+A drum-part generator for labyrinthine heavy music. Hand-authored rhythmic
+cells, assembled by seeded algorithms, humanized like a player, emitted live
 from a native VST3/CLAP plugin, or written to `.mid` from a CLI.
 
-**No AI. No model. No inference.** Every note traces back to a musical decision
+No AI. No model. No inference. Every note traces back to a musical decision
 someone made on purpose. This replaces the session drummer you don't have at
-your desk — not the composer, and not the drummer in the room.
+your desk. The composer stays you; so does the drummer in the room.
 
-Built for **Bitwig Studio on native Linux** + Ugritone drums. Targets
+Built for Bitwig Studio on native Linux + Ugritone drums. Targets
 screamo/emoviolence, post-hardcore, math rock, noise rock, post-rock,
 atmospheric black metal, and jazz-on-hardcore.
 
-→ **[PROJECT.md](PROJECT.md)** — purpose, beliefs, state, architecture, lessons
+→ [PROJECT.md](PROJECT.md), purpose, beliefs, state, architecture, lessons
 (read this to understand the project)
-→ **[BITWIG.md](BITWIG.md)** — plugin wiring, recording takes, yabridge
-→ **[NOTATION.md](NOTATION.md)** — handing charts to a human drummer
+→ [BITWIG.md](BITWIG.md), plugin wiring, recording takes, yabridge
+→ [NOTATION.md](NOTATION.md), handing charts to a human drummer
 
 ---
 
@@ -28,21 +28,21 @@ pip install -r requirements.txt
 cd plugin && ./build-linux.sh     # builds + installs to ~/.vst3 and ~/.clap
 ```
 
-Then in Bitwig: one instrument track, device chain = **drumgen → your drum
-sampler**, press play. (Restart Bitwig after reinstalling — the old `.so` stays
+Then in Bitwig: one instrument track, device chain = drumgen → your drum
+sampler, press play. (Restart Bitwig after reinstalling, the old `.so` stays
 in memory.)
 
 ### What the plugin gives you
 
 | Control | Does |
 |---|---|
-| **STYLE** | 29 genre pools — each produces a distinctly different beat |
-| **SONG** | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere) — a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
-| **DICE / SEED** | Re-roll the groove or the whole song. Same seed = same notes, forever |
-| **HUMANIZE / SWING** | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
-| **BARS / METER / FILL** | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
-| **Telegraph + horizon** | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead — so you can keep both hands on the guitar |
-| **SAVE .MID** | Writes the pattern to `~/drumgen_output/` — and renders a drum chart too, if you install the hook |
+| STYLE | 29 genre pools: each produces a distinctly different beat |
+| SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
+| DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
+| HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
+| BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
+| Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
+| SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
 
 ### Your own song forms
 
@@ -63,7 +63,7 @@ typo never silently becomes a mediocre song.
 ./scripts/install-notation-hook.sh    # once
 ```
 
-Now every **SAVE .MID** also writes a `.musicxml` next to it. Open it in
+Now every SAVE .MID also writes a `.musicxml` next to it. Open it in
 MuseScore 4 (free, native Linux) → export PDF: a real drum staff with ghost
 notes in parentheses, x-notehead cymbals, accents, and explicit meter changes.
 Details and the Guitar Pro verdict in [NOTATION.md](NOTATION.md).
@@ -114,14 +114,14 @@ documents the rhythmic vocabulary per genre.
 
 Three cell kinds:
 
-- **fixed** — exact hits, the same every time.
-- **probability grid** — each hit has a firing probability, re-realized per
+- fixed: exact hits, the same every time.
+- probability grid: each hit has a firing probability, re-realized per
   seed. Trig conditions (`A:B` pass ratios, `1st`, `last`, `pre`, `!pre`) give
   cells memory, so a figure can state itself and then answer itself.
-- **Euclidean** — per-limb `E(pulses, steps)` cycles that tile across bars
+- Euclidean: per-limb `E(pulses, steps)` cycles that tile across bars
   without resetting, so co-prime limbs phase for many bars.
 
-Generated bars are steered, not merely rolled: a syncopation guard keeps each
+Generated bars are steered rather than simply rolled. A syncopation guard keeps each
 bar inside the groove sweet spot, a tension envelope thickens the pattern as it
 progresses, and section dynamics give builds a real rise (velocity floor and
 density climbing together).
@@ -157,8 +157,8 @@ cd plugin && ./build-linux.sh            # build + install
 ```
 
 The engine is hand-duplicated: Python (`assembler.py`, `cell_library.py`,
-`humanizer.py`, `midi_engine.py`) and Rust (`plugin/src/engine/*.rs`). **Changes
-to engine logic must land in both.** Cells are data — edit `cell_library.py`,
+`humanizer.py`, `midi_engine.py`) and Rust (`plugin/src/engine/*.rs`). Changes
+to engine logic must land in both. Cells are data, edit `cell_library.py`,
 run `export_cells.py`. See [CLAUDE.md](CLAUDE.md) for conventions and
 [PROJECT.md](PROJECT.md) for the reasoning behind all of it.
 

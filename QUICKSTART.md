@@ -18,7 +18,7 @@ cd plugin && ./build-linux.sh      # → ~/.vst3/ and ~/.clap/
 
 Bitwig: Settings → Locations → make sure `~/.vst3` and `~/.clap` are scanned.
 
-> After reinstalling, **restart Bitwig** — the old plugin binary stays loaded
+> After reinstalling, restart Bitwig, the old plugin binary stays loaded
 > in memory otherwise.
 
 ## 3. Play
@@ -29,18 +29,18 @@ One instrument track, device chain in this order:
 drumgen  →  your drum sampler (e.g. Ugritone via yabridge)
 ```
 
-Press **play**. Notes flow downstream in the chain — no routing needed. drumgen
+Press play. Notes flow downstream in the chain — no routing needed. drumgen
 itself is silent by design; the sampler makes the sound.
 
 Then:
 
-- **STYLE** — pick a genre (posthardcore, screamo, zona, black_metal, …)
-- **SONG** — step past *Off* for a whole song skeleton (try **Skramz Arc**)
-- **DICE** — re-roll. Same SEED always gives the same notes back.
-- **SAVE .MID** — drops the pattern in `~/drumgen_output/`
+- STYLE: pick a genre (posthardcore, screamo, zona, black_metal, …)
+- SONG: step past *Off* for a whole song skeleton (try Skramz Arc)
+- DICE: re-roll. Same SEED always gives the same notes back.
+- SAVE .MID: drops the pattern in `~/drumgen_output/`
 
 Full wiring, recording takes to audio or MIDI clips, and yabridge notes:
-**[BITWIG.md](BITWIG.md)**.
+[BITWIG.md](BITWIG.md).
 
 ## 4. Optional: charts for your drummer
 
@@ -48,8 +48,8 @@ Full wiring, recording takes to audio or MIDI clips, and yabridge notes:
 ./scripts/install-notation-hook.sh
 ```
 
-Every SAVE .MID now also writes a `.musicxml` — open it in MuseScore 4 and
-export a PDF. See **[NOTATION.md](NOTATION.md)**.
+Every SAVE .MID now also writes a `.musicxml`, open it in MuseScore 4 and
+export a PDF. See [NOTATION.md](NOTATION.md).
 
 ## 5. Optional: your own song forms
 
@@ -78,5 +78,5 @@ General MIDI sounds, so it won't match your real kit.
 
 ---
 
-New here and want the reasoning, not just the buttons? Read
-**[PROJECT.md](PROJECT.md)**.
+New here and after the reasoning behind the buttons? Read
+[PROJECT.md](PROJECT.md).

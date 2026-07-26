@@ -1,7 +1,7 @@
 # Handing drum parts to a human drummer
 
 drumgen patterns become standard notation in two steps: a `.mid` you already
-have, and one command. The score is real drum-staff notation — ghost notes in
+have, and one command. The score is real drum-staff notation, ghost notes in
 parentheses, cymbals as x noteheads, accents marked, meter changes explicit.
 
 ## The pipeline
@@ -17,7 +17,7 @@ MuseScore 4  →  File → Export → PDF     (or headless, see below)
 ```
 
 That's it. The engine's entire vocabulary lives on a sixteenth grid, so the
-converter snaps the humanized timing back to the grid **losslessly** — the
+converter snaps the humanized timing back to the grid losslessly, the
 jitter is always well under half a sixteenth. No tuplet soup, nothing to
 clean up by hand.
 
@@ -26,7 +26,7 @@ clean up by hand.
 - Free, native Linux (AppImage), renders proper percussion staves.
 - Open the `.musicxml`, done. Batch/headless PDF:
   `MuseScore4 --export-to out.pdf in.musicxml`
-- **Do NOT import the .mid directly into MuseScore 4** — MS4 has no MIDI
+- Do NOT import the .mid directly into MuseScore 4: MS4 has no MIDI
   import panel (an MS3 feature not yet ported), and raw humanized MIDI
   becomes unreadable 32nd-note soup in any notation app. The `.musicxml` is
   the clean door.
@@ -41,13 +41,13 @@ clean up by hand.
 
 ## About that Guitar Pro 5 license
 
-Honest verdict: **GP5 is a file format now, not an application.** GP under
+Honest verdict: GP5 survives as a file format; the application is gone. GP under
 Wine is unsupported by Arobas and the community reports (sound engine breaks,
 freezes) haven't improved in a decade. If your drummer specifically wants a
-`.gp5` file: open the `.musicxml` in **TuxGuitar** (free, native Linux,
+`.gp5` file: open the `.musicxml` in TuxGuitar (free, native Linux,
 actively maintained) and export `.gp5` from there. Expect the notation to
-render less beautifully than MuseScore — TuxGuitar is a tab editor, not an
-engraver. For a chart a working drummer reads cold, send the MuseScore PDF.
+render less beautifully than MuseScore, which is an engraver where TuxGuitar
+is a tab editor. For a chart a working drummer reads cold, send the MuseScore PDF.
 
 ## Zero-command mode: the on-save hook
 
@@ -57,7 +57,7 @@ Run once:
 ./scripts/install-notation-hook.sh
 ```
 
-From then on, every **SAVE .MID** in the plugin also renders the `.musicxml`
+From then on, every SAVE .MID in the plugin also renders the `.musicxml`
 score next to it automatically (the save message shows `▸ score`). The hook
 is just `~/.config/drumgen/on_save` — an executable that receives the saved
 path; edit or delete it freely.
