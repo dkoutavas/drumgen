@@ -547,6 +547,12 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     # bars alternate instead of repeating one choice; when the top-scored set
     # is a single cell, fall back to all meter-matched fills for variety.
     fill_candidates = []
+    if fill_every > bars:
+        # The plugin extends its loop to lcm(bars, fill_every); the CLI keeps
+        # bars as an exact file length, so a fill that can't fire gets a warning.
+        print(f"Warning: --fill-every {fill_every} > --bars {bars} — "
+              f"no fill will fire (fills land on bar multiples of {fill_every})",
+              file=sys.stderr)
     if fill_every > 0:
         fill_cells = [f for f in get_fill_cells()
                       if tuple(f.get("time_sig", (4, 4))) == (num, den)]

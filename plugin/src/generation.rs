@@ -1,6 +1,14 @@
 use crate::engine::assembler::{self, AssembleResult};
 use crate::engine::cell_library::CellLibrary;
 
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+fn lcm(a: i32, b: i32) -> i32 {
+    a / gcd(a, b) * b
+}
+
 /// FNV-1a 64-bit — tiny deterministic hash for the style-name seed salt.
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -63,6 +71,17 @@ impl GenerationManager {
         // Adding keeps +1 on the seed as +1 on the rotation while still giving
         // every style its own offset into the stream.
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
+
+        // The looped pattern must CONTAIN the fill cycle. Fills fire at
+        // `bar % fill_every == 0`, so a 4-bar loop with FILL=Every 8 never
+        // reached bar 8: no fill ever played, and the telegraph counted
+        // 7..4 and wrapped with the loop. Extend the loop to the least
+        // common multiple: BARS is the figure length, FILL the cycle, the
+        // audible loop is both (4 bars @ Every 8 = the figure twice with a
+        // fill closing bar 8). Worst case (BARS 15, Every 8) is 120 bars —
+        // still millisecond generation. Plugin-boundary only: the CLI keeps
+        // bars as an exact file length.
+        let bars = if fill_every > 0 { lcm(bars, fill_every) } else { bars };
 
         // Vary floor is UNCONDITIONAL, matching Song Mode. Two reasons a press
         // can land on the same FIXED cell as the last one: a forced meter
@@ -452,6 +471,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn fill_cycle_longer_than_bars_extends_the_loop() {
+        // FILL=Every 8 with BARS=4: fills fire at bar % 8 == 0, which a 4-bar
+        // loop never reaches — no fill ever played and the telegraph counted
+        // "FILL IN 7..4" and wrapped. The loop must extend to lcm(bars, fill)
+        // so the cycle completes (user bug report, 2026-07-31).
+        let gen = GenerationManager::new();
+        let res = gen.generate(0, 0.0, 4, 1, 0.0, true, 120.0, (4, 4), 8);
+        assert_eq!(res.total_bars, 8, "4-bar figure @ Every 8 = an 8-bar loop");
+        let bar8_start = crate::engine::midi_math::calculate_bar_start_ticks(
+            8, &res.time_signatures, crate::engine::midi_math::PPQ,
+        );
+        assert!(
+            res.events.iter().any(|e| e.tick >= bar8_start),
+            "the fill bar must not be silent"
+        );
+        // Divisor and off cases stay untouched.
+        assert_eq!(gen.generate(0, 0.0, 8, 1, 0.0, true, 120.0, (4, 4), 4).total_bars, 8);
+        assert_eq!(gen.generate(0, 0.0, 4, 1, 0.0, true, 120.0, (4, 4), 0).total_bars, 4);
     }
 
     #[test]
