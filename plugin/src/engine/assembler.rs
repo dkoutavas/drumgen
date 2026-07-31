@@ -600,10 +600,16 @@ pub fn assemble(
             .expect("No cells available")
     };
 
-    // Meter truth: the loop's time signature is the CHOSEN cell's actual meter,
-    // not the requested one — otherwise the recorded MIDI's bar grid lies when a
-    // fallback picked a different-meter cell.
-    let (num, den) = cell.time_sig;
+    // Meter promise: a requested meter (forced param, or Auto resolved from the
+    // host transport) is what the pattern PLAYS IN, not a filter that can fall
+    // through. The old fallback stamped the cell's native meter, so Auto under
+    // a 3/4 host played honest 4/4 against the host's 3/4 grid — bars drifted
+    // apart and the GUI "truthfully" reported the wrong meter. Now the per-bar
+    // meter adapter in process_bar vamps/clips a fallback cell into the
+    // requested bar, exactly as song-mode sections already do (ear-verified).
+    // Mirrors Python assemble(), which has always stamped the requested meter.
+    // Only Auto with no host info ((0,0)) takes the cell's native meter.
+    let (num, den) = meter_filter.unwrap_or(cell.time_sig);
     let time_signatures = vec![TimeSigEntry {
         bar_start: 1,
         bar_end: bars,
@@ -1126,13 +1132,39 @@ mod tests {
     }
 
     #[test]
-    fn test_meter_truth_stamps_chosen_cell_meter() {
+    fn test_meter_promise_stamps_requested_meter() {
         let lib = CellLibrary::new();
-        // A 7/8 cell requested under 4/4 must still be stamped 7/8 (bar = 7*240),
-        // not the requested meter — otherwise the recorded MIDI's grid lies.
+        // A 7/8 cell requested under 4/4 is stamped 4/4 and ADAPTED (clipped)
+        // to the 4/4 bar — the requested meter is a promise, matching Python.
+        // The host's bar grid and the pattern must never disagree.
         let r = assemble(&lib, None, Some("driving_7_8"), 2, 120.0, (4, 4), Some(0.0), 0.0, 0, 0, 0.0, false);
-        assert_eq!(r.time_signatures[0].numerator, 7);
-        assert_eq!(r.time_signatures[0].denominator, 8);
+        assert_eq!(r.time_signatures[0].numerator, 4);
+        assert_eq!(r.time_signatures[0].denominator, 4);
+        let bar_ticks = 4 * crate::engine::midi_math::PPQ;
+        assert!(!r.events.is_empty());
+        assert!(
+            r.events.iter().all(|e| e.tick < 2 * bar_ticks),
+            "clipped 7/8 hits must stay inside the promised 4/4 bars"
+        );
+    }
+
+    #[test]
+    fn test_meter_promise_vamps_fallback_into_wider_bar() {
+        let lib = CellLibrary::new();
+        // kidcrash has no 3/4 cell — THE screenshot bug: Auto under a 3/4 host
+        // used to fall back to a native 4/4 pattern that fought the host grid.
+        // Now the fallback cell is adapted and the pattern is genuinely 3/4.
+        let r = assemble(&lib, Some("kidcrash"), None, 4, 120.0, (3, 4), Some(0.0), 0.0, 0, 1, 0.0, true);
+        assert_eq!(
+            (r.time_signatures[0].numerator, r.time_signatures[0].denominator),
+            (3, 4)
+        );
+        let bar_ticks = 3 * crate::engine::midi_math::PPQ;
+        assert!(!r.events.is_empty());
+        assert!(
+            r.events.iter().all(|e| e.tick < 4 * bar_ticks),
+            "adapted hits must stay inside the promised 3/4 bars"
+        );
     }
 
     #[test]

@@ -404,11 +404,14 @@ mod tests {
     }
 
     #[test]
-    fn meter_truth_across_styles_and_meters() {
-        // The pattern's time signature must describe the cell that is actually
-        // playing. When a style has no cell in the forced meter the engine
-        // falls back to another cell — and must then report THAT cell's meter,
-        // or the recorded MIDI's bar grid lies to the DAW.
+    fn meter_promise_across_styles_and_meters() {
+        // A requested meter (forced, or Auto resolved from the host transport)
+        // is a PROMISE: the stamped meter must equal it for every style, even
+        // when the pool has no cell in that meter (the fallback cell is
+        // adapted). Anything else plays against the host's bar grid — the
+        // "Auto shows 4/4 under a 3/4 host" screenshot bug. Only (0,0)
+        // (Auto with no host info) may take the cell's native meter. Every
+        // pattern must also be non-empty and fit its own grid.
         let gen = GenerationManager::new();
         let meters = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
 
@@ -421,21 +424,31 @@ mod tests {
                     "loop mode is a single meter for the whole pattern"
                 );
                 let got = (res.time_signatures[0].numerator, res.time_signatures[0].denominator);
-                // Requesting a meter is a FILTER, not a promise: if it matched,
-                // the stamped meter must be it; if it fell back, the stamp must
-                // still be a real meter and every event must fit the bar grid.
+                if meter != (0, 0) {
+                    assert_eq!(
+                        got, meter,
+                        "style {}: requested meter must be stamped",
+                        gen.style_name(i as usize).unwrap_or("?")
+                    );
+                } else {
+                    assert!(
+                        got.0 > 0 && (got.1 == 4 || got.1 == 8),
+                        "style {}: nonsense native meter {:?}",
+                        gen.style_name(i as usize).unwrap_or("?"), got
+                    );
+                }
                 let total = crate::engine::midi_math::total_pattern_ticks(
                     4, &res.time_signatures, crate::engine::midi_math::PPQ,
+                );
+                assert!(
+                    !res.events.is_empty(),
+                    "style {} meter {:?}: adapted pattern went silent",
+                    gen.style_name(i as usize).unwrap_or("?"), meter
                 );
                 assert!(
                     res.events.iter().all(|e| e.tick < total),
                     "style {} meter {:?}: event past the {}-tick grid",
                     gen.style_name(i as usize).unwrap_or("?"), meter, total
-                );
-                assert!(
-                    got.0 > 0 && (got.1 == 4 || got.1 == 8),
-                    "style {} meter {:?}: nonsense stamped meter {:?}",
-                    gen.style_name(i as usize).unwrap_or("?"), meter, got
                 );
             }
         }
