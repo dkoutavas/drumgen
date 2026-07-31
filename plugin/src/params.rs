@@ -1,6 +1,240 @@
+use nih_plug::params::persist::PersistentField;
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+
+use crate::worker::GenRequest;
+
+/// Pattern bank size. 16 slots = the MIDI notes 36..51 (a pad grid's bottom
+/// two rows) and the GUI's one-row-of-cells budget.
+pub const BANK_SLOTS: usize = 16;
+
+/// Lowest MIDI note that triggers a slot (C1); slot n = FIRST_TRIGGER_NOTE + n.
+pub const FIRST_TRIGGER_NOTE: u8 = 36;
+
+/// One stored bank slot: everything needed to regenerate its pattern.
+///
+/// Patterns themselves are never persisted — same seed + same params = the
+/// same notes, so a snapshot IS the pattern. Tempo is deliberately absent:
+/// patterns bake tempo (humanization is ms-based), so a slot re-generates at
+/// whatever the transport currently says.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct SlotSnapshot {
+    /// Style NAME, so a slot survives cells being added to the library (which
+    /// re-sorts the style list and shifts every index).
+    pub style_name: String,
+    /// Style index at store time — the fallback when the name is gone, and
+    /// the value the audio thread actually uses (it never touches the String).
+    pub style_index: i32,
+    pub humanize: f32,
+    pub bars: i32,
+    pub seed: i32,
+    pub swing: f32,
+    /// METER param INDEX (0 = Auto), not an effective meter: an Auto slot must
+    /// keep following the host after a reload.
+    pub meter: i32,
+    pub fill: i32,
+    pub song: i32,
+}
+
+impl SlotSnapshot {
+    /// The Copy projection the audio thread reads (no String, no allocation).
+    pub fn gen_part(&self) -> SlotGen {
+        SlotGen {
+            style: self.style_index,
+            humanize: self.humanize,
+            bars: self.bars,
+            seed: self.seed,
+            swing: self.swing,
+            meter: self.meter,
+            fill: self.fill,
+            song: self.song,
+        }
+    }
+}
+
+/// Copy-only slice of a slot, safe to memcpy off the bank mutex on the audio
+/// thread while the lock is held for a few nanoseconds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SlotGen {
+    pub style: i32,
+    pub humanize: f32,
+    pub bars: i32,
+    pub seed: i32,
+    pub swing: f32,
+    pub meter: i32,
+    pub fill: i32,
+    pub song: i32,
+}
+
+impl SlotGen {
+    /// Build a generation request for this slot. Mirrors
+    /// `ParamSnapshot::to_request` in lib.rs.
+    ///
+    /// ponytail: an Auto-meter slot bakes whatever host meter was in force when
+    /// it generated; a later host meter flip does not re-dirty slots. Upgrade
+    /// path: fold the host meter into the dirty check for Auto slots only.
+    pub fn to_request(&self, tempo: f32, host_meter: (i32, i32), generation: u64) -> GenRequest {
+        GenRequest {
+            style: self.style,
+            humanize: self.humanize as f64,
+            bars: self.bars,
+            seed: self.seed as u64,
+            swing: self.swing as f64,
+            generative: true,
+            tempo: tempo as f64,
+            meter: effective_meter(self.meter, host_meter),
+            fill_every: fill_of(self.fill),
+            song: self.song,
+            generation,
+        }
+    }
+}
+
+/// The persisted bank payload: 16 optional slots.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct BankState {
+    pub slots: Vec<Option<SlotSnapshot>>,
+}
+
+impl BankState {
+    pub fn empty() -> Self {
+        Self { slots: vec![None; BANK_SLOTS] }
+    }
+
+    /// Slot accessor that tolerates a short/long restored vector.
+    pub fn slot(&self, i: usize) -> Option<&SlotSnapshot> {
+        self.slots.get(i).and_then(|s| s.as_ref())
+    }
+
+    /// Bit i set = slot i holds a snapshot.
+    pub fn filled_mask(&self) -> u16 {
+        let mut m = 0u16;
+        for i in 0..BANK_SLOTS {
+            if self.slot(i).is_some() {
+                m |= 1 << i;
+            }
+        }
+        m
+    }
+}
+
+/// Repair a restored bank against the CURRENT style list and song table.
+///
+/// A project can outlive the library it was saved against: cells get added
+/// (re-sorting styles), a style gets deleted, songs.txt gets edited. Rules,
+/// in order of trust:
+///   1. style_name found in `styles` → use that index (names are the truth).
+///   2. name gone but style_index still in range → keep the index, refresh the
+///      name so the GUI stops showing a style that no longer exists.
+///   3. neither resolves → the slot is dropped (an empty pad beats a wrong one).
+/// Everything else is clamped into range: an out-of-range song (songs.txt
+/// shrank) falls back to Off rather than silently playing a different form.
+pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
+    let n_songs = n_songs() as i32;
+    let mut slots = vec![None; BANK_SLOTS];
+
+    for (i, dst) in slots.iter_mut().enumerate() {
+        let Some(s) = state.slot(i) else { continue };
+
+        let resolved = match styles.iter().position(|n| n == &s.style_name) {
+            Some(idx) => Some((idx as i32, s.style_name.clone())),
+            None => styles
+                .get(s.style_index as usize)
+                .map(|n| (s.style_index, n.clone())),
+        };
+        let Some((style_index, style_name)) = resolved else { continue };
+
+        *dst = Some(SlotSnapshot {
+            style_name,
+            style_index,
+            humanize: s.humanize.clamp(0.0, 1.0),
+            bars: s.bars.clamp(1, 16),
+            seed: s.seed.rem_euclid(10000),
+            swing: s.swing.clamp(0.0, 1.0),
+            meter: if (0..METERS.len() as i32).contains(&s.meter) { s.meter } else { 0 },
+            fill: if (0..FILLS.len() as i32).contains(&s.fill) { s.fill } else { 0 },
+            song: if (0..n_songs).contains(&s.song) { s.song } else { 0 },
+        });
+    }
+
+    BankState { slots }
+}
+
+/// Everything the pattern bank shares between the GUI, the audio thread and
+/// plugin state.
+///
+/// The bank is a PLAYBACK OVERLAY: it never writes params (the audio thread
+/// cannot — `ProcessContext` has no `set_parameter`), and any param tweak
+/// exits bank mode. Params stay the single editing surface.
+///
+/// Threading contract:
+///   - `state` is locked outright by the GUI thread and `try_lock`ed ONLY by
+///     the audio thread, which copies `SlotGen`s out and drops the guard
+///     immediately. A failed try_lock just delays a background pre-generation
+///     by one buffer.
+///   - the atomics are the realtime channel: `trigger` GUI→audio,
+///     `active`/`queued` audio→GUI, `epoch` bumped whenever `state` changes.
+pub struct BankShared {
+    pub state: Mutex<BankState>,
+    /// Bumped on every store/clear/state-restore; the audio thread watches it
+    /// to know a slot needs regenerating.
+    pub epoch: AtomicU32,
+    /// GUI → audio slot trigger, as slot+1 (0 = nothing pending). The audio
+    /// thread takes it with `swap(0)`.
+    pub trigger: AtomicI32,
+    /// Audio → GUI: currently playing slot, -1 = bank inactive.
+    pub active: AtomicI32,
+    /// Audio → GUI: slot queued for the next bar boundary, -1 = none.
+    pub queued: AtomicI32,
+    /// The style list this bank resolves names against. Set once at
+    /// construction, never mutated.
+    pub styles: Vec<String>,
+}
+
+impl BankShared {
+    pub fn new(styles: Vec<String>) -> Self {
+        Self {
+            state: Mutex::new(BankState::empty()),
+            epoch: AtomicU32::new(0),
+            trigger: AtomicI32::new(0),
+            active: AtomicI32::new(-1),
+            queued: AtomicI32::new(-1),
+            styles,
+        }
+    }
+
+    /// Lock the bank, ignoring poisoning (a panicked GUI frame must not brick
+    /// the bank for the rest of the session).
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, BankState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Mark the bank changed so the audio thread re-generates.
+    pub fn bump(&self) {
+        self.epoch.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Persist the bank with the plugin state. Restoring runs `sanitize_bank` (the
+/// library may have moved under the project) and bumps the epoch so the audio
+/// thread regenerates every restored slot.
+impl PersistentField<'_, BankState> for Arc<BankShared> {
+    fn set(&self, new_value: BankState) {
+        let sane = sanitize_bank(new_value, &self.styles);
+        *self.lock() = sane;
+        self.bump();
+    }
+
+    fn map<F, R>(&self, f: F) -> R
+    where
+        F: Fn(&BankState) -> R,
+    {
+        f(&self.lock())
+    }
+}
 
 /// Plugin parameters exposed to the DAW for automation.
 #[derive(Params)]
@@ -50,6 +284,11 @@ pub struct DrumgenParams {
     /// old window is lost once — accepted).
     #[persist = "editor-state-v2"]
     pub editor_state: Arc<EguiState>,
+
+    /// The 16-slot pattern bank. Snapshots only — patterns regenerate from
+    /// them, so a saved project restores the bank without storing any MIDI.
+    #[persist = "bank-v1"]
+    pub bank: Arc<BankShared>,
 }
 
 /// Editor window size (logical px). 720x440 fits the horizon strip (4 bars
@@ -295,6 +534,7 @@ impl DrumgenParams {
 
         // value_to_string maps the index to the genre name (also seen in the
         // host-generic UI, so even without the custom editor it never shows a bare int).
+        let bank = Arc::new(BankShared::new(style_names.clone()));
         let names = Arc::new(style_names);
         let names_fmt = names.clone();
         let style_fmt = Arc::new(move |v: i32| {
@@ -333,6 +573,8 @@ impl DrumgenParams {
                 .with_value_to_string(Arc::new(song_label)),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
+
+            bank,
         }
     }
 }
@@ -349,6 +591,123 @@ impl Default for DrumgenParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn styles() -> Vec<String> {
+        ["blast", "kidcrash", "posthardcore", "zona"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn snap(name: &str, index: i32) -> SlotSnapshot {
+        SlotSnapshot {
+            style_name: name.to_string(),
+            style_index: index,
+            humanize: 0.4,
+            bars: 4,
+            seed: 42,
+            swing: 0.0,
+            meter: 0,
+            fill: 2,
+            song: 0,
+        }
+    }
+
+    fn bank_with(slots: Vec<(usize, SlotSnapshot)>) -> BankState {
+        let mut b = BankState::empty();
+        for (i, s) in slots {
+            b.slots[i] = Some(s);
+        }
+        b
+    }
+
+    #[test]
+    fn bank_state_survives_a_serde_round_trip() {
+        // The bank is persisted as plugin state; a slot must come back byte-
+        // identical or a reopened project plays something else than it saved.
+        let bank = bank_with(vec![
+            (0, snap("kidcrash", 1)),
+            (7, SlotSnapshot { meter: 6, fill: 0, song: 3, ..snap("zona", 3) }),
+        ]);
+        let json = serde_json::to_string(&bank).expect("serializes");
+        let back: BankState = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(bank, back);
+        assert_eq!(back.filled_mask(), (1 << 0) | (1 << 7));
+    }
+
+    #[test]
+    fn sanitize_resolves_a_style_that_moved_in_the_list() {
+        // Adding cells re-sorts the style list, so a saved index points at a
+        // different genre. The NAME is the truth; the index gets rewritten.
+        let saved = bank_with(vec![(0, snap("zona", 0))]); // index 0 was zona once
+        let out = sanitize_bank(saved, &styles());
+        let s = out.slot(0).expect("slot survives");
+        assert_eq!(s.style_index, 3, "index re-resolved from the name");
+        assert_eq!(s.style_name, "zona");
+    }
+
+    #[test]
+    fn sanitize_falls_back_to_the_index_when_the_style_is_gone() {
+        // A deleted style (shellac) still has a usable index — keep playing
+        // something rather than dropping the slot, but refresh the label so
+        // the GUI never shows a genre that no longer exists.
+        let saved = bank_with(vec![(2, snap("shellac", 1))]);
+        let out = sanitize_bank(saved, &styles());
+        let s = out.slot(2).expect("slot survives via index");
+        assert_eq!(s.style_index, 1);
+        assert_eq!(s.style_name, "kidcrash");
+    }
+
+    #[test]
+    fn sanitize_drops_a_slot_that_resolves_to_nothing() {
+        // Name gone AND index out of range: an empty pad beats a wrong one.
+        let saved = bank_with(vec![(3, snap("shellac", 99))]);
+        assert!(sanitize_bank(saved, &styles()).slot(3).is_none());
+    }
+
+    #[test]
+    fn sanitize_clamps_every_out_of_range_field() {
+        // songs.txt shrinking must not leave a slot pointing at a form that
+        // no longer exists — it falls back to Off, not to a random song.
+        let wild = SlotSnapshot {
+            humanize: 4.0,
+            bars: 99,
+            seed: -5,
+            swing: -1.0,
+            meter: 42,
+            fill: 42,
+            song: 9999,
+            ..snap("blast", 0)
+        };
+        let out = sanitize_bank(bank_with(vec![(1, wild)]), &styles());
+        let s = out.slot(1).expect("clamped, not dropped");
+        assert_eq!((s.humanize, s.swing), (1.0, 0.0));
+        assert_eq!((s.bars, s.meter, s.fill, s.song), (16, 0, 0, 0));
+        assert!((0..10000).contains(&s.seed));
+    }
+
+    #[test]
+    fn restoring_the_bank_sanitizes_and_bumps_the_epoch() {
+        // The epoch bump is what makes the audio thread regenerate restored
+        // slots — without it a reopened project has snapshots but no patterns.
+        let shared = Arc::new(BankShared::new(styles()));
+        let before = shared.epoch.load(Ordering::Relaxed);
+        PersistentField::set(&shared, bank_with(vec![(0, snap("zona", 0))]));
+        assert_eq!(shared.lock().slot(0).expect("restored").style_index, 3);
+        assert_ne!(shared.epoch.load(Ordering::Relaxed), before);
+    }
+
+    #[test]
+    fn slot_gen_resolves_auto_meter_from_the_host() {
+        // An Auto slot must keep following the host after a reload; a forced
+        // slot must ignore the host entirely.
+        let auto = snap("blast", 0).gen_part();
+        assert_eq!(auto.to_request(120.0, (7, 8), 1).meter, (7, 8));
+        let forced = SlotSnapshot { meter: 1, ..snap("blast", 0) }.gen_part();
+        assert_eq!(forced.to_request(120.0, (7, 8), 1).meter, (3, 4));
+        // FILL index 2 = every 4 bars, not the literal index.
+        assert_eq!(auto.to_request(120.0, (4, 4), 1).fill_every, 4);
+    }
 
     #[test]
     fn dice_roll_is_a_full_permutation_with_no_fixed_points() {

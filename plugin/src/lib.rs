@@ -117,6 +117,24 @@ struct Drumgen {
     /// waits inline — nothing is audible, and a stale pattern would be baked in.
     offline: bool,
 
+    // ── pattern bank ──
+    /// Pre-generated pattern per slot, owned by the audio thread. Fixed array:
+    /// no allocation, and an `Arc` clone on a trigger is just a refcount bump.
+    slot_patterns: [Option<Arc<Pattern>>; params::BANK_SLOTS],
+    /// Bit i = slot i needs (re)generating. Set on an epoch change or a tempo
+    /// move; cleared as requests are accepted by the worker.
+    slot_dirty: u16,
+    /// Last bank epoch this thread acted on.
+    bank_epoch_seen: u32,
+    /// Slot currently playing, -1 = bank inactive (params drive playback).
+    active_slot: i32,
+    /// Slot waiting for the next bar boundary, -1 = none.
+    queued_slot: i32,
+    /// Absolute transport tick that the current pattern's bar 1 sits on.
+    /// Normally 0 (patterns are anchored to the timeline); a slot switch moves
+    /// it to the boundary so the new slot starts from ITS bar 1.
+    origin: f64,
+
     /// Number of styles, for the editor's Style picker wrap-around.
     n_styles: usize,
 }
@@ -174,9 +192,32 @@ impl Default for Drumgen {
             last_end_samples: None,
             sample_rate: 44100.0,
             offline: false,
+            slot_patterns: Default::default(),
+            slot_dirty: 0,
+            bank_epoch_seen: 0,
+            active_slot: -1,
+            queued_slot: -1,
+            origin: 0.0,
             n_styles,
         }
     }
+}
+
+/// Absolute transport tick of the first bar boundary strictly after `abs`.
+///
+/// `bar_starts` is pattern-relative (`[0] == 0`, last entry == total_ticks), so
+/// this maps the absolute position into the pattern via `origin`, finds the
+/// next bar start, and maps back. `rem_euclid` keeps it correct when the host
+/// plays before the origin (pre-roll reports negative positions, and a slot
+/// triggered mid-song sets an origin later than bar 1 of the timeline).
+fn next_bar_boundary(bar_starts: &[i64], origin: f64, abs: f64) -> f64 {
+    let total = bar_starts.last().copied().unwrap_or(1).max(1) as f64;
+    let rel = (abs - origin).rem_euclid(total);
+    // The first bar start strictly greater than `rel`; the terminal entry
+    // (== total_ticks) is the wrap back to bar 1, which is a real boundary.
+    let idx = bar_starts.partition_point(|&b| (b as f64) <= rel);
+    let next = bar_starts.get(idx).copied().unwrap_or(total as i64) as f64;
+    abs - rel + next
 }
 
 impl Drumgen {
@@ -209,6 +250,83 @@ impl Drumgen {
         }
     }
 
+    /// Leave bank mode: the params are the editing surface, so any tweak hands
+    /// playback back to them. Called from the change-detection paths.
+    fn exit_bank(&mut self) {
+        self.active_slot = -1;
+        self.queued_slot = -1;
+    }
+
+    /// Ask the worker to (re)generate every dirty slot.
+    ///
+    /// Audio-thread safe: `try_lock` only (a contended buffer just retries),
+    /// and each snapshot is copied out as a `SlotGen` — a plain memcpy that
+    /// never touches the `String` inside. Requests the worker refuses leave
+    /// their dirty bit set for the next buffer.
+    fn pump_slots(&mut self, tempo: f32, host_meter: (i32, i32)) {
+        if self.slot_dirty == 0 || self.offline {
+            return;
+        }
+        let Ok(bank) = self.params.bank.state.try_lock() else { return };
+
+        let mut gens: [Option<params::SlotGen>; params::BANK_SLOTS] = [None; params::BANK_SLOTS];
+        let mut empty = 0u16;
+        for i in 0..params::BANK_SLOTS {
+            if self.slot_dirty & (1 << i) == 0 {
+                continue;
+            }
+            match bank.slot(i) {
+                Some(s) => gens[i] = Some(s.gen_part()),
+                None => empty |= 1 << i,
+            }
+        }
+        drop(bank);
+
+        // A slot that was cleared drops its cached pattern (via the worker's
+        // bin — this thread must not run a free()).
+        for i in 0..params::BANK_SLOTS {
+            if empty & (1 << i) != 0 {
+                if let Some(old) = self.slot_patterns[i].take() {
+                    if let Some(w) = &self.worker {
+                        w.retire(old);
+                    }
+                }
+                self.slot_dirty &= !(1 << i);
+            }
+        }
+
+        for i in 0..params::BANK_SLOTS {
+            let Some(g) = gens[i] else { continue };
+            let gen_id = self.next_gen();
+            let req = g.to_request(tempo, host_meter, gen_id);
+            let sent = self
+                .worker
+                .as_ref()
+                .is_some_and(|w| w.request_slot(i as u8, req));
+            if sent {
+                self.slot_dirty &= !(1 << i);
+            } else {
+                // Queue full — stop here and retry from this slot next buffer.
+                break;
+            }
+        }
+    }
+
+    /// A slot's cached pattern, bounds-checked. Every index here comes off the
+    /// audio thread, where an out-of-range panic would take the DAW with it.
+    fn slot_at(&self, slot: i32) -> Option<Arc<Pattern>> {
+        usize::try_from(slot)
+            .ok()
+            .and_then(|i| self.slot_patterns.get(i))
+            .and_then(|p| p.clone())
+    }
+
+    /// Publish bank state for the GUI: two relaxed stores per buffer.
+    fn publish_bank(&self) {
+        self.params.bank.active.store(self.active_slot, Ordering::Relaxed);
+        self.params.bank.queued.store(self.queued_slot, Ordering::Relaxed);
+    }
+
     /// Emit note-offs for every sounding note and clear the active set.
     fn flush(active: &mut u128, context: &mut impl ProcessContext<Self>, timing: u32) {
         let mut a = *active;
@@ -234,7 +352,9 @@ impl Plugin for Drumgen {
     const EMAIL: &'static str = "";
     const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+    // Input exists purely to trigger bank slots (notes 36..51). Nothing is
+    // forwarded — the plugin's output is its own generated pattern.
+    const MIDI_INPUT: MidiConfig = MidiConfig::Basic;
     const MIDI_OUTPUT: MidiConfig = MidiConfig::MidiCCs;
 
     // Some DAWs require audio I/O for a plugin to load even if it is purely a
@@ -301,6 +421,14 @@ impl Plugin for Drumgen {
             self.worker = Some(worker);
         }
 
+        // Warm the bank: a restored project has snapshots but no patterns, and
+        // a slot with no pattern is a dead pad. Not the audio thread yet, so a
+        // plain lock is fine. ponytail: an offline render never warms the bank
+        // and bounces the params pattern — a bounce is not a jam, and blocking
+        // 16 generations inline would stall the render for no audible gain.
+        self.bank_epoch_seen = self.params.bank.epoch.load(Ordering::Relaxed);
+        self.slot_dirty = if self.offline { 0 } else { self.params.bank.lock().filled_mask() };
+
         nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
         true
     }
@@ -318,6 +446,25 @@ impl Plugin for Drumgen {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+        // 0. Drain MIDI input first — `next_event` borrows the context mutably,
+        // and the transport snapshot below borrows it too. Notes 36..51 queue a
+        // bank slot; everything else is consumed and dropped (this plugin has
+        // never forwarded its input).
+        let mut midi_trigger: Option<i32> = None;
+        while let Some(event) = context.next_event() {
+            if let NoteEvent::NoteOn { note, velocity, .. } = event {
+                // nih-plug velocity is 0.0..1.0; a zero-velocity NoteOn is a
+                // NoteOff in disguise and must not fire a slot.
+                let slot = note.wrapping_sub(params::FIRST_TRIGGER_NOTE) as usize;
+                if note >= params::FIRST_TRIGGER_NOTE
+                    && slot < params::BANK_SLOTS
+                    && velocity > 0.0
+                {
+                    midi_trigger = Some(slot as i32);
+                }
+            }
+        }
+
         // 1. Pick up any freshly generated pattern (audio-thread safe, drains to newest).
         // Anything this thread lets go of is handed to the worker's bin so the
         // free() happens over there — see GenWorker::retire.
@@ -327,12 +474,44 @@ impl Plugin for Drumgen {
                     w.retire(stale);
                 }
             }
+            // Bank deliveries are drained in full — unlike the live pattern,
+            // every slot matters, so nothing here is latest-wins.
+            while let Some((i, p)) = w.try_recv_slot() {
+                let i = i as usize;
+                if i >= params::BANK_SLOTS {
+                    continue;
+                }
+                if let Some(stale) = self.slot_patterns[i].replace(p) {
+                    w.retire(stale);
+                }
+            }
+        }
+        // A regenerated ACTIVE slot (tempo moved, or it was re-stored) takes
+        // over at once, keeping its origin so the phrase does not re-phase.
+        let mut bank_swapped = false;
+        if self.active_slot >= 0 {
+            let i = self.active_slot as usize;
+            if let Some(p) = self.slot_patterns.get(i).and_then(|p| p.as_ref()) {
+                if !Arc::ptr_eq(p, &self.current) {
+                    let fresh = p.clone();
+                    let stale = std::mem::replace(&mut self.current, fresh);
+                    if let Some(w) = &self.worker {
+                        w.retire(stale);
+                    }
+                    bank_swapped = true;
+                }
+            }
         }
         // Publish the newest pattern for the GUI. try_lock so the audio thread
         // never blocks on the editor; a contended buffer just retries next
-        // buffer.
+        // buffer. In bank mode the pending params pattern is NOT what is
+        // sounding, so the GUI must see `current` instead.
         {
-            let newest = self.pending.as_ref().unwrap_or(&self.current);
+            let newest = if self.active_slot >= 0 {
+                &self.current
+            } else {
+                self.pending.as_ref().unwrap_or(&self.current)
+            };
             let mut slot = match self.pattern_view.try_lock() {
                 Ok(v) => Some(v),
                 // Editor thread panicked while holding the guard: the data is
@@ -393,6 +572,13 @@ impl Plugin for Drumgen {
         // `requested` is only advanced when the worker ACCEPTED the request; a
         // dropped send (full queue) leaves it stale so the change is re-detected
         // and re-sent next buffer instead of silently ignored forever.
+        // A tweak of anything but tempo is the user reaching for the params, so
+        // playback goes back to them. Tempo alone must NOT exit: the host owns
+        // it, and a tempo ride should not silently kill the slot being jammed.
+        let knob_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
+            || (desired.swing - self.requested.swing).abs() > 1e-4;
+        let tempo_changed = (desired.tempo - self.requested.tempo).abs() > 1.0;
+
         let mut sent_now = false;
         if discrete_changed {
             let g = self.next_gen();
@@ -401,6 +587,7 @@ impl Plugin for Drumgen {
                 self.requested = desired;
                 self.settle_remaining = 0;
                 sent_now = true;
+                self.exit_bank();
             }
         } else if continuous_changed {
             if desired.changed(&self.last_desired) {
@@ -413,10 +600,46 @@ impl Plugin for Drumgen {
                 if sent {
                     self.requested = desired;
                     sent_now = true;
+                    if knob_changed {
+                        self.exit_bank();
+                    }
+                    if tempo_changed {
+                        // Patterns bake tempo (humanization is ms-based), so
+                        // every stored slot is now wrong. Empty bits clear
+                        // themselves in the pump.
+                        self.slot_dirty = u16::MAX;
+                    }
                 }
             }
         }
         self.last_desired = desired;
+
+        // 3b. Bank: a changed epoch means the GUI stored, cleared or restored a
+        // slot — re-generate everything rather than tracking which cell moved.
+        let epoch = self.params.bank.epoch.load(Ordering::Relaxed);
+        if epoch != self.bank_epoch_seen {
+            self.bank_epoch_seen = epoch;
+            self.slot_dirty = u16::MAX;
+        }
+        self.pump_slots(desired.tempo, host_meter);
+
+        // 3c. Trigger intake. A GUI click and a MIDI note are the same event;
+        // MIDI wins when both land in one buffer (the pads are the live surface).
+        let gui_trigger = self.params.bank.trigger.swap(0, Ordering::Relaxed);
+        let candidate = midi_trigger.or_else(|| {
+            (gui_trigger > 0).then(|| gui_trigger - 1)
+        });
+        if let Some(slot) = candidate {
+            let filled = self
+                .slot_patterns
+                .get(slot as usize)
+                .is_some_and(|p| p.is_some());
+            // An empty pad and a re-press of what is already playing both do
+            // nothing — silence would be a worse answer to a mis-hit pad.
+            if filled && slot != self.active_slot {
+                self.queued_slot = slot;
+            }
+        }
 
         // Offline render: this thread is not real time (the host is rendering
         // as fast as it can), so wait for the pattern we just asked for instead
@@ -432,12 +655,27 @@ impl Plugin for Drumgen {
                 Self::flush(&mut self.active, context, 0);
                 self.was_playing = false;
             }
-            if let Some(p) = self.pending.take() {
-                let stale = std::mem::replace(&mut self.current, p);
-                if let Some(w) = &self.worker {
-                    w.retire(stale);
+            // A slot armed while stopped applies at once — there is no bar to
+            // wait for, and it anchors to the timeline like any other pattern.
+            if self.queued_slot >= 0 {
+                if let Some(p) = self.slot_at(self.queued_slot) {
+                    let stale = std::mem::replace(&mut self.current, p);
+                    if let Some(w) = &self.worker {
+                        w.retire(stale);
+                    }
+                    self.active_slot = self.queued_slot;
+                    self.origin = 0.0;
+                }
+                self.queued_slot = -1;
+            } else if self.active_slot < 0 {
+                if let Some(p) = self.pending.take() {
+                    let stale = std::mem::replace(&mut self.current, p);
+                    if let Some(w) = &self.worker {
+                        w.retire(stale);
+                    }
                 }
             }
+            self.publish_bank();
             self.last_end_samples = None;
             silence_buffer(buffer);
             return ProcessStatus::Normal;
@@ -471,25 +709,69 @@ impl Plugin for Drumgen {
         // is dirty: the stop branch clears it, but a host that yanks the
         // transport (or a swap mid-buffer right before a stop) can leak a bit,
         // and a stuck drum note is silent-but-real state the sampler holds.
-        let mut need_flush = (discontinuity && !just_started) || (just_started && self.active != 0);
-        if let Some(p) = self.pending.take() {
-            let stale = std::mem::replace(&mut self.current, p);
-            if let Some(w) = &self.worker {
-                w.retire(stale);
+        let mut need_flush = (discontinuity && !just_started) || (just_started && self.active != 0)
+            || bank_swapped;
+        // In bank mode a freshly generated params pattern waits in `pending`:
+        // the slot is what the user asked to hear, and it takes over the moment
+        // a knob move exits bank mode.
+        if self.active_slot < 0 {
+            if let Some(p) = self.pending.take() {
+                let stale = std::mem::replace(&mut self.current, p);
+                if let Some(w) = &self.worker {
+                    w.retire(stale);
+                }
+                need_flush = true;
+                // Params patterns are anchored to the timeline, as before.
+                self.origin = 0.0;
             }
-            need_flush = true;
+        }
+
+        // 7b. Bank switch, quantized to the next bar of what is playing now.
+        // Recomputed every buffer (never latched) so a loop jump or locate
+        // cannot strand a queued slot on a boundary that no longer arrives.
+        let mut swap_timing = 0u32;
+        if self.queued_slot >= 0 {
+            let boundary = next_bar_boundary(&self.current.bar_starts, self.origin, abs_tick_start);
+            if boundary < abs_tick_start + buffer_ticks {
+                if let Some(p) = self.slot_at(self.queued_slot) {
+                    let stale = std::mem::replace(&mut self.current, p);
+                    if let Some(w) = &self.worker {
+                        w.retire(stale);
+                    }
+                    // The new slot's bar 1 lands exactly on the boundary.
+                    self.origin = boundary;
+                    self.active_slot = self.queued_slot;
+                    need_flush = true;
+                    // ponytail: the swap happens at buffer granularity, so the
+                    // outgoing bar loses up to one buffer (~5ms) of its tail and
+                    // the flush lands at the boundary's sample rather than
+                    // splitting the window. Upgrade path: two playback::scan
+                    // calls, one per pattern, split at `swap_timing`.
+                    swap_timing = (((boundary - abs_tick_start) * samples_per_tick) as i64)
+                        .clamp(0, num_samples.saturating_sub(1))
+                        as u32;
+                }
+                self.queued_slot = -1;
+            }
         }
         if need_flush {
-            Self::flush(&mut self.active, context, 0);
+            Self::flush(&mut self.active, context, swap_timing);
         }
+        self.publish_bank();
 
         // 8. Compute the buffer's pattern window against the (possibly new) pattern.
         let total_ticks = self.current.total_ticks.max(1);
-        let p0 = abs_tick_start.rem_euclid(total_ticks as f64);
+        // `origin` is where this pattern's bar 1 sits on the timeline. On the
+        // buffer a slot switch lands in, `abs - origin` is negative (the
+        // boundary is still ahead of the buffer start) — playback::scan handles
+        // a negative p0 and places bar 1's downbeat at its exact sample, so the
+        // kick on 1 is neither dropped nor early. Every other buffer wraps.
+        let raw = abs_tick_start - self.origin;
+        let p0 = if raw < 0.0 { raw } else { raw.rem_euclid(total_ticks as f64) };
 
         // Telegraph/cursor: publish the playhead tick. One relaxed store —
         // nothing else is allowed on this thread (the GUI derives the bar).
-        self.playhead_tick.store(p0.round() as i64, Ordering::Relaxed);
+        self.playhead_tick.store(p0.max(0.0).round() as i64, Ordering::Relaxed);
 
         // 9. Scan events into the reused scratch (no allocation after warmup).
         self.scratch.clear();
@@ -567,3 +849,61 @@ fn silence_buffer(buffer: &mut Buffer) {
 
 nih_export_vst3!(Drumgen);
 nih_export_clap!(Drumgen);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two 4/4 bars: starts at 0 and 1920, terminal entry at 3840.
+    const TWO_BARS: [i64; 3] = [0, 1920, 3840];
+
+    #[test]
+    fn boundary_is_the_next_bar_from_mid_bar() {
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 100.0), 1920.0);
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 2000.0), 3840.0);
+    }
+
+    #[test]
+    fn boundary_on_a_barline_is_the_following_bar() {
+        // Strictly after: a trigger that lands exactly on the downbeat waits
+        // for the NEXT one, otherwise the swap races the notes at that tick.
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 1920.0), 3840.0);
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 0.0), 1920.0);
+    }
+
+    #[test]
+    fn boundary_wraps_past_the_end_of_the_pattern() {
+        // Bar 2 of loop 1 must give the start of loop 2, not a tick inside it.
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 3900.0), 5760.0);
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, 7000.0), 7680.0);
+    }
+
+    #[test]
+    fn boundary_respects_a_nonzero_origin() {
+        // After a slot switch at tick 1920, the pattern's bars sit at 1920,
+        // 3840, ... — boundaries must follow the slot, not the timeline.
+        assert_eq!(next_bar_boundary(&TWO_BARS, 1920.0, 2000.0), 3840.0);
+        assert_eq!(next_bar_boundary(&TWO_BARS, 500.0, 600.0), 2420.0);
+    }
+
+    #[test]
+    fn boundary_handles_positions_before_the_origin() {
+        // Host pre-roll reports negative beats, and a slot triggered mid-song
+        // has an origin later than a locate back to the top.
+        assert_eq!(next_bar_boundary(&TWO_BARS, 0.0, -100.0), 0.0);
+        assert_eq!(next_bar_boundary(&TWO_BARS, 2000.0, -100.0), 80.0);
+        // Never returns a boundary at or before `abs`.
+        for abs in [-5000.0, -1.0, 0.0, 1.0, 1919.9, 12345.6] {
+            assert!(next_bar_boundary(&TWO_BARS, 777.0, abs) > abs, "abs {abs}");
+        }
+    }
+
+    #[test]
+    fn boundary_follows_a_mixed_meter_bar_map() {
+        // Song mode patterns change meter mid-pattern: 7/8 (1680) then 4/4.
+        let mixed = [0i64, 1680, 3600, 5520];
+        assert_eq!(next_bar_boundary(&mixed, 0.0, 10.0), 1680.0);
+        assert_eq!(next_bar_boundary(&mixed, 0.0, 1700.0), 3600.0);
+        assert_eq!(next_bar_boundary(&mixed, 0.0, 5000.0), 5520.0);
+    }
+}

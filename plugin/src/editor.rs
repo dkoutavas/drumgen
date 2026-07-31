@@ -308,6 +308,117 @@ fn telegraph(
     None
 }
 
+/// The bank's line: a queued slot outranks the section/fill countdown, because
+/// it is the thing the player just asked for. Pure — unit tested.
+fn telegraph_bank(queued: i32) -> Option<(String, bool)> {
+    (queued >= 0).then(|| (format!("▸ SLOT {} NEXT BAR", queued + 1), true))
+}
+
+/// The 16-slot pattern bank: store the current sound, trigger it later.
+///
+/// Reads the audio thread's `active`/`queued` atomics for display and writes
+/// `trigger` for a click. Storing locks the bank outright — this is the GUI
+/// thread, and the audio side only ever `try_lock`s.
+fn bank_row(
+    ui: &mut egui::Ui,
+    params: &DrumgenParams,
+    armed: &mut bool,
+    blink_on: bool,
+) {
+    let bank = &params.bank;
+    let active = bank.active.load(Ordering::Relaxed);
+    let queued = bank.queued.load(Ordering::Relaxed);
+
+    ui.horizontal(|ui| {
+        let store = ui
+            .add_sized(
+                [56.0, 24.0],
+                egui::Button::new(
+                    egui::RichText::new("STORE").color(if *armed { BG } else { TEXT }),
+                )
+                .fill(if *armed { ACCENT_B } else { PANEL }),
+            )
+            .on_hover_text("arm, then click a pad to capture the current sound into it");
+        if store.clicked() {
+            *armed = !*armed;
+        }
+
+        let filled_mask = bank.lock().filled_mask();
+        let mut store_into: Option<usize> = None;
+        let mut clear: Option<usize> = None;
+
+        for i in 0..params::BANK_SLOTS {
+            let filled = filled_mask & (1 << i) != 0;
+            let (rect, resp) = ui.allocate_exact_size(
+                egui::vec2(30.0, 24.0),
+                egui::Sense::click(),
+            );
+            let fill = if i as i32 == queued && blink_on {
+                ACCENT_B
+            } else if i as i32 == active {
+                ACCENT_A
+            } else if filled {
+                GRID_MID
+            } else {
+                PANEL
+            };
+            ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, fill);
+            // The pad number, dark on a lit pad so it stays readable.
+            let lit = fill == ACCENT_A || fill == ACCENT_B;
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{}", i + 1),
+                egui::FontId::new(8.0, egui::FontFamily::Proportional),
+                if lit { BG } else if filled { TEXT } else { DIM },
+            );
+
+            let resp = resp.on_hover_text(if *armed {
+                "click: store the current sound here"
+            } else {
+                "click: play from the next bar · right-click: clear"
+            });
+            if resp.clicked() {
+                if *armed {
+                    store_into = Some(i);
+                } else if filled {
+                    // slot+1, so 0 can mean "nothing pending".
+                    bank.trigger.store(i as i32 + 1, Ordering::Relaxed);
+                }
+            }
+            if resp.secondary_clicked() {
+                clear = Some(i);
+            }
+        }
+
+        if let Some(i) = store_into {
+            let style_index = params.style.value();
+            let snapshot = params::SlotSnapshot {
+                style_name: bank
+                    .styles
+                    .get(style_index as usize)
+                    .cloned()
+                    .unwrap_or_default(),
+                style_index,
+                humanize: params.humanize.value(),
+                bars: params.bars.value(),
+                seed: params.seed.value(),
+                swing: params.swing.value(),
+                meter: params.meter.value(),
+                fill: params.fill.value(),
+                song: params.song.value(),
+            };
+            bank.lock().slots[i] = Some(snapshot);
+            bank.bump();
+            *armed = false;
+        }
+        if let Some(i) = clear {
+            bank.lock().slots[i] = None;
+            bank.bump();
+        }
+    });
+}
+
 /// Horizon strip: the current bar and the next three, in miniature, with a
 /// moving playhead cursor — what's playing and what's coming, at a glance.
 /// When stopped, the strip starts at `start_bar` and shows no cursor.
@@ -506,6 +617,24 @@ mod tests {
     use crate::engine::midi_math::TimeSigEntry;
     use crate::pattern::MidiEvent;
 
+    #[test]
+    fn bank_telegraph_outranks_the_section_line() {
+        // Nothing queued: the bank stays out of the way entirely.
+        assert_eq!(telegraph_bank(-1), None);
+        // Queued: 1-based pad number, always hot.
+        assert_eq!(
+            telegraph_bank(6),
+            Some(("▸ SLOT 7 NEXT BAR".to_string(), true))
+        );
+        // It must win over a live section countdown — the pad press is the
+        // thing the player just did, and the swap is what happens next.
+        let sections = vec![("verse".to_string(), 4, "cell".to_string())];
+        let section_line = telegraph(&sections, 4, 1, 0);
+        assert!(section_line.is_some(), "the section line exists to be beaten");
+        let shown = telegraph_bank(0).or(section_line);
+        assert_eq!(shown.unwrap().0, "▸ SLOT 1 NEXT BAR");
+    }
+
     fn test_pattern(events: Vec<MidiEvent>) -> Pattern {
         Pattern {
             events,
@@ -686,6 +815,10 @@ struct UiState {
     /// Grid follow mode while the transport runs: 0 = MANUAL (pager), 1 = NOW
     /// (playhead bar), 2 = NEXT (upcoming bar — the jam default).
     follow: u8,
+    /// STORE is armed: the next pad click captures the current sound instead of
+    /// triggering. Deliberately not persisted — arming is a gesture, and a
+    /// project that reopened armed would eat the first pad press.
+    store_armed: bool,
 }
 
 impl UiState {
@@ -709,8 +842,10 @@ pub fn create(
             let pattern = pattern_view.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let ph_tick = playhead_tick.load(Ordering::Relaxed);
             // 16ms while playing (smooth cursor), lazy 100ms poll when stopped.
+            // A queued pad blinks, so it needs the fast rate even when stopped.
+            let queued_now = params.bank.queued.load(Ordering::Relaxed) >= 0;
             ctx.request_repaint_after(std::time::Duration::from_millis(
-                if ph_tick >= 0 { 16 } else { 100 },
+                if ph_tick >= 0 || queued_now { 16 } else { 100 },
             ));
 
             // ResizableWindow: same CentralPanel underneath (panel_fill == BG,
@@ -816,15 +951,22 @@ pub fn create(
 
                     ui.add_space(4.0);
 
+                    // The bank: 16 pads, stored sounds, triggered live.
+                    let blink_on = (ui.input(|i| i.time) * 4.0) as i64 % 2 == 0;
+                    bank_row(ui, &params, &mut ui_state.store_armed, blink_on);
+
+                    ui.add_space(4.0);
+
                     // Telegraph: what the drummer does next, readable mid-riff.
                     let ph_bar = ph_bar_of(ph_tick, &pattern);
                     let total_bars = pattern.bar_starts.len().saturating_sub(1).max(1);
-                    if let Some((line, hot)) = telegraph(
+                    let queued = params.bank.queued.load(Ordering::Relaxed);
+                    if let Some((line, hot)) = telegraph_bank(queued).or_else(|| telegraph(
                         &pattern.sections,
                         total_bars,
                         ph_bar,
                         params::fill_of(params.fill.value()),
-                    ) {
+                    )) {
                         ui.label(
                             egui::RichText::new(line)
                                 .color(if hot { ACCENT_A } else { ACCENT_B }),
