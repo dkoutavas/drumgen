@@ -79,7 +79,7 @@ fn encode_smf(pattern: &Pattern) -> Vec<u8> {
     out
 }
 
-fn output_dir() -> PathBuf {
+pub(crate) fn output_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))

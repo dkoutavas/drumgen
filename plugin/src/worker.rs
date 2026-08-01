@@ -7,15 +7,116 @@
 //! All handoffs use crossbeam channels (already a dependency). Latest-wins
 //! coalescing on both ends bounds worker load under param automation.
 
+use std::io::Write;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
-use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use crossbeam_channel::{bounded, Receiver, RecvTimeoutError, Sender, TrySendError};
 
 use crate::generation::GenerationManager;
 use crate::params::BANK_SLOTS;
 use crate::pattern::Pattern;
+
+/// A session event reported by the audio thread. Copy-only — no strings cross
+/// the RT boundary; the worker formats them into `~/drumgen_output/drumgen.log`
+/// so a jam session leaves a readable trace of what the plugin decided and why
+/// (field debugging happened via screenshots of a hex readout once; never again).
+#[derive(Clone, Copy, Debug)]
+pub enum LogEvent {
+    /// Transport started/stopped.
+    Playing(bool),
+    /// The host's reported time signature changed.
+    HostMeter(i32, i32),
+    /// A pad press arrived (MIDI or GUI) and was accepted into the queue or
+    /// ignored (empty pad / already active).
+    Trigger { slot: u8, midi: bool, accepted: bool },
+    /// The queued pad took over at a bar boundary; `origin` is the absolute
+    /// tick its bar 1 now sits on.
+    Swap { slot: u8, origin: i64 },
+    /// Bank mode ended: a knob (humanize/swing) or a discrete param tweak.
+    BankExit { knob: bool },
+    /// Slots marked for regeneration. cause: 0=store/clear/restore (epoch),
+    /// 1=tempo move, 2=host meter flip (Auto pads only), 3=plugin init.
+    Dirty { mask: u16, cause: u8 },
+}
+
+/// Append-only session log at `~/drumgen_output/drumgen.log`. Worker-thread
+/// only. Opens lazily; a failed open disables logging rather than the plugin.
+struct LogSink {
+    file: Option<std::io::BufWriter<std::fs::File>>,
+    start: Instant,
+}
+
+impl LogSink {
+    fn new() -> Self {
+        let path = crate::export::output_dir().join("drumgen.log");
+        let file = (|| {
+            std::fs::create_dir_all(crate::export::output_dir()).ok()?;
+            // ponytail: crude rotation — start fresh past 1 MB, else append.
+            let fresh = std::fs::metadata(&path).map(|m| m.len() > 1_000_000).unwrap_or(false);
+            let f = std::fs::OpenOptions::new()
+                .create(true)
+                .append(!fresh)
+                .truncate(fresh)
+                .write(true)
+                .open(&path)
+                .ok()?;
+            Some(std::io::BufWriter::new(f))
+        })();
+        if file.is_none() {
+            nih_plug::nih_log!("drumgen: cannot open {} — session logging disabled", path.display());
+        }
+        let mut sink = Self { file, start: Instant::now() };
+        sink.line(&format!("=== drumgen v{} session start ===", env!("CARGO_PKG_VERSION")));
+        sink
+    }
+
+    fn line(&mut self, s: &str) {
+        if let Some(f) = &mut self.file {
+            let t = self.start.elapsed().as_secs_f64();
+            let _ = writeln!(f, "[{t:8.2}s] {s}");
+        }
+    }
+
+    fn event(&mut self, ev: LogEvent) {
+        let s = match ev {
+            LogEvent::Playing(on) => format!("TRANSPORT {}", if on { "play" } else { "stop" }),
+            LogEvent::HostMeter(n, d) => format!("HOST METER {n}/{d}"),
+            LogEvent::Trigger { slot, midi, accepted } => format!(
+                "TRIGGER pad{} via {} — {}",
+                slot + 1,
+                if midi { "midi" } else { "click" },
+                if accepted { "queued" } else { "ignored (empty or already playing)" }
+            ),
+            LogEvent::Swap { slot, origin } => {
+                format!("SWAP -> pad{} (bar 1 anchored at tick {origin})", slot + 1)
+            }
+            LogEvent::BankExit { knob } => format!(
+                "BANK EXIT ({} tweak — params drive playback again)",
+                if knob { "knob" } else { "discrete" }
+            ),
+            LogEvent::Dirty { mask, cause } => format!(
+                "DIRTY {:04X} ({})",
+                mask,
+                match cause {
+                    0 => "bank edited",
+                    1 => "tempo moved",
+                    2 => "host meter flip: Auto pads re-bake",
+                    _ => "plugin init",
+                }
+            ),
+        };
+        self.line(&s);
+    }
+
+    fn flush(&mut self) {
+        if let Some(f) = &mut self.file {
+            let _ = f.flush();
+        }
+    }
+}
 
 /// A request to generate a new pattern. `generation` is a monotonic id copied
 /// onto the resulting `Pattern`.
@@ -47,6 +148,7 @@ pub struct GenWorker {
     pat_rx: Receiver<Arc<Pattern>>,
     slot_rx: Receiver<(u8, Arc<Pattern>)>,
     gc_tx: Sender<Arc<Pattern>>,
+    log_tx: Sender<LogEvent>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -59,14 +161,21 @@ impl GenWorker {
         let (pat_tx, pat_rx) = bounded::<Arc<Pattern>>(1);
         let (slot_tx, slot_rx) = bounded::<(u8, Arc<Pattern>)>(BANK_SLOTS);
         let (gc_tx, gc_rx) = bounded::<Arc<Pattern>>(8);
+        let (log_tx, log_rx) = bounded::<LogEvent>(128);
         // The worker keeps a clone of the pattern receiver purely to evict a
         // stale unclaimed pattern before publishing a fresh one (latest-wins).
         let pat_rx_evict = pat_rx.clone();
         let handle = thread::Builder::new()
             .name("drumgen-gen".into())
-            .spawn(move || worker_loop(gen, req_rx, pat_tx, pat_rx_evict, slot_tx, gc_rx))
+            .spawn(move || worker_loop(gen, req_rx, pat_tx, pat_rx_evict, slot_tx, gc_rx, log_rx))
             .expect("failed to spawn drumgen-gen worker");
-        Self { req_tx, pat_rx, slot_rx, gc_tx, handle: Some(handle) }
+        Self { req_tx, pat_rx, slot_rx, gc_tx, log_tx, handle: Some(handle) }
+    }
+
+    /// Audio-thread safe: report a session event for the log. Never blocks; a
+    /// full queue just drops the line (the log is a trace, not a ledger).
+    pub fn log(&self, ev: LogEvent) {
+        let _ = self.log_tx.try_send(ev);
     }
 
     /// Hand a retired pattern to the worker so the `free()` happens off the
@@ -193,12 +302,31 @@ fn worker_loop(
     pat_rx_evict: Receiver<Arc<Pattern>>,
     slot_tx: Sender<(u8, Arc<Pattern>)>,
     gc_rx: Receiver<Arc<Pattern>>,
+    log_rx: Receiver<LogEvent>,
 ) {
-    while let Ok(msg) = req_rx.recv() {
+    let mut sink = LogSink::new();
+
+    loop {
+        // Timeout wake so the session log flushes while the plugin idles —
+        // audio-thread events must reach the file within ~250ms, not at the
+        // next generation request.
+        let msg = match req_rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(m) => Some(m),
+            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Disconnected) => break,
+        };
+
         // Free any patterns the audio thread retired. They may sit in the bin
         // until the next request — bounded at 8, so that is just memory held,
         // not leaked.
         while gc_rx.try_recv().is_ok() {}
+        while let Ok(ev) = log_rx.try_recv() {
+            sink.event(ev);
+        }
+        let Some(msg) = msg else {
+            sink.flush();
+            continue;
+        };
 
         // Drain the whole queue into one batch: the LIVE request keeps
         // latest-wins (only the newest matters, the rest are already stale),
@@ -215,7 +343,11 @@ fn worker_loop(
                         *entry = Some(r);
                     }
                 }
-                Some(Msg::Shutdown) => return,
+                Some(Msg::Shutdown) => {
+                    sink.line("=== session end (shutdown) ===");
+                    sink.flush();
+                    return;
+                }
                 None => {}
             }
             match req_rx.try_recv() {
@@ -226,7 +358,9 @@ fn worker_loop(
 
         // Live first: it is what the user is hearing right now.
         if let Some(req) = live {
+            log_request(&mut sink, &gen, "live", &req);
             if let Some(pattern) = build_pattern(&gen, &req) {
+                log_built(&mut sink, "live", &pattern);
                 // Publish latest-wins: on a full slot, evict the stale pattern
                 // and retry.
                 let mut to_send = Arc::new(pattern);
@@ -248,7 +382,13 @@ fn worker_loop(
         // poll req_rx between slots and restart the batch on a live request.
         for i in 0..BANK_SLOTS {
             let Some(req) = slot_reqs[i] else { continue };
-            let Some(pattern) = build_pattern(&gen, &req) else { continue };
+            let label = format!("pad{}", i + 1);
+            log_request(&mut sink, &gen, &label, &req);
+            let Some(pattern) = build_pattern(&gen, &req) else {
+                sink.line(&format!("BUILD FAILED {label} (generation panicked — pad stays dirty)"));
+                continue;
+            };
+            log_built(&mut sink, &label, &pattern);
             match slot_tx.try_send((i as u8, Arc::new(pattern))) {
                 Ok(()) => {}
                 // A full slot channel means the audio thread has not drained in
@@ -258,7 +398,38 @@ fn worker_loop(
                 Err(TrySendError::Disconnected(_)) => return,
             }
         }
+        sink.flush();
     }
+    sink.line("=== session end (host dropped the queue) ===");
+    sink.flush();
+}
+
+/// One log line per generation request, with the style resolved to its name.
+fn log_request(sink: &mut LogSink, gen: &GenerationManager, label: &str, req: &GenRequest) {
+    let style = gen.style_name(req.style as usize).unwrap_or("?");
+    let meter = match req.meter {
+        (0, 0) => "auto".to_string(),
+        (n, d) => format!("{n}/{d}"),
+    };
+    sink.line(&format!(
+        "GEN {label}: {style} seed={} meter={meter} bars={} fill={} song={} tempo={:.0}",
+        req.seed, req.bars, req.fill_every, req.song, req.tempo
+    ));
+}
+
+/// One log line per finished pattern: what actually got built.
+fn log_built(sink: &mut LogSink, label: &str, p: &Pattern) {
+    let bars = p.bar_starts.len().saturating_sub(1);
+    let meters: Vec<String> = p
+        .time_signatures
+        .iter()
+        .map(|t| format!("{}/{}", t.numerator, t.denominator))
+        .collect();
+    sink.line(&format!(
+        "BUILT {label}: {bars} bars [{}] {} events",
+        meters.join(" "),
+        p.events.len()
+    ));
 }
 
 #[cfg(test)]

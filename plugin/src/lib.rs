@@ -37,23 +37,59 @@ struct ParamSnapshot {
     seed: i32,
     swing: f32,
     meter: (i32, i32),
+    /// The METER param INDEX the effective meter was resolved from. Kept so a
+    /// host time-signature flip (index unchanged, effective changed) can be
+    /// told apart from the user reaching for the METER stepper.
+    meter_index: i32,
     fill: i32,
     song: i32,
     tempo: f32,
 }
 
+/// What kind of change separates `desired` from `requested`, in priority
+/// order. Pure — the field bug it guards ("changing Bitwig's meter kicked the
+/// playing pad out of the bank") is pinned by tests.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ChangeKind {
+    None,
+    /// Humanize/swing/tempo — debounced by the settle timer.
+    Continuous,
+    /// The user touched a discrete param (style/bars/seed/fill/song/METER).
+    /// Regenerates immediately and exits bank mode.
+    UserDiscrete,
+    /// The HOST's time signature moved under an Auto meter. Regenerates
+    /// immediately but must NOT exit bank mode — the host is not the user,
+    /// and the playing pad survives (Auto pads re-bake to the new meter).
+    HostMeter,
+}
+
+fn classify_change(desired: &ParamSnapshot, requested: &ParamSnapshot) -> ChangeKind {
+    let user_discrete = desired.style != requested.style
+        || desired.bars != requested.bars
+        || desired.seed != requested.seed
+        || desired.meter_index != requested.meter_index
+        || desired.fill != requested.fill
+        || desired.song != requested.song;
+    if user_discrete {
+        return ChangeKind::UserDiscrete;
+    }
+    if desired.meter != requested.meter {
+        return ChangeKind::HostMeter;
+    }
+    let continuous = (desired.humanize - requested.humanize).abs() > 1e-4
+        || (desired.swing - requested.swing).abs() > 1e-4
+        // Tempo affects ms-based humanization; regenerate past a 1 BPM step.
+        || (desired.tempo - requested.tempo).abs() > 1.0;
+    if continuous {
+        ChangeKind::Continuous
+    } else {
+        ChangeKind::None
+    }
+}
+
 impl ParamSnapshot {
     fn changed(&self, o: &ParamSnapshot) -> bool {
-        self.style != o.style
-            || self.bars != o.bars
-            || self.seed != o.seed
-            || self.meter != o.meter
-            || self.fill != o.fill
-            || self.song != o.song
-            || (self.humanize - o.humanize).abs() > 1e-4
-            || (self.swing - o.swing).abs() > 1e-4
-            // Tempo affects ms-based humanization; regenerate past a 1 BPM step.
-            || (self.tempo - o.tempo).abs() > 1.0
+        classify_change(self, o) != ChangeKind::None
     }
 
     fn to_request(self, generation: u64) -> GenRequest {
@@ -124,6 +160,10 @@ struct Drumgen {
     /// Bit i = slot i needs (re)generating. Set on an epoch change or a tempo
     /// move; cleared as requests are accepted by the worker.
     slot_dirty: u16,
+    /// The current dirty pass regenerates only Auto-meter pads (a host meter
+    /// flip): forced pads' patterns are still valid and swapping in identical
+    /// notes would cost a needless flush. Cleared by any full-dirty cause.
+    dirty_auto_only: bool,
     /// Last bank epoch this thread acted on.
     bank_epoch_seen: u32,
     /// Slot currently playing, -1 = bank inactive (params drive playback).
@@ -154,6 +194,7 @@ impl Default for Drumgen {
             swing: params.swing.value(),
             // Host meter unknown before process(); Auto resolves to (0,0).
             meter: params::effective_meter(params.meter.value(), (0, 0)),
+            meter_index: params.meter.value(),
             fill: params.fill.value(),
             song: params.song.value(),
             tempo: 120.0,
@@ -194,6 +235,7 @@ impl Default for Drumgen {
             offline: false,
             slot_patterns: Default::default(),
             slot_dirty: 0,
+            dirty_auto_only: false,
             bank_epoch_seen: 0,
             active_slot: -1,
             queued_slot: -1,
@@ -203,27 +245,35 @@ impl Default for Drumgen {
     }
 }
 
-/// Plan one pump pass over the dirty mask: what to generate, what to drop.
-/// Split out of `pump_slots` so the decision is testable without a DAW —
-/// returns the per-slot requests to send and the mask of slots that are now
-/// empty (their cached patterns must be released). Pure.
+/// Plan one pump pass over the dirty mask: what to generate, what to drop,
+/// which of the dirty slots are Auto-meter. Split out of `pump_slots` so the
+/// decision is testable without a DAW — returns the per-slot requests, the
+/// mask of slots that are now empty (their cached patterns must be released),
+/// and the mask of dirty slots whose METER is Auto (a host meter flip
+/// regenerates only those). Pure.
 #[allow(clippy::type_complexity)]
 fn plan_pump(
     dirty: u16,
     bank: &params::BankState,
-) -> ([Option<params::SlotGen>; params::BANK_SLOTS], u16) {
+) -> ([Option<params::SlotGen>; params::BANK_SLOTS], u16, u16) {
     let mut gens: [Option<params::SlotGen>; params::BANK_SLOTS] = [None; params::BANK_SLOTS];
     let mut empty = 0u16;
+    let mut auto = 0u16;
     for i in 0..params::BANK_SLOTS {
         if dirty & (1 << i) == 0 {
             continue;
         }
         match bank.slot(i) {
-            Some(s) => gens[i] = Some(s.gen_part()),
+            Some(s) => {
+                gens[i] = Some(s.gen_part());
+                if s.meter == 0 {
+                    auto |= 1 << i;
+                }
+            }
             None => empty |= 1 << i,
         }
     }
-    (gens, empty)
+    (gens, empty, auto)
 }
 
 /// Absolute transport tick of the first bar boundary strictly after `abs`.
@@ -245,13 +295,15 @@ fn next_bar_boundary(bar_starts: &[i64], origin: f64, abs: f64) -> f64 {
 
 impl Drumgen {
     fn inputs(&self, tempo: f32, host_meter: (i32, i32)) -> ParamSnapshot {
+        let meter_index = self.params.meter.value();
         ParamSnapshot {
             style: self.params.style.value(),
             humanize: self.params.humanize.value(),
             bars: self.params.bars.value(),
             seed: self.params.seed.value(),
             swing: self.params.swing.value(),
-            meter: params::effective_meter(self.params.meter.value(), host_meter),
+            meter: params::effective_meter(meter_index, host_meter),
+            meter_index,
             fill: self.params.fill.value(),
             song: self.params.song.value(),
             tempo,
@@ -280,6 +332,13 @@ impl Drumgen {
         self.queued_slot = -1;
     }
 
+    /// Report a session event. Audio-thread safe (non-blocking try_send).
+    fn log(&self, ev: worker::LogEvent) {
+        if let Some(w) = &self.worker {
+            w.log(ev);
+        }
+    }
+
     /// Ask the worker to (re)generate every dirty slot.
     ///
     /// Audio-thread safe: `try_lock` only (a contended buffer just retries),
@@ -296,8 +355,14 @@ impl Drumgen {
             return;
         }
         let Ok(bank) = self.params.bank.state.try_lock() else { return };
-        let (gens, empty) = plan_pump(self.slot_dirty, &bank);
+        let (gens, empty, auto) = plan_pump(self.slot_dirty, &bank);
         drop(bank);
+
+        // Host-meter pass: only Auto pads regenerate; forced pads' dirty bits
+        // clear without a request (their patterns are still right).
+        if self.dirty_auto_only {
+            self.slot_dirty &= auto | empty;
+        }
 
         // A slot that was cleared drops its cached pattern (via the worker's
         // bin — this thread must not run a free()).
@@ -313,6 +378,10 @@ impl Drumgen {
         }
 
         for i in 0..params::BANK_SLOTS {
+            // A bit may have been cleared above (auto-only pass, empties).
+            if self.slot_dirty & (1 << i) == 0 {
+                continue;
+            }
             let Some(g) = gens[i] else { continue };
             let gen_id = self.next_gen();
             let req = g.to_request(tempo, host_meter, gen_id);
@@ -326,6 +395,9 @@ impl Drumgen {
                 // Queue full — stop here and retry from this slot next buffer.
                 break;
             }
+        }
+        if self.slot_dirty == 0 {
+            self.dirty_auto_only = false;
         }
     }
 
@@ -455,6 +527,10 @@ impl Plugin for Drumgen {
         // a restored project must accept a press before anything else happens.
         self.params.bank.stored.store(filled as u32, Ordering::Relaxed);
         self.slot_dirty = filled;
+        self.dirty_auto_only = false;
+        if filled != 0 {
+            self.log(worker::LogEvent::Dirty { mask: filled, cause: 3 });
+        }
 
         nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
         true
@@ -585,59 +661,84 @@ impl Plugin for Drumgen {
         // Discrete params (style/bars/seed/meter) regenerate IMMEDIATELY so the
         // dice and pickers feel instant. Only the continuous knobs (humanize/
         // swing) and tempo use the settle debounce to avoid a regen storm on drag.
-        let desired = self.inputs(tempo as f32, host_meter);
-        let discrete_changed = desired.style != self.requested.style
-            || desired.bars != self.requested.bars
-            || desired.seed != self.requested.seed
-            || desired.meter != self.requested.meter
-            || desired.fill != self.requested.fill
-            || desired.song != self.requested.song;
-        let continuous_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
-            || (desired.swing - self.requested.swing).abs() > 1e-4
-            || (desired.tempo - self.requested.tempo).abs() > 1.0;
-
+        //
         // `requested` is only advanced when the worker ACCEPTED the request; a
         // dropped send (full queue) leaves it stale so the change is re-detected
         // and re-sent next buffer instead of silently ignored forever.
-        // A tweak of anything but tempo is the user reaching for the params, so
-        // playback goes back to them. Tempo alone must NOT exit: the host owns
-        // it, and a tempo ride should not silently kill the slot being jammed.
+        let desired = self.inputs(tempo as f32, host_meter);
         let knob_changed = (desired.humanize - self.requested.humanize).abs() > 1e-4
             || (desired.swing - self.requested.swing).abs() > 1e-4;
         let tempo_changed = (desired.tempo - self.requested.tempo).abs() > 1.0;
 
         let mut sent_now = false;
-        if discrete_changed {
-            let g = self.next_gen();
-            let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
-            if sent {
-                self.requested = desired;
-                self.settle_remaining = 0;
-                sent_now = true;
-                self.exit_bank();
-            }
-        } else if continuous_changed {
-            if desired.changed(&self.last_desired) {
-                self.settle_remaining = self.settle_samples;
-            }
-            self.settle_remaining -= num_samples;
-            if self.settle_remaining <= 0 {
+        match classify_change(&desired, &self.requested) {
+            ChangeKind::UserDiscrete => {
                 let g = self.next_gen();
-                let sent = self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
+                let sent =
+                    self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
                 if sent {
                     self.requested = desired;
+                    self.settle_remaining = 0;
                     sent_now = true;
-                    if knob_changed {
-                        self.exit_bank();
+                    // The user reached for the params: playback goes back to them.
+                    if self.active_slot >= 0 || self.queued_slot >= 0 {
+                        self.log(worker::LogEvent::BankExit { knob: false });
                     }
-                    if tempo_changed {
-                        // Patterns bake tempo (humanization is ms-based), so
-                        // every stored slot is now wrong. Empty bits clear
-                        // themselves in the pump.
-                        self.slot_dirty = u16::MAX;
+                    self.exit_bank();
+                }
+            }
+            ChangeKind::HostMeter => {
+                // Bitwig moved its time signature. The live pattern follows it
+                // (immediately — a meter is a promise), but the HOST is not the
+                // user: the playing pad survives, and Auto pads regenerate so
+                // they re-bake to the new meter. Forced pads keep their
+                // patterns — regenerating them would swap in identical notes
+                // with a needless flush.
+                let g = self.next_gen();
+                let sent =
+                    self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
+                if sent {
+                    self.requested = desired;
+                    self.settle_remaining = 0;
+                    sent_now = true;
+                    self.slot_dirty = u16::MAX;
+                    self.dirty_auto_only = true;
+                    self.log(worker::LogEvent::HostMeter(desired.meter.0, desired.meter.1));
+                    self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 2 });
+                }
+            }
+            ChangeKind::Continuous => {
+                if desired.changed(&self.last_desired) {
+                    self.settle_remaining = self.settle_samples;
+                }
+                self.settle_remaining -= num_samples;
+                if self.settle_remaining <= 0 {
+                    let g = self.next_gen();
+                    let sent =
+                        self.worker.as_ref().is_some_and(|w| w.request(desired.to_request(g)));
+                    if sent {
+                        self.requested = desired;
+                        sent_now = true;
+                        if knob_changed {
+                            // A knob is the user; tempo alone is the host and
+                            // must not kill the slot being jammed.
+                            if self.active_slot >= 0 || self.queued_slot >= 0 {
+                                self.log(worker::LogEvent::BankExit { knob: true });
+                            }
+                            self.exit_bank();
+                        }
+                        if tempo_changed {
+                            // Patterns bake tempo (humanization is ms-based), so
+                            // every stored slot is now wrong. Empty bits clear
+                            // themselves in the pump.
+                            self.slot_dirty = u16::MAX;
+                            self.dirty_auto_only = false;
+                            self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 1 });
+                        }
                     }
                 }
             }
+            ChangeKind::None => {}
         }
         self.last_desired = desired;
 
@@ -647,6 +748,8 @@ impl Plugin for Drumgen {
         if epoch != self.bank_epoch_seen {
             self.bank_epoch_seen = epoch;
             self.slot_dirty = u16::MAX;
+            self.dirty_auto_only = false;
+            self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 0 });
         }
         self.pump_slots(desired.tempo, host_meter);
 
@@ -663,9 +766,15 @@ impl Plugin for Drumgen {
             let stored = self.params.bank.stored.load(Ordering::Relaxed) & (1 << slot) != 0;
             // An empty pad and a re-press of what is already playing both do
             // nothing — silence would be a worse answer to a mis-hit pad.
-            if stored && slot != self.active_slot {
+            let accepted = stored && slot != self.active_slot;
+            if accepted {
                 self.queued_slot = slot;
             }
+            self.log(worker::LogEvent::Trigger {
+                slot: slot as u8,
+                midi: midi_trigger.is_some(),
+                accepted,
+            });
         }
 
         // Offline render: this thread is not real time (the host is rendering
@@ -681,6 +790,7 @@ impl Plugin for Drumgen {
             if self.was_playing {
                 Self::flush(&mut self.active, context, 0);
                 self.was_playing = false;
+                self.log(worker::LogEvent::Playing(false));
             }
             // A slot armed while stopped applies at once — there is no bar to
             // wait for, and it anchors to the timeline like any other pattern.
@@ -693,6 +803,7 @@ impl Plugin for Drumgen {
                     self.active_slot = self.queued_slot;
                     self.origin = 0.0;
                     self.queued_slot = -1;
+                    self.log(worker::LogEvent::Swap { slot: self.active_slot as u8, origin: 0 });
                 }
                 // Still generating: stay queued rather than eating the press.
             } else if self.active_slot < 0 {
@@ -722,6 +833,9 @@ impl Plugin for Drumgen {
         // 6. Discontinuity (locate / loop jump): expected start == last buffer's end.
         let just_started = !self.was_playing;
         self.was_playing = true;
+        if just_started {
+            self.log(worker::LogEvent::Playing(true));
+        }
         let discontinuity = match (pos_samples, self.last_end_samples) {
             (Some(cur), Some(prev)) => (cur - prev).abs() > 8,
             _ => false,
@@ -779,6 +893,10 @@ impl Plugin for Drumgen {
                         .clamp(0, num_samples.saturating_sub(1))
                         as u32;
                     self.queued_slot = -1;
+                    self.log(worker::LogEvent::Swap {
+                        slot: self.active_slot as u8,
+                        origin: boundary as i64,
+                    });
                 }
                 // No pattern yet (still generating): stay queued and take the
                 // NEXT boundary. Dropping the press here is what made a pad
@@ -888,6 +1006,73 @@ mod tests {
     /// Two 4/4 bars: starts at 0 and 1920, terminal entry at 3840.
     const TWO_BARS: [i64; 3] = [0, 1920, 3840];
 
+    fn snap_444() -> ParamSnapshot {
+        ParamSnapshot {
+            style: 3,
+            humanize: 0.4,
+            bars: 4,
+            seed: 7,
+            swing: 0.0,
+            meter: (4, 4),
+            meter_index: 0, // Auto, resolved against a 4/4 host
+            fill: 2,
+            song: 1,
+            tempo: 168.0,
+        }
+    }
+
+    #[test]
+    fn host_meter_flip_is_not_a_user_tweak() {
+        // THE field bug: Bitwig 4/4 → 3/4 under METER=Auto changed the
+        // effective meter, which the old code read as a discrete tweak and
+        // used to kick the playing pad out of the bank. The flip must be its
+        // own kind so the pad survives and Auto pads re-bake.
+        let requested = snap_444();
+        let flipped = ParamSnapshot { meter: (3, 4), ..requested };
+        assert_eq!(classify_change(&flipped, &requested), ChangeKind::HostMeter);
+
+        // The user touching the METER stepper is a tweak, even when it lands
+        // on the same effective meter (Auto@4/4 host → forced 4/4).
+        let forced = ParamSnapshot { meter_index: 2, ..requested };
+        assert_eq!(classify_change(&forced, &requested), ChangeKind::UserDiscrete);
+
+        // And a user meter change WITH a different effective meter is still
+        // the user, not the host.
+        let forced34 = ParamSnapshot { meter_index: 1, meter: (3, 4), ..requested };
+        assert_eq!(classify_change(&forced34, &requested), ChangeKind::UserDiscrete);
+
+        // Knobs and tempo stay continuous; identical snapshots are None.
+        assert_eq!(
+            classify_change(&ParamSnapshot { tempo: 172.0, ..requested }, &requested),
+            ChangeKind::Continuous
+        );
+        assert_eq!(classify_change(&requested, &requested), ChangeKind::None);
+    }
+
+    #[test]
+    fn plan_pump_reports_which_dirty_slots_are_auto_meter() {
+        // A host meter flip regenerates ONLY Auto pads: forced pads' patterns
+        // are still valid, and swapping in identical notes costs a flush.
+        let mut bank = params::BankState::empty();
+        let auto_pad = params::SlotSnapshot {
+            style_name: "a".into(),
+            style_index: 0,
+            humanize: 0.4,
+            bars: 4,
+            seed: 1,
+            swing: 0.0,
+            meter: 0, // Auto
+            fill: 0,
+            song: 0,
+        };
+        bank.slots[0] = Some(auto_pad.clone());
+        bank.slots[1] = Some(params::SlotSnapshot { meter: 2, ..auto_pad }); // forced 4/4
+        let (gens, empty, auto) = plan_pump(u16::MAX, &bank);
+        assert!(gens[0].is_some() && gens[1].is_some());
+        assert_eq!(auto, 0b01, "only pad 1 follows the host");
+        assert_eq!(empty, u16::MAX & !0b11);
+    }
+
     /// Repro of the field failure (S0003 R0000): pads stored while SONG MODE
     /// was on never became ready. Slots whose snapshot carries song > 0 build
     /// through generate_arrangement — the first cycle test only covered loop
@@ -916,7 +1101,7 @@ mod tests {
         });
         bank.bump();
 
-        let (gens, _) = plan_pump(u16::MAX, &bank.lock());
+        let (gens, _, _) = plan_pump(u16::MAX, &bank.lock());
         let g = gens[1].expect("song-mode slot must produce a request");
         let worker = GenWorker::spawn(gen);
         assert!(worker.request_slot(1, g.to_request(168.0, (4, 4), 1)));
@@ -962,7 +1147,7 @@ mod tests {
         bank.bump();
 
         // What the audio thread does on the epoch change.
-        let (gens, empty) = plan_pump(u16::MAX, &bank.lock());
+        let (gens, empty, _) = plan_pump(u16::MAX, &bank.lock());
         assert!(gens[0].is_some(), "the stored slot must produce a request");
         assert_eq!(empty & 1, 0, "a filled slot is never treated as empty");
         assert_eq!(empty, u16::MAX - 1, "the other fifteen pads are empty");
