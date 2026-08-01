@@ -321,7 +321,6 @@ impl Drumgen {
                 .as_ref()
                 .is_some_and(|w| w.request_slot(i as u8, req));
             if sent {
-                self.params.bank.dbg_sent.fetch_add(1, Ordering::Relaxed);
                 self.slot_dirty &= !(1 << i);
             } else {
                 // Queue full — stop here and retry from this slot next buffer.
@@ -350,10 +349,6 @@ impl Drumgen {
         self.params.bank.ready.store(ready, Ordering::Relaxed);
         self.params.bank.active.store(self.active_slot, Ordering::Relaxed);
         self.params.bank.queued.store(self.queued_slot, Ordering::Relaxed);
-        self.params.bank.dbg_state.store(
-            self.slot_dirty as u32 | if self.offline { 1 << 16 } else { 0 },
-            Ordering::Relaxed,
-        );
     }
 
     /// Emit note-offs for every sounding note and clear the active set.
@@ -509,7 +504,6 @@ impl Plugin for Drumgen {
             // Bank deliveries are drained in full — unlike the live pattern,
             // every slot matters, so nothing here is latest-wins.
             while let Some((i, p)) = w.try_recv_slot() {
-                self.params.bank.dbg_recv.fetch_add(1, Ordering::Relaxed);
                 let i = i as usize;
                 if i >= params::BANK_SLOTS {
                     continue;

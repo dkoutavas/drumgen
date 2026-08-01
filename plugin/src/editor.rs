@@ -417,28 +417,6 @@ fn bank_row(
             }
         }
 
-        // Live bank state, straight from the atomics the audio thread writes.
-        // A pad that blinks forever is either missing its pattern (R bit clear)
-        // or never reaching a bar boundary (R bit set) — this says which.
-        let dbg = bank.dbg_state.load(Ordering::Relaxed);
-        ui.label(
-            egui::RichText::new(format!(
-                "S{:04X} R{:04X} A{} Q{} D{:04X}{} P{} V{}",
-                filled_mask,
-                ready,
-                active,
-                queued,
-                dbg & 0xFFFF,
-                if dbg & (1 << 16) != 0 { "!OFF" } else { "" },
-                bank.dbg_sent.load(Ordering::Relaxed),
-                bank.dbg_recv.load(Ordering::Relaxed),
-            ))
-            .color(DIM),
-        )
-        .on_hover_text(
-            "bank debug: Stored · Ready · Active · Queued · Dirty(!OFF = offline) · sent · received",
-        );
-
         if let Some(i) = store_into {
             let style_index = params.style.value();
             let snapshot = params::SlotSnapshot {

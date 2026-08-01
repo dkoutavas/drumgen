@@ -201,14 +201,6 @@ pub struct BankShared {
     /// The style list this bank resolves names against. Set once at
     /// construction, never mutated.
     pub styles: Vec<String>,
-
-    // ── field diagnostics (dev readout in the bank row; cheap relaxed stores) ──
-    /// Audio → GUI: current dirty mask + offline flag (bit 16).
-    pub dbg_state: AtomicU32,
-    /// Audio → GUI: total slot requests accepted by the worker.
-    pub dbg_sent: AtomicU32,
-    /// Audio → GUI: total slot patterns received from the worker.
-    pub dbg_recv: AtomicU32,
 }
 
 impl BankShared {
@@ -222,9 +214,6 @@ impl BankShared {
             ready: AtomicU32::new(0),
             stored: AtomicU32::new(0),
             styles,
-            dbg_state: AtomicU32::new(0),
-            dbg_sent: AtomicU32::new(0),
-            dbg_recv: AtomicU32::new(0),
         }
     }
 
