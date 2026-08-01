@@ -286,8 +286,13 @@ impl Drumgen {
     /// and each snapshot is copied out as a `SlotGen` — a plain memcpy that
     /// never touches the `String` inside. Requests the worker refuses leave
     /// their dirty bit set for the next buffer.
+    // NOTE: no offline gate here, on purpose. Bitwig reports the live engine
+    // as ProcessMode::Offline (observed in the field: the bank starved with
+    // DFFFF and zero sends while the transport was audibly running), and the
+    // pump is fire-and-forget try_sends anyway — nothing to protect a bounce
+    // from. `offline` gates only await_pending, which really blocks.
     fn pump_slots(&mut self, tempo: f32, host_meter: (i32, i32)) {
-        if self.slot_dirty == 0 || self.offline {
+        if self.slot_dirty == 0 {
             return;
         }
         let Ok(bank) = self.params.bank.state.try_lock() else { return };
@@ -316,6 +321,7 @@ impl Drumgen {
                 .as_ref()
                 .is_some_and(|w| w.request_slot(i as u8, req));
             if sent {
+                self.params.bank.dbg_sent.fetch_add(1, Ordering::Relaxed);
                 self.slot_dirty &= !(1 << i);
             } else {
                 // Queue full — stop here and retry from this slot next buffer.
@@ -344,6 +350,10 @@ impl Drumgen {
         self.params.bank.ready.store(ready, Ordering::Relaxed);
         self.params.bank.active.store(self.active_slot, Ordering::Relaxed);
         self.params.bank.queued.store(self.queued_slot, Ordering::Relaxed);
+        self.params.bank.dbg_state.store(
+            self.slot_dirty as u32 | if self.offline { 1 << 16 } else { 0 },
+            Ordering::Relaxed,
+        );
     }
 
     /// Emit note-offs for every sounding note and clear the active set.
@@ -442,15 +452,14 @@ impl Plugin for Drumgen {
 
         // Warm the bank: a restored project has snapshots but no patterns, and
         // a slot with no pattern is a dead pad. Not the audio thread yet, so a
-        // plain lock is fine. ponytail: an offline render never warms the bank
-        // and bounces the params pattern — a bounce is not a jam, and blocking
-        // 16 generations inline would stall the render for no audible gain.
+        // plain lock is fine. Warms even when the host claims Offline — Bitwig
+        // labels its LIVE engine that way (see pump_slots).
         self.bank_epoch_seen = self.params.bank.epoch.load(Ordering::Relaxed);
         let filled = self.params.bank.lock().filled_mask();
         // Republish which pads hold a snapshot: the trigger gate reads this, and
         // a restored project must accept a press before anything else happens.
         self.params.bank.stored.store(filled as u32, Ordering::Relaxed);
-        self.slot_dirty = if self.offline { 0 } else { filled };
+        self.slot_dirty = filled;
 
         nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
         true
@@ -500,6 +509,7 @@ impl Plugin for Drumgen {
             // Bank deliveries are drained in full — unlike the live pattern,
             // every slot matters, so nothing here is latest-wins.
             while let Some((i, p)) = w.try_recv_slot() {
+                self.params.bank.dbg_recv.fetch_add(1, Ordering::Relaxed);
                 let i = i as usize;
                 if i >= params::BANK_SLOTS {
                     continue;
@@ -883,6 +893,53 @@ mod tests {
 
     /// Two 4/4 bars: starts at 0 and 1920, terminal entry at 3840.
     const TWO_BARS: [i64; 3] = [0, 1920, 3840];
+
+    /// Repro of the field failure (S0003 R0000): pads stored while SONG MODE
+    /// was on never became ready. Slots whose snapshot carries song > 0 build
+    /// through generate_arrangement — the first cycle test only covered loop
+    /// mode, and the screenshots that caught this both had a song active.
+    #[test]
+    fn a_slot_stored_in_song_mode_still_delivers() {
+        use crate::generation::GenerationManager;
+        use crate::worker::GenWorker;
+
+        let gen = GenerationManager::new();
+        let styles = gen.style_names();
+        let euro = styles.iter().position(|s| s == "euro_screamo").unwrap_or(0);
+        let bank = params::BankShared::new(styles.clone());
+        // The user's exact stored state: euro_screamo, Verse/Chor, humanize
+        // 0.75, fill Every 8, host 4/4, seed 2521.
+        bank.lock().slots[1] = Some(params::SlotSnapshot {
+            style_name: styles[euro].clone(),
+            style_index: euro as i32,
+            humanize: 0.75,
+            bars: 4,
+            seed: 2521,
+            swing: 0.0,
+            meter: 0,
+            fill: 1,
+            song: 1, // Verse/Chor — the difference from the loop-mode test
+        });
+        bank.bump();
+
+        let (gens, _) = plan_pump(u16::MAX, &bank.lock());
+        let g = gens[1].expect("song-mode slot must produce a request");
+        let worker = GenWorker::spawn(gen);
+        assert!(worker.request_slot(1, g.to_request(168.0, (4, 4), 1)));
+
+        let mut got = None;
+        for _ in 0..2000 {
+            if let Some((i, p)) = worker.try_recv_slot() {
+                got = Some((i, p));
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let (i, p) = got.expect("song-mode slot pattern must be delivered — a silent panic here is the R0000 bug");
+        assert_eq!(i, 1);
+        assert!(!p.events.is_empty());
+        worker.shutdown();
+    }
 
     /// The full store → pump → worker → deliver → trigger cycle, minus the DAW.
     /// This is the path a pad click actually takes: if it breaks, every trigger
