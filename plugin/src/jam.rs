@@ -37,23 +37,44 @@ fn is_end_marker(byte: u8) -> bool {
     byte == JAM_END_STOP || byte == JAM_END_EXIT
 }
 
-/// The last unbroken run of pad switches, plus the tick it ended on.
+/// Every pad stretch of the pass, as `(anchor, slot, end)`.
 ///
-/// A pass can contain several runs: a param tweak drops out of bank mode
-/// (`JAM_END_EXIT`) and a later pad press starts a new one. Exporting the
-/// LAST run matches what "save the jam I just played" means.
-fn last_run(entries: &[(i64, u8)]) -> (Vec<(i64, u8)>, Option<i64>) {
-    // Trailing marker (if the run was closed) and where the pads stop.
-    let (body, end) = match entries.last() {
-        Some(&(tick, byte)) if is_end_marker(byte) => (&entries[..entries.len() - 1], Some(tick)),
-        _ => (entries, None),
-    };
-    let start = body
+/// The whole pass, not the last unbroken run: a param tweak mid-jam is a
+/// player exploring, not a decision to throw away everything played before it.
+/// An `JAM_END_EXIT` therefore ENDS that pad's stretch (the params were
+/// driving after it, which is not a pad and cannot be exported) and the next
+/// pad simply starts the next stretch. Gaps are closed up, so the file is the
+/// pads you played back to back, each cycling on its own meter — the cue sheet
+/// says when that happened.
+///
+/// `end` is `None` only for a final stretch the recorder never closed (the
+/// host died mid-pass); the caller falls back to one pass of the pattern.
+fn pass_stretches(entries: &[(i64, u8)]) -> Vec<(i64, usize, Option<i64>)> {
+    let mut out: Vec<(i64, usize, Option<i64>)> = Vec::new();
+    for (i, &(tick, byte)) in entries.iter().enumerate() {
+        if is_end_marker(byte) {
+            continue;
+        }
+        let slot = byte as usize;
+        if slot >= BANK_SLOTS {
+            continue;
+        }
+        // This stretch ends at whatever comes next — another pad, or a marker.
+        let end = entries.get(i + 1).map(|(t, _)| *t);
+        out.push((tick, slot, end));
+    }
+    out
+}
+
+/// Whether a pass dropped out of bank mode at least once (the cue sheet says
+/// so, because the exported timeline is then shorter than the performance).
+pub fn had_gaps(entries: &[(i64, u8)]) -> bool {
+    // An EXIT that is not the final marker means playing continued without a
+    // pad, and that stretch is not in the file.
+    entries
         .iter()
-        .rposition(|(_, b)| is_end_marker(*b))
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    (body[start..].to_vec(), end)
+        .enumerate()
+        .any(|(i, (_, b))| *b == JAM_END_EXIT && i + 1 < entries.len())
 }
 
 /// Meter of a pattern's bar `bar_idx` (0-based, wrapping).
@@ -71,12 +92,7 @@ pub fn stitch(
     entries: &[(i64, u8)],
     slots: &[Option<Arc<Pattern>>; BANK_SLOTS],
 ) -> Option<(Pattern, Vec<JamSegment>)> {
-    let (run, end_marker) = last_run(entries);
-    let run: Vec<(i64, usize)> = run
-        .into_iter()
-        .filter(|(_, b)| (*b as usize) < BANK_SLOTS)
-        .map(|(t, b)| (t, b as usize))
-        .collect();
+    let run = pass_stretches(entries);
     if run.is_empty() {
         return None;
     }
@@ -88,7 +104,7 @@ pub fn stitch(
     let mut per_bar_meters: Vec<(i32, i32)> = Vec::new();
     let mut segments: Vec<JamSegment> = Vec::new();
 
-    for (i, &(anchor, slot)) in run.iter().enumerate() {
+    for &(anchor, slot, end) in run.iter() {
         let Some(pat) = slots[slot].as_ref() else {
             // A pad cleared mid-pass has no notes to stitch. Close the jam
             // here: butting the next segment against the previous one would
@@ -99,14 +115,10 @@ pub fn stitch(
             break;
         }
 
-        // Where this pad stops sounding: the next switch, or the recorded end.
-        // With neither (the host died mid-pass) fall back to one full pass of
-        // the pattern — enough to make the file playable, never a fabricated
-        // arrangement.
-        let raw_end = match run.get(i + 1) {
-            Some(&(next, _)) => next,
-            None => end_marker.unwrap_or(anchor + pat.total_ticks),
-        };
+        // Where this pad stops sounding. With no recorded end (the host died
+        // mid-pass) fall back to one full pass of the pattern — enough to make
+        // the file playable, never a fabricated arrangement.
+        let raw_end = end.unwrap_or(anchor + pat.total_ticks);
         let span_raw = raw_end - anchor;
         if span_raw <= 0 {
             continue;
@@ -193,7 +205,9 @@ pub fn stitch(
         })
         .collect();
 
-    let first = slots[run[0].1].as_ref().expect("checked above");
+    // Tempo and seed name the take after the FIRST pad that actually made it
+    // into the file (an earlier one may have been cleared before the export).
+    let first = slots[segments[0].slot].as_ref().expect("segment implies a pattern");
     let pattern = Pattern {
         events: finalize_events(raw),
         total_ticks,
@@ -216,7 +230,12 @@ fn bar_idx_ticks(p: &Pattern, pat_bars: usize, idx: usize) -> i64 {
 }
 
 /// The hand-entry sheet: what to type into Bitwig's ruler, and what played.
-pub fn cue_sheet(segments: &[JamSegment], pattern: &Pattern, truncated: bool) -> String {
+pub fn cue_sheet(
+    segments: &[JamSegment],
+    pattern: &Pattern,
+    truncated: bool,
+    gaps: bool,
+) -> String {
     let bars = pattern.bar_starts.len().saturating_sub(1);
     let mut out = String::new();
     out.push_str(&format!(
@@ -231,6 +250,13 @@ pub fn cue_sheet(segments: &[JamSegment], pattern: &Pattern, truncated: bool) ->
     );
     if truncated {
         out.push_str("NOTE: the pass had more switches than the recorder holds; this is the last 64.\n");
+    }
+    if gaps {
+        out.push_str(
+            "NOTE: a param tweak left the bank mid-pass. Those stretches played the\n\
+             knob pattern, not a pad, so they are not here — the pads are butted\n\
+             together and this file is shorter than the performance.\n",
+        );
     }
 
     out.push_str("\nSEGMENTS\n");
@@ -373,23 +399,29 @@ mod tests {
     }
 
     #[test]
-    fn the_export_takes_the_last_run_only() {
-        // A param tweak drops out of bank mode mid-pass; pressing a pad again
-        // starts a new run. "Save the jam I just played" means the last one.
+    fn a_param_tweak_mid_pass_keeps_both_stretches() {
+        // A tweak mid-jam is a player exploring, not a decision to throw away
+        // what came before. Both pads survive; the tweak just ends the first
+        // one's stretch, and the gap where the knobs were driving is closed up
+        // (the cue sheet says so).
         let slots = bank(vec![
             (0, pad(1, 4, 4, 36, 1, "a")),
             (1, pad(1, 4, 4, 38, 2, "b")),
         ]);
         let entries = vec![
             (0, 0u8),
-            (BAR_4_4, JAM_END_EXIT),
-            (BAR_4_4 * 4, 1u8),
+            (BAR_4_4, JAM_END_EXIT), // pad A played exactly one bar
+            (BAR_4_4 * 4, 1u8),      // three bars of knob-driven playback, not exported
             (BAR_4_4 * 6, JAM_END_STOP),
         ];
         let (p, segs) = stitch(&entries, &slots).expect("stitches");
-        assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].slot, 1, "only the run after the exit");
-        assert_eq!(p.total_ticks, BAR_4_4 * 2);
+        assert_eq!(segs.len(), 2, "both stretches kept");
+        assert_eq!((segs[0].slot, segs[0].bars), (0, 1));
+        assert_eq!((segs[1].slot, segs[1].bars), (1, 2));
+        assert_eq!(segs[1].out_start_bar, 2, "butted against the first, no gap");
+        assert_eq!(p.total_ticks, BAR_4_4 * 3);
+        assert!(had_gaps(&entries), "the cue sheet must warn about the tweak");
+        assert!(!had_gaps(&[(0, 0u8), (BAR_4_4, JAM_END_STOP)]), "a clean pass has no gaps");
     }
 
     #[test]
@@ -400,6 +432,45 @@ mod tests {
         let (p, segs) = stitch(&[(500, 3u8)], &slots).expect("stitches");
         assert_eq!(segs[0].bars, 2, "exactly one pass of a 2-bar pad");
         assert_eq!(p.total_ticks, BAR_4_4 * 2);
+    }
+
+    #[test]
+    fn field_session_2026_08_01_lengths_match_what_was_played() {
+        // Replay of a real pass: five pad switches, a param tweak that ended
+        // that run, then one more pad held ~7.5 bars before stop. The export
+        // claimed 20 bars — a full pass of the pad's own pattern, i.e. the
+        // no-marker fallback — instead of the eight bars actually played.
+        let p3 = pad(20, 3, 4, 36, 6578, "noise_rock"); // 20-bar 3/4 song pad
+        let slots = bank(vec![
+            (1, pad(20, 4, 4, 38, 2821, "oxbow")),
+            (2, p3),
+            (3, pad(20, 7, 8, 40, 6578, "kidcrash")),
+            (5, pad(20, 7, 8, 42, 6578, "euro_screamo")),
+        ]);
+        let entries = vec![
+            (11520, 1u8),
+            (19200, 3u8),
+            (27600, 2u8),
+            (31920, 3u8),
+            (40320, 5u8),
+            (58464, JAM_END_EXIT),
+            (63360, 2u8),
+            (74256, JAM_END_STOP),
+        ];
+        let (_p, segs) = stitch(&entries, &slots).expect("stitches");
+        // Whole pass: all six pad stretches, not just the one after the tweak.
+        assert_eq!(segs.len(), 6, "every pad played this pass");
+        assert_eq!(
+            segs.last().unwrap().bars,
+            8,
+            "10896 ticks of 3/4 is 7.5 bars, rounded up to 8 — not a full 20-bar pass"
+        );
+        // And the exported lengths must match the ticks actually held, so the
+        // stitcher never silently substitutes a whole pattern pass.
+        let played: Vec<i32> = segs.iter().map(|s| s.bars).collect();
+        // 4/4 bars are 1920 ticks, 7/8 bars 1680, 3/4 bars 1440 — each stretch
+        // is its own held ticks divided by ITS meter, rounded up to a barline.
+        assert_eq!(played, vec![4, 5, 3, 5, 11, 8], "bars per stretch as performed");
     }
 
     #[test]
@@ -420,7 +491,7 @@ mod tests {
         let bar_7_8 = 7 * (PPQ * 4 / 8);
         let entries = vec![(0, 0u8), (BAR_4_4 * 2, 7u8), (BAR_4_4 * 2 + bar_7_8, JAM_END_STOP)];
         let (p, segs) = stitch(&entries, &slots).unwrap();
-        let sheet = cue_sheet(&segs, &p, false);
+        let sheet = cue_sheet(&segs, &p, false, false);
 
         assert!(sheet.contains("3 bars"), "header counts bars:\n{sheet}");
         assert!(sheet.contains("168 BPM"));
@@ -432,6 +503,6 @@ mod tests {
         let ruler = sheet.split("TIME SIGNATURES").nth(1).expect("ruler block");
         assert!(ruler.contains("bar   1: 4/4"), "{ruler}");
         assert!(ruler.contains("bar   3: 7/8"), "{ruler}");
-        assert!(cue_sheet(&segs, &p, true).contains("last 64"));
+        assert!(cue_sheet(&segs, &p, true, false).contains("last 64"));
     }
 }

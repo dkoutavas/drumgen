@@ -441,7 +441,12 @@ fn bank_row(
             let slots = bank.slot_view.lock().unwrap_or_else(|e| e.into_inner());
             *save_msg = match jam::stitch(&jam_entries, &slots) {
                 Some((pat, segs)) => {
-                    let cues = jam::cue_sheet(&segs, &pat, bank.jam.truncated());
+                    let cues = jam::cue_sheet(
+                        &segs,
+                        &pat,
+                        bank.jam.truncated(),
+                        jam::had_gaps(&jam_entries),
+                    );
                     match export::save_jam(&pat, &cues) {
                         Ok(path) => {
                             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");

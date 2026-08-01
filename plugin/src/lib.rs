@@ -355,9 +355,18 @@ impl Drumgen {
     /// without a musical anchor of their own, and a run left open would let
     /// the exporter stretch the last pad over material it never played.
     fn end_jam_run(&self, marker: u8) {
-        if self.active_slot >= 0 {
+        // Logged either way: a field export once fell back to a whole pattern
+        // pass because the closing marker was missing, and "did it push?" was
+        // not answerable from the log.
+        let pushed = self.active_slot >= 0;
+        if pushed {
             self.params.bank.jam.push(self.last_abs_tick as i64, marker);
         }
+        self.log(worker::LogEvent::JamEnd {
+            marker,
+            tick: self.last_abs_tick as i64,
+            pushed,
+        });
     }
 
     /// Sync the GUI's pattern mirror to `slot_patterns`.
@@ -606,7 +615,16 @@ impl Plugin for Drumgen {
         // never forwarded its input).
         let mut midi_trigger: Option<i32> = None;
         while let Some(event) = context.next_event() {
-            if let NoteEvent::NoteOn { note, velocity, .. } = event {
+            if let NoteEvent::NoteOn { note, velocity, channel, .. } = event {
+                // NEVER trigger from the drum channel. The pad range 36..51 is
+                // also the GM drum range this plugin EMITS, so a drum clip on
+                // the track — or drumgen's own output looped back — would fire
+                // pads on every kick and snare. Measured in the field: three
+                // unasked-for pattern swaps in two seconds. Pads come from a
+                // controller or the host's keyboard, which send on channel 1.
+                if channel == MIDI_CHANNEL {
+                    continue;
+                }
                 // nih-plug velocity is 0.0..1.0; a zero-velocity NoteOn is a
                 // NoteOff in disguise and must not fire a slot.
                 let slot = note.wrapping_sub(params::FIRST_TRIGGER_NOTE) as usize;
