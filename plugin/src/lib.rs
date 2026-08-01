@@ -203,6 +203,29 @@ impl Default for Drumgen {
     }
 }
 
+/// Plan one pump pass over the dirty mask: what to generate, what to drop.
+/// Split out of `pump_slots` so the decision is testable without a DAW —
+/// returns the per-slot requests to send and the mask of slots that are now
+/// empty (their cached patterns must be released). Pure.
+#[allow(clippy::type_complexity)]
+fn plan_pump(
+    dirty: u16,
+    bank: &params::BankState,
+) -> ([Option<params::SlotGen>; params::BANK_SLOTS], u16) {
+    let mut gens: [Option<params::SlotGen>; params::BANK_SLOTS] = [None; params::BANK_SLOTS];
+    let mut empty = 0u16;
+    for i in 0..params::BANK_SLOTS {
+        if dirty & (1 << i) == 0 {
+            continue;
+        }
+        match bank.slot(i) {
+            Some(s) => gens[i] = Some(s.gen_part()),
+            None => empty |= 1 << i,
+        }
+    }
+    (gens, empty)
+}
+
 /// Absolute transport tick of the first bar boundary strictly after `abs`.
 ///
 /// `bar_starts` is pattern-relative (`[0] == 0`, last entry == total_ticks), so
@@ -268,18 +291,7 @@ impl Drumgen {
             return;
         }
         let Ok(bank) = self.params.bank.state.try_lock() else { return };
-
-        let mut gens: [Option<params::SlotGen>; params::BANK_SLOTS] = [None; params::BANK_SLOTS];
-        let mut empty = 0u16;
-        for i in 0..params::BANK_SLOTS {
-            if self.slot_dirty & (1 << i) == 0 {
-                continue;
-            }
-            match bank.slot(i) {
-                Some(s) => gens[i] = Some(s.gen_part()),
-                None => empty |= 1 << i,
-            }
-        }
+        let (gens, empty) = plan_pump(self.slot_dirty, &bank);
         drop(bank);
 
         // A slot that was cleared drops its cached pattern (via the worker's
@@ -321,8 +333,15 @@ impl Drumgen {
             .and_then(|p| p.clone())
     }
 
-    /// Publish bank state for the GUI: two relaxed stores per buffer.
+    /// Publish bank state for the GUI: three relaxed stores per buffer.
     fn publish_bank(&self) {
+        let mut ready = 0u32;
+        for (i, p) in self.slot_patterns.iter().enumerate() {
+            if p.is_some() {
+                ready |= 1 << i;
+            }
+        }
+        self.params.bank.ready.store(ready, Ordering::Relaxed);
         self.params.bank.active.store(self.active_slot, Ordering::Relaxed);
         self.params.bank.queued.store(self.queued_slot, Ordering::Relaxed);
     }
@@ -427,7 +446,11 @@ impl Plugin for Drumgen {
         // and bounces the params pattern — a bounce is not a jam, and blocking
         // 16 generations inline would stall the render for no audible gain.
         self.bank_epoch_seen = self.params.bank.epoch.load(Ordering::Relaxed);
-        self.slot_dirty = if self.offline { 0 } else { self.params.bank.lock().filled_mask() };
+        let filled = self.params.bank.lock().filled_mask();
+        // Republish which pads hold a snapshot: the trigger gate reads this, and
+        // a restored project must accept a press before anything else happens.
+        self.params.bank.stored.store(filled as u32, Ordering::Relaxed);
+        self.slot_dirty = if self.offline { 0 } else { filled };
 
         nih_log!("drumgen v{} initialized (sr {})", Self::VERSION, buffer_config.sample_rate);
         true
@@ -630,13 +653,13 @@ impl Plugin for Drumgen {
             (gui_trigger > 0).then(|| gui_trigger - 1)
         });
         if let Some(slot) = candidate {
-            let filled = self
-                .slot_patterns
-                .get(slot as usize)
-                .is_some_and(|p| p.is_some());
+            // Gate on STORED, not on "the pattern has arrived": a press during
+            // the generation window must still take, or the pad looks dead for
+            // no visible reason. The swap below simply waits for the pattern.
+            let stored = self.params.bank.stored.load(Ordering::Relaxed) & (1 << slot) != 0;
             // An empty pad and a re-press of what is already playing both do
             // nothing — silence would be a worse answer to a mis-hit pad.
-            if filled && slot != self.active_slot {
+            if stored && slot != self.active_slot {
                 self.queued_slot = slot;
             }
         }
@@ -665,8 +688,9 @@ impl Plugin for Drumgen {
                     }
                     self.active_slot = self.queued_slot;
                     self.origin = 0.0;
+                    self.queued_slot = -1;
                 }
-                self.queued_slot = -1;
+                // Still generating: stay queued rather than eating the press.
             } else if self.active_slot < 0 {
                 if let Some(p) = self.pending.take() {
                     let stale = std::mem::replace(&mut self.current, p);
@@ -750,8 +774,11 @@ impl Plugin for Drumgen {
                     swap_timing = (((boundary - abs_tick_start) * samples_per_tick) as i64)
                         .clamp(0, num_samples.saturating_sub(1))
                         as u32;
+                    self.queued_slot = -1;
                 }
-                self.queued_slot = -1;
+                // No pattern yet (still generating): stay queued and take the
+                // NEXT boundary. Dropping the press here is what made a pad
+                // look dead — the press was real, it just had nothing to play.
             }
         }
         if need_flush {
@@ -856,6 +883,63 @@ mod tests {
 
     /// Two 4/4 bars: starts at 0 and 1920, terminal entry at 3840.
     const TWO_BARS: [i64; 3] = [0, 1920, 3840];
+
+    /// The full store → pump → worker → deliver → trigger cycle, minus the DAW.
+    /// This is the path a pad click actually takes: if it breaks, every trigger
+    /// is silently swallowed by the `filled` check and the pads look dead.
+    #[test]
+    fn a_stored_slot_becomes_a_triggerable_pattern() {
+        use crate::generation::GenerationManager;
+        use crate::worker::GenWorker;
+
+        let gen = GenerationManager::new();
+        let styles = gen.style_names();
+        let bank = params::BankShared::new(styles.clone());
+
+        // What the GUI does on STORE.
+        bank.lock().slots[0] = Some(params::SlotSnapshot {
+            style_name: styles[0].clone(),
+            style_index: 0,
+            humanize: 0.4,
+            bars: 4,
+            seed: 7,
+            swing: 0.0,
+            meter: 0,
+            fill: 2,
+            song: 0,
+        });
+        bank.bump();
+
+        // What the audio thread does on the epoch change.
+        let (gens, empty) = plan_pump(u16::MAX, &bank.lock());
+        assert!(gens[0].is_some(), "the stored slot must produce a request");
+        assert_eq!(empty & 1, 0, "a filled slot is never treated as empty");
+        assert_eq!(empty, u16::MAX - 1, "the other fifteen pads are empty");
+
+        let worker = GenWorker::spawn(gen);
+        for (i, g) in gens.iter().enumerate() {
+            let Some(g) = g else { continue };
+            assert!(worker.request_slot(i as u8, g.to_request(120.0, (4, 4), i as u64 + 1)));
+        }
+
+        // What the audio thread does when the worker delivers.
+        let mut slot_patterns: [Option<Arc<Pattern>>; params::BANK_SLOTS] = Default::default();
+        for _ in 0..2000 {
+            while let Some((i, p)) = worker.try_recv_slot() {
+                slot_patterns[i as usize] = Some(p);
+            }
+            if slot_patterns[0].is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+
+        // The gate every trigger passes through.
+        let filled = slot_patterns.first().is_some_and(|p| p.is_some());
+        assert!(filled, "a stored pad must end up holding a pattern, or it can never fire");
+        assert!(!slot_patterns[0].as_ref().unwrap().events.is_empty());
+        worker.shutdown();
+    }
 
     #[test]
     fn boundary_is_the_next_bar_from_mid_bar() {

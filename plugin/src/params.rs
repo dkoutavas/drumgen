@@ -189,6 +189,15 @@ pub struct BankShared {
     pub active: AtomicI32,
     /// Audio → GUI: slot queued for the next bar boundary, -1 = none.
     pub queued: AtomicI32,
+    /// Audio → GUI: bit i = the audio thread holds a generated pattern for slot
+    /// i. A stored pad is not playable until its pattern lands, and the GUI must
+    /// show that difference rather than claiming every stored pad is ready.
+    pub ready: AtomicU32,
+    /// GUI → audio: bit i = slot i holds a snapshot. The audio thread cannot
+    /// lock the bank on every buffer to find out, and gating triggers on the
+    /// PATTERN instead would silently swallow a press during the generation
+    /// window — a dead pad with no explanation.
+    pub stored: AtomicU32,
     /// The style list this bank resolves names against. Set once at
     /// construction, never mutated.
     pub styles: Vec<String>,
@@ -202,6 +211,8 @@ impl BankShared {
             trigger: AtomicI32::new(0),
             active: AtomicI32::new(-1),
             queued: AtomicI32::new(-1),
+            ready: AtomicU32::new(0),
+            stored: AtomicU32::new(0),
             styles,
         }
     }
@@ -212,8 +223,11 @@ impl BankShared {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Mark the bank changed so the audio thread re-generates.
+    /// Mark the bank changed so the audio thread re-generates, and republish
+    /// which pads hold a snapshot. Call after every store, clear or restore.
     pub fn bump(&self) {
+        let mask = self.lock().filled_mask() as u32;
+        self.stored.store(mask, Ordering::Relaxed);
         self.epoch.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -684,6 +698,28 @@ mod tests {
         assert_eq!((s.humanize, s.swing), (1.0, 0.0));
         assert_eq!((s.bars, s.meter, s.fill, s.song), (16, 0, 0, 0));
         assert!((0..10000).contains(&s.seed));
+    }
+
+    #[test]
+    fn storing_publishes_the_pad_mask_the_trigger_gate_reads() {
+        // The audio thread gates a press on `stored`, not on "the pattern
+        // arrived" — a press during the generation window must take, or the pad
+        // is dead with no explanation. That only works if every store/clear
+        // republishes the mask.
+        let bank = BankShared::new(styles());
+        assert_eq!(bank.stored.load(Ordering::Relaxed), 0);
+
+        bank.lock().slots[0] = Some(snap("kidcrash", 1));
+        bank.bump();
+        assert_eq!(bank.stored.load(Ordering::Relaxed), 1, "pad 1 is triggerable");
+
+        bank.lock().slots[3] = Some(snap("zona", 3));
+        bank.bump();
+        assert_eq!(bank.stored.load(Ordering::Relaxed), 0b1001);
+
+        bank.lock().slots[0] = None;
+        bank.bump();
+        assert_eq!(bank.stored.load(Ordering::Relaxed), 0b1000, "a cleared pad stops firing");
     }
 
     #[test]

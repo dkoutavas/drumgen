@@ -328,6 +328,9 @@ fn bank_row(
     let bank = &params.bank;
     let active = bank.active.load(Ordering::Relaxed);
     let queued = bank.queued.load(Ordering::Relaxed);
+    // A pad is only playable once the audio thread holds its pattern; showing
+    // every stored pad as ready would promise a trigger that cannot fire yet.
+    let ready = bank.ready.load(Ordering::Relaxed);
 
     ui.horizontal(|ui| {
         let store = ui
@@ -349,34 +352,57 @@ fn bank_row(
 
         for i in 0..params::BANK_SLOTS {
             let filled = filled_mask & (1 << i) != 0;
+            let is_ready = ready & (1 << i) != 0;
+            let is_active = i as i32 == active;
+            let is_queued = i as i32 == queued;
             let (rect, resp) = ui.allocate_exact_size(
                 egui::vec2(30.0, 24.0),
                 egui::Sense::click(),
             );
-            let fill = if i as i32 == queued && blink_on {
+            let fill = if is_queued && blink_on {
                 ACCENT_B
-            } else if i as i32 == active {
+            } else if is_active {
                 ACCENT_A
-            } else if filled {
+            } else if is_ready {
                 GRID_MID
+            } else if filled {
+                GRID_FAINT // stored, still generating — not yet triggerable
             } else {
                 PANEL
             };
             ui.painter().rect_filled(rect, egui::CornerRadius::ZERO, fill);
-            // The pad number, dark on a lit pad so it stays readable.
-            let lit = fill == ACCENT_A || fill == ACCENT_B;
+            // The playing pad gets a hard border too: on a pixel panel a
+            // shade-only difference is not a difference.
+            if is_active || is_queued {
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::ZERO,
+                    egui::Stroke::new(2.0, TEXT),
+                    egui::StrokeKind::Inside,
+                );
+            }
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 format!("{}", i + 1),
                 egui::FontId::new(8.0, egui::FontFamily::Proportional),
-                if lit { BG } else if filled { TEXT } else { DIM },
+                if is_active || (is_queued && blink_on) {
+                    BG
+                } else if filled {
+                    TEXT
+                } else {
+                    DIM
+                },
             );
 
             let resp = resp.on_hover_text(if *armed {
                 "click: store the current sound here"
-            } else {
+            } else if is_active {
+                "playing — click another pad to switch"
+            } else if filled {
                 "click: play from the next bar · right-click: clear"
+            } else {
+                "empty — arm STORE, then click to capture the current sound"
             });
             if resp.clicked() {
                 if *armed {
@@ -860,9 +886,21 @@ pub fn create(
                             if ui.button("▶").clicked() {
                                 step_int(setter, &params.style, params.style.value(), 1, n_styles as i32);
                             }
+                            // While a pad plays, the STYLE param is not what is
+                            // sounding — say so instead of showing a stale name
+                            // as if it described the audio.
+                            let bank_active = params.bank.active.load(Ordering::Relaxed);
+                            let (label, colour) = if bank_active >= 0 {
+                                (
+                                    format!("PAD {} · {}", bank_active + 1, pattern.style_name),
+                                    ACCENT_A,
+                                )
+                            } else {
+                                (params.style.to_string(), TEXT)
+                            };
                             ui.add_sized(
                                 [180.0, 24.0],
-                                egui::Label::new(egui::RichText::new(params.style.to_string()).color(TEXT)),
+                                egui::Label::new(egui::RichText::new(label).color(colour)),
                             );
                             if ui.button("◀").clicked() {
                                 step_int(setter, &params.style, params.style.value(), -1, n_styles as i32);
