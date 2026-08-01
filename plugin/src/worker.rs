@@ -51,6 +51,11 @@ struct LogSink {
 
 impl LogSink {
     fn new() -> Self {
+        // Tests spawn real workers; without this every `cargo test` run would
+        // splatter session-start lines into the user's live jam log.
+        if cfg!(test) {
+            return Self { file: None, start: Instant::now() };
+        }
         let path = crate::export::output_dir().join("drumgen.log");
         let file = (|| {
             std::fs::create_dir_all(crate::export::output_dir()).ok()?;

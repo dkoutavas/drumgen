@@ -424,15 +424,17 @@ fn bank_row(
         // pass contains at least one pad switch.
         let jam_entries = bank.jam.snapshot();
         let has_jam = jam_entries.iter().any(|(_, b)| (*b as usize) < params::BANK_SLOTS);
+        // Always clickable: a greyed button that cannot say why it is greyed
+        // is a worse answer than a click that explains what is missing.
         let jam_btn = ui
-            .add_enabled(
-                has_jam,
-                egui::Button::new(egui::RichText::new("SAVE JAM").color(if has_jam { TEXT } else { DIM })),
-            )
-            .on_hover_text(
-                "export the pad switches you just played as one .mid + a cue sheet of\n\
-                 its time signatures (~/drumgen_output). Stop the transport first.",
-            );
+            .button(egui::RichText::new("SAVE JAM").color(if has_jam { TEXT } else { DIM }))
+            .on_hover_text(if has_jam {
+                "export the pads you just played as one .mid + a cue sheet of its\n\
+                 time signatures (~/drumgen_output). Stop the transport first."
+            } else {
+                "nothing recorded yet — press play, then click pads to switch\n\
+                 between them. Stop, and this saves the performance."
+            });
         if jam_btn.clicked() {
             // GUI thread: locking the mirror outright is the contract (the
             // audio thread only ever try_locks it).
@@ -448,7 +450,7 @@ fn bank_row(
                         Err(e) => format!("JAM SAVE FAILED: {e}"),
                     }
                 }
-                None => "JAM: nothing recorded yet".to_string(),
+                None => "JAM: play, then switch pads — nothing recorded yet".to_string(),
             };
         }
 
