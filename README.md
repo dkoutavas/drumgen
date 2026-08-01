@@ -44,6 +44,7 @@ in memory.)
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
 | Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
 | SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
+| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`. Attach it to a bug report, or watch it live with `tail -f` |
 
 ### Your own song forms
 

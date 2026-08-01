@@ -76,7 +76,7 @@ notes, forever. A groove you loved is recoverable by writing down a number.
 Taste is data. The cell library is a curated vocabulary rather than a dataset.
 The author's ear is the training signal, applied at authoring time.
 
-## 4. Where it stands (2026-07-26)
+## 4. Where it stands (2026-08-01)
 
 `main` is tagged v0.2.0 (2026-07-26): the hardening batch, the vocabulary
 work, kidcrash/lord_snow, and the dice roll, merged after the author's
@@ -85,20 +85,32 @@ covered by the permutation + audibility tests). CI builds Linux / Windows /
 macOS artifacts and cuts the GitHub Release from the tag. Active work
 continues on `plugin-hardening`, merged to main only after ears.
 
-Verified in Bitwig by ear: styles are distinct, Song Mode arcs work
-("skramz arc build up actually works"), zona grooves after a phrasing rework,
-telegraph "alright", audio takes recorded successfully, and a generated
-`atdi` take rendered to a correct PDF drum chart (3/4 → 7/8 → 3/4, ghosts in
-parentheses, x-notehead cymbals, accents), the notation chain is proven
-end-to-end. From the 2026-07-26 session: the kidcrash style is "awesome"
-(the mined-to-authored pipeline works), the forced-meter silence fix
-holds, and lord_snow reads as "pretty confined" — three cells don't span
-Erik Anderson's range yet; widen it as more Lord Snow material gets mined.
+The 2026-08-01 session shipped three things on `plugin-hardening`, all
+verified in Bitwig (the last one via the session log, not screenshots):
+
+- Meter is a promise. A requested meter (forced, or Auto from the host)
+  is always what the pattern plays in; a style with no cell in that meter
+  gets its fallback cell adapted, never a lying 4/4 against a 3/4 host.
+- The pattern bank: 16 pads, each a stored param snapshot with a
+  pre-generated pattern. MIDI notes 36–51 or pad clicks switch playback on
+  the next barline. A host time-signature flip re-bakes Auto pads and keeps
+  the playing pad; only a user tweak exits the bank.
+- The session log at `~/drumgen_output/drumgen.log`: one line per decision
+  (trigger, swap, bank exit, dirty cause, each generation). Field debugging
+  now reads a text file instead of annotated screenshots.
+
+Verified in Bitwig by ear across sessions: styles are distinct, Song Mode
+arcs work, zona grooves after a phrasing rework, the kidcrash style is
+"awesome" (the mined-to-authored pipeline works), pad switching lands on the
+barline both directions, and a generated `atdi` take rendered to a correct
+PDF drum chart — the notation chain is proven end-to-end. lord_snow reads as
+"pretty confined": three cells don't span Erik Anderson's range yet; widen
+it as more Lord Snow material gets mined.
 
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
-forms plus unlimited user forms, ~5,500 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 289 Python + 75 Rust tests green.
+forms plus unlimited user forms, ~6,300 lines of Rust plugin, ~5,200 lines of
+Python engine/tools, 290 Python + 101 Rust tests green.
 
 ### Feature inventory
 
@@ -112,8 +124,10 @@ Python engine/tools, 289 Python + 75 Rust tests green.
 | Section dynamics | per-section velocity base/slope + tension multiplier (builds rise and thicken) |
 | Fills | 26 cells, meter-matched, chosen by `into_<next_section>` intent, alternating per fill bar |
 | Humanization | velocity variance, timing tendencies, swing, wrist contour, section drift, kick-snare flam, ghost clustering |
-| Meter | host time signature followed live in Auto; forced 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8; per-section `@N/M` |
-| GUI | 8-bit (Sweetie-16 + Press Start 2P), 720×440 resizable, horizon strip w/ sweeping playhead cursor, telegraph countdown, step grid, pageable bars |
+| Meter | a promise, never a filter: host time signature followed live in Auto; forced 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8; per-section `@N/M`; fallback cells adapt to the requested bar |
+| Pattern bank | 16 pads (MIDI notes 36–51 + GUI), stored param snapshots, bar-quantized switching, persists with the project, patterns regenerate from seeds |
+| Session log | `~/drumgen_output/drumgen.log`: one line per decision (triggers, swaps, bank exits, dirty causes, generations) |
+| GUI | 8-bit (Sweetie-16 + Press Start 2P), 720×440 resizable, horizon strip w/ sweeping playhead cursor, telegraph countdown, bank row, step grid, pageable bars |
 | Export | SAVE .MID (hand-rolled SMF) + `on_save` hook → auto MusicXML score |
 | Notation | `notation.py` → MusicXML → MuseScore 4 (installed via Flatpak) → PDF |
 | RT safety | generation on a worker thread; audio thread does one relaxed atomic store, no allocation, no locks that block |
@@ -207,13 +221,39 @@ Use it for anything ambiguous or risky; it earns its cost.
 11. Features that exist only as files do not exist. songs.txt and the
     notation pipeline both had to be surfaced (starter file planted on first
     run; save hook; hover texts) before the author found them.
+12. Bitwig reports its live engine as `ProcessMode::Offline`. Never gate
+    behavior on the host's claimed process mode unless the code truly
+    blocks. The bank pump starved for three debug rounds on this lie.
+13. The host is not the user. A Bitwig time-signature flip and a METER
+    stepper press both change the effective meter; only the second is a
+    tweak. Track the param index separately, or host automation kicks the
+    playing pad out of the bank.
+14. Test harnesses cannot catch a lying host. The bank's full cycle passed
+    99 tests and still froze in the field, because no harness mislabels its
+    process mode. The session log exists so the next field-only bug costs
+    one text file, not three screenshots.
 
 ## 8. Open threads
 
-Awaiting the author's ears: the grid-grows-with-window change; Labyrinth's
-full verdict; whether zona's 10-seed gate passes; the whole 2026-07-25
-hardening batch (below); merge `plugin-hardening` → `main` (+ a v0.2.0 tag)
-once it does.
+The 2026-08-01 queue, in order:
+
+1. Does Bitwig apply the meter map on `.mid` import? SAVE .MID embeds every
+   time-signature change. Drag a song-mode take into the arranger and look
+   at the ruler. If Bitwig applies it, "slide the jam into the grid" is
+   already solved with zero code.
+2. GUI help pass: hover texts that name each control's state and action,
+   plus one `?` overlay for the bank workflow and the pad color language.
+   The two-phase bank workflow (build, then jam) confused its first user.
+3. Generated arrangements — the reason the bank exists. A generated form is
+   an arrangement string plus meter turns; store it on a pad. Needs a plan
+   session before code.
+4. `await_pending` blocks the audio thread on every live param change,
+   because Bitwig mislabels its engine as offline (lesson 12). Inaudible
+   today (generation is milliseconds); still a real-time violation.
+5. Editing a stored pad means trigger → tweak (exits bank) → re-store. If
+   that grates mid-jam, add a "recall pad to knobs" gesture.
+6. Merge `plugin-hardening` → `main` after the author's ears sign off the
+   bank sessions; tag v0.3.0.
 
 ### The vocabulary matrix (measured 2026-07-25, the live problem)
 
