@@ -93,7 +93,18 @@ pub(crate) fn output_dir() -> PathBuf {
 pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
     let dir = output_dir();
     std::fs::create_dir_all(&dir)?;
+    let path = unique_path(&dir, &file_base(pattern), "mid");
 
+    let bytes = encode_smf(pattern);
+    let mut f = std::fs::File::create(&path)?;
+    f.write_all(&bytes)?;
+    run_save_hook(&path);
+    Ok(path)
+}
+
+/// The self-describing stem every export uses: what played, how fast, which
+/// take, and how long.
+fn file_base(pattern: &Pattern) -> String {
     let bars = pattern.bar_starts.len().saturating_sub(1).max(1);
     let meter = pattern
         .time_signatures
@@ -101,23 +112,43 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
     let meter_suffix = if meter == (4, 4) { String::new() } else { format!("_{}_{}", meter.0, meter.1) };
-    let base = format!(
+    format!(
         "{}_{}bpm_{:04}{}_{}bars",
         pattern.style_name, pattern.tempo.round() as i64, pattern.seed, meter_suffix, bars
-    );
+    )
+}
 
-    let mut path = dir.join(format!("{base}.mid"));
+/// `dir/base.ext`, with `_1`, `_2`, … until it names a file that does not
+/// exist. A take is never silently overwritten.
+pub(crate) fn unique_path(dir: &std::path::Path, base: &str, ext: &str) -> PathBuf {
+    let mut path = dir.join(format!("{base}.{ext}"));
     let mut n = 0;
     while path.exists() {
         n += 1;
-        path = dir.join(format!("{base}_{n}.mid"));
+        path = dir.join(format!("{base}_{n}.{ext}"));
     }
+    path
+}
+
+/// Write a stitched jam: the `.mid` plus its cue sheet under the same stem.
+///
+/// The cue sheet lands BEFORE the save hook runs, so a hook that renders a
+/// score can see both files. Bitwig discards MIDI time-signature meta on
+/// import, which is why the meter map also ships as text a human can type in.
+pub fn save_jam(pattern: &Pattern, cue_text: &str) -> std::io::Result<PathBuf> {
+    let dir = output_dir();
+    std::fs::create_dir_all(&dir)?;
+    let mid = unique_path(&dir, &file_base(pattern), "mid");
 
     let bytes = encode_smf(pattern);
-    let mut f = std::fs::File::create(&path)?;
-    f.write_all(&bytes)?;
-    run_save_hook(&path);
-    Ok(path)
+    std::fs::File::create(&mid)?.write_all(&bytes)?;
+
+    // Same stem, .txt — discoverable by eye and by the hook.
+    let cues = mid.with_extension("txt");
+    std::fs::File::create(&cues)?.write_all(cue_text.as_bytes())?;
+
+    run_save_hook(&mid);
+    Ok(mid)
 }
 
 /// Fire-and-forget user hook: if `~/.config/drumgen/on_save` exists and is

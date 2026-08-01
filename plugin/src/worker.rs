@@ -246,39 +246,55 @@ impl GenWorker {
 /// cell should cost a dice roll, not the session.
 fn build_pattern(gen: &GenerationManager, req: &GenRequest) -> Option<Pattern> {
     let built = catch_unwind(AssertUnwindSafe(|| {
-        let res = if req.song > 0 {
-            gen.generate_arrangement(
-                req.style, crate::params::song_str(req.song), req.humanize, req.seed,
-                req.swing, req.generative, req.tempo, req.meter,
-            )
+        // Resolve the arrangement ONCE. A Gen request composes it here from the
+        // raw display seed — deliberately unsalted, so the form is
+        // style-independent and the GUI's hover preview shows the same string
+        // this pattern was built from. The style salt still applies to the
+        // notes inside generate_arrangement.
+        let arrangement: Option<String> = if req.song == crate::params::GEN_SONG {
+            Some(crate::composer::compose_arrangement(req.seed))
+        } else if req.song > 0 {
+            Some(crate::params::song_str(req.song).to_string())
         } else {
-            gen.generate(
+            None
+        };
+
+        let res = match arrangement.as_deref() {
+            Some(arr) => gen.generate_arrangement(
+                req.style, arr, req.humanize, req.seed,
+                req.swing, req.generative, req.tempo, req.meter,
+            ),
+            None => gen.generate(
                 req.style, req.humanize, req.bars, req.seed, req.swing, req.generative,
                 req.tempo, req.meter, req.fill_every,
-            )
+            ),
         };
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
         // Song label rides in cell_name; the section map lets the GUI name
         // the viewed bar. Both stay empty in loop mode.
-        let (song_name, sections) = if req.song > 0 {
-            let name = crate::params::song_label(req.song);
-            let home = if req.meter == (0, 0) { (4, 4) } else { req.meter };
-            // Pair each section with the cell that actually won it, so the
-            // GUI reports what is PLAYING rather than what the form asked
-            // for (a style with no blast cell must not be labelled BLAST).
-            let secs = crate::engine::assembler::parse_arrangement(
-                crate::params::song_str(req.song), home,
-            )
-            .into_iter()
-            .enumerate()
-            .map(|(i, sec)| {
-                let cell = res.section_cells.get(i).cloned().unwrap_or_default();
-                (sec.section_type, sec.bars, cell)
-            })
-            .collect();
-            (name, secs)
-        } else {
-            (String::new(), Vec::new())
+        let (song_name, sections) = match arrangement.as_deref() {
+            Some(arr) => {
+                let name = if req.song == crate::params::GEN_SONG {
+                    // The seed IS the take's name in Gen mode.
+                    format!("Gen #{:04}", req.seed)
+                } else {
+                    crate::params::song_label(req.song)
+                };
+                let home = if req.meter == (0, 0) { (4, 4) } else { req.meter };
+                // Pair each section with the cell that actually won it, so the
+                // GUI reports what is PLAYING rather than what the form asked
+                // for (a style with no blast cell must not be labelled BLAST).
+                let secs = crate::engine::assembler::parse_arrangement(arr, home)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, sec)| {
+                        let cell = res.section_cells.get(i).cloned().unwrap_or_default();
+                        (sec.section_type, sec.bars, cell)
+                    })
+                    .collect();
+                (name, secs)
+            }
+            None => (String::new(), Vec::new()),
         };
         Pattern::from_assemble(&res, req.generation, req.seed, style_name, song_name, sections)
     }));
@@ -561,6 +577,29 @@ mod tests {
             p.events.iter().map(|e| (e.tick, e.note, e.velocity, e.is_note_on)).collect()
         };
         assert_eq!(sig(stored), sig(&live), "a slot must be note-identical to its source");
+        worker.shutdown();
+    }
+
+    #[test]
+    fn a_gen_request_composes_and_delivers_a_form() {
+        // The Gen path through the worker end to end: the sentinel must reach
+        // generate_arrangement with a composed string, name the take from its
+        // seed, and stay deterministic (a stored Gen pad is only its seed).
+        let worker = GenWorker::spawn(GenerationManager::new());
+        let gen_req = GenRequest { song: crate::params::GEN_SONG, ..req(4902) };
+        assert!(worker.request(gen_req));
+        let p = worker.recv_blocking().expect("Gen pattern delivered");
+        assert!(!p.events.is_empty());
+        assert_eq!(p.cell_name, "Gen #4902", "the seed names the take");
+        assert!(!p.sections.is_empty(), "a composed form has sections");
+        assert!(p.bar_starts.len() > 2, "a form is more than one bar");
+
+        assert!(worker.request(gen_req));
+        let again = worker.recv_blocking().expect("second Gen pattern");
+        let sig = |p: &Pattern| -> Vec<(i64, u8, u8)> {
+            p.events.iter().map(|e| (e.tick, e.note, e.velocity)).collect()
+        };
+        assert_eq!(sig(&p), sig(&again), "same seed must compose the same take");
         worker.shutdown();
     }
 

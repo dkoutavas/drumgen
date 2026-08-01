@@ -9,8 +9,10 @@ use nih_plug_egui::{create_egui_editor, egui};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::composer;
 use crate::engine::midi_math::PPQ;
 use crate::export;
+use crate::jam;
 use crate::params::{self, DrumgenParams};
 use crate::pattern::Pattern;
 
@@ -324,6 +326,7 @@ fn bank_row(
     params: &DrumgenParams,
     armed: &mut bool,
     blink_on: bool,
+    save_msg: &mut String,
 ) {
     let bank = &params.bank;
     let active = bank.active.load(Ordering::Relaxed);
@@ -417,6 +420,38 @@ fn bank_row(
             }
         }
 
+        // SAVE JAM: export the performance, not the pattern. Enabled once the
+        // pass contains at least one pad switch.
+        let jam_entries = bank.jam.snapshot();
+        let has_jam = jam_entries.iter().any(|(_, b)| (*b as usize) < params::BANK_SLOTS);
+        let jam_btn = ui
+            .add_enabled(
+                has_jam,
+                egui::Button::new(egui::RichText::new("SAVE JAM").color(if has_jam { TEXT } else { DIM })),
+            )
+            .on_hover_text(
+                "export the pad switches you just played as one .mid + a cue sheet of\n\
+                 its time signatures (~/drumgen_output). Stop the transport first.",
+            );
+        if jam_btn.clicked() {
+            // GUI thread: locking the mirror outright is the contract (the
+            // audio thread only ever try_locks it).
+            let slots = bank.slot_view.lock().unwrap_or_else(|e| e.into_inner());
+            *save_msg = match jam::stitch(&jam_entries, &slots) {
+                Some((pat, segs)) => {
+                    let cues = jam::cue_sheet(&segs, &pat, bank.jam.truncated());
+                    match export::save_jam(&pat, &cues) {
+                        Ok(path) => {
+                            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
+                            format!("SAVED {name} + cues")
+                        }
+                        Err(e) => format!("JAM SAVE FAILED: {e}"),
+                    }
+                }
+                None => "JAM: nothing recorded yet".to_string(),
+            };
+        }
+
         if let Some(i) = store_into {
             let style_index = params.style.value();
             let snapshot = params::SlotSnapshot {
@@ -432,7 +467,8 @@ fn bank_row(
                 swing: params.swing.value(),
                 meter: params.meter.value(),
                 fill: params.fill.value(),
-                song: params.song.value(),
+                // Canonical id, so a Gen pad survives a songs.txt edit.
+                song: params::song_id(params.song.value()),
             };
             bank.lock().slots[i] = Some(snapshot);
             bank.bump();
@@ -918,7 +954,10 @@ pub fn create(
                         // In song mode the arrangement string owns length and
                         // fills; BARS and FILL go dead. METER stays live as
                         // the song's home meter.
-                        let song_off = params::song_str(params.song.value()).is_empty();
+                        // Only index 0 is Off. Gen has no table entry (its
+                        // string is composed), so an is_empty() test would read
+                        // it as Off and leave BARS/FILL live under a song.
+                        let song_off = params.song.value() == 0;
                         ui.add_enabled_ui(song_off, |ui| {
                             let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0, "");
                             if db != 0 {
@@ -946,12 +985,23 @@ pub fn create(
 
                     // SONG structure + DICE hero + SAVE + last save result.
                     ui.horizontal(|ui| {
-                        let ds = stepper(
-                            ui, "SONG", &params.song.to_string(), 80.0,
-                            "song skeletons; add your own in ~/.config/drumgen/songs.txt (restart DAW to reload)",
-                        );
+                        // Gen composes a form from the seed — show it, so the
+                        // stepper's last entry is not a mystery.
+                        let song_hint = if params::song_id(params.song.value()) == params::GEN_SONG {
+                            format!(
+                                "the seed composes this form: {}\n(DICE re-rolls the form and the notes together)",
+                                composer::compose_arrangement(params.seed.value() as u64)
+                            )
+                        } else {
+                            "song skeletons; add your own in ~/.config/drumgen/songs.txt (restart DAW to reload); step past the last one for Gen".to_string()
+                        };
+                        let ds = stepper(ui, "SONG", &params.song.to_string(), 80.0, &song_hint);
                         if ds != 0 {
-                            step_int(setter, &params.song, params.song.value(), ds, params::n_songs() as i32);
+                            // n_songs() + 1: the extra value is Gen.
+                            step_int(
+                                setter, &params.song, params.song.value(), ds,
+                                params::n_songs() as i32 + 1,
+                            );
                         }
                         let dice = ui
                             .add_sized(
@@ -991,7 +1041,7 @@ pub fn create(
 
                     // The bank: 16 pads, stored sounds, triggered live.
                     let blink_on = (ui.input(|i| i.time) * 4.0) as i64 % 2 == 0;
-                    bank_row(ui, &params, &mut ui_state.store_armed, blink_on);
+                    bank_row(ui, &params, &mut ui_state.store_armed, blink_on, &mut ui_state.save_msg);
 
                     ui.add_space(4.0);
 

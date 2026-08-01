@@ -2,9 +2,10 @@ use nih_plug::params::persist::PersistentField;
 use nih_plug::prelude::*;
 use nih_plug_egui::EguiState;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::pattern::Pattern;
 use crate::worker::GenRequest;
 
 /// Pattern bank size. 16 slots = the MIDI notes 36..51 (a pad grid's bottom
@@ -156,11 +157,87 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
             swing: s.swing.clamp(0.0, 1.0),
             meter: if (0..METERS.len() as i32).contains(&s.meter) { s.meter } else { 0 },
             fill: if (0..FILLS.len() as i32).contains(&s.fill) { s.fill } else { 0 },
-            song: if (0..n_songs).contains(&s.song) { s.song } else { 0 },
+            // GEN_SONG survives untouched — a generated form is regenerated
+            // from the pad's seed, so it does not depend on the song table.
+            song: if s.song == GEN_SONG || (0..n_songs).contains(&s.song) { s.song } else { 0 },
         });
     }
 
     BankState { slots }
+}
+
+/// How many pad switches one jam pass remembers. Past this the ring keeps the
+/// NEWEST entries — in a long pass the recent material is the jam.
+pub const JAM_CAP: usize = 64;
+
+/// Slot bytes that are not pads: they close a run.
+pub const JAM_END_STOP: u8 = 0xFF;
+/// A param tweak ended bank mode mid-pass; the pads stopped sounding there.
+pub const JAM_END_EXIT: u8 = 0xFE;
+
+/// The live performance: every pad switch of the current play pass, with the
+/// absolute tick its bar 1 landed on.
+///
+/// Written by the audio thread (two relaxed/Release stores per switch — no
+/// allocation, no lock), read by the GUI when exporting. Never persisted: a
+/// jam belongs to the pass that played it.
+pub struct JamRing {
+    /// `(abs_tick << 8) | slot_byte`. Tick is clamped at 0 (host pre-roll
+    /// reports negative positions), leaving 55 bits — ~2000 hours at 480 PPQ.
+    entries: [AtomicI64; JAM_CAP],
+    /// Entries ever written this pass; entry `i` lives at `i % JAM_CAP`.
+    /// Stored with Release AFTER its entry, so a reader that Acquires this
+    /// count sees every entry the count covers.
+    count: AtomicU32,
+}
+
+impl Default for JamRing {
+    fn default() -> Self {
+        Self {
+            entries: std::array::from_fn(|_| AtomicI64::new(0)),
+            count: AtomicU32::new(0),
+        }
+    }
+}
+
+impl JamRing {
+    pub fn pack(tick: i64, slot_byte: u8) -> i64 {
+        (tick.max(0) << 8) | slot_byte as i64
+    }
+
+    pub fn unpack(raw: i64) -> (i64, u8) {
+        (raw >> 8, (raw & 0xFF) as u8)
+    }
+
+    /// Audio-thread safe: two atomic stores, no allocation, never blocks.
+    pub fn push(&self, tick: i64, slot_byte: u8) {
+        let n = self.count.load(Ordering::Relaxed) as usize;
+        self.entries[n % JAM_CAP].store(Self::pack(tick, slot_byte), Ordering::Relaxed);
+        self.count.store(n as u32 + 1, Ordering::Release);
+    }
+
+    /// Audio-thread safe. Called at transport start: a new pass is a new jam.
+    pub fn reset(&self) {
+        self.count.store(0, Ordering::Release);
+    }
+
+    /// GUI-side: the pass so far, oldest first (at most `JAM_CAP` entries).
+    ///
+    /// Deliberately no seqlock. The workflow reads this stopped, so the only
+    /// way to catch a torn entry is exporting mid-pass, and the cost is one
+    /// re-exportable file — not worth an epoch loop on the audio thread.
+    pub fn snapshot(&self) -> Vec<(i64, u8)> {
+        let n = self.count.load(Ordering::Acquire) as usize;
+        let first = n.saturating_sub(JAM_CAP);
+        (first..n)
+            .map(|i| Self::unpack(self.entries[i % JAM_CAP].load(Ordering::Relaxed)))
+            .collect()
+    }
+
+    /// Whether more switches happened than the ring could hold.
+    pub fn truncated(&self) -> bool {
+        self.count.load(Ordering::Acquire) as usize > JAM_CAP
+    }
 }
 
 /// Everything the pattern bank shares between the GUI, the audio thread and
@@ -201,6 +278,14 @@ pub struct BankShared {
     /// The style list this bank resolves names against. Set once at
     /// construction, never mutated.
     pub styles: Vec<String>,
+
+    /// The live performance: pad switches of the current pass.
+    pub jam: JamRing,
+    /// GUI-visible mirror of the audio thread's baked pad patterns, so the jam
+    /// exporter can stitch them. The audio thread publishes into it with
+    /// try_lock (same contract as `pattern_view`); the GUI locks it outright,
+    /// and only when exporting.
+    pub slot_view: Mutex<[Option<Arc<Pattern>>; BANK_SLOTS]>,
 }
 
 impl BankShared {
@@ -214,6 +299,8 @@ impl BankShared {
             ready: AtomicU32::new(0),
             stored: AtomicU32::new(0),
             styles,
+            jam: JamRing::default(),
+            slot_view: Mutex::new(Default::default()),
         }
     }
 
@@ -488,6 +575,29 @@ pub fn n_songs() -> usize {
     SONGS.len() + user_songs().len()
 }
 
+/// Canonical id for the generated song, used in snapshots and requests.
+///
+/// Deliberately NOT the param value: the param value for Gen is one past the
+/// last user song, which moves whenever `songs.txt` is edited. A stored Gen
+/// pad keeps this stable id instead, so adding a song does not turn a pad into
+/// somebody else's form.
+pub const GEN_SONG: i32 = -1;
+
+/// The SONG param value that means Gen — one past the last real song.
+pub fn gen_param_index() -> i32 {
+    n_songs() as i32
+}
+
+/// SONG param value → canonical song id. The only conversion in this
+/// direction; the bank never writes params, so the mapping cannot drift.
+pub fn song_id(param_value: i32) -> i32 {
+    if param_value >= gen_param_index() {
+        GEN_SONG
+    } else {
+        param_value
+    }
+}
+
 pub fn song_str(index: i32) -> &'static str {
     let i = index as usize;
     if i < SONGS.len() {
@@ -523,6 +633,12 @@ pub fn dice_roll(seed: i32) -> i32 {
 /// The worker stamps this onto the Pattern for the GUI/telegraph, so it must
 /// cover the user table too (indexing SONGS alone left user songs unnamed).
 pub fn song_label(index: i32) -> String {
+    // Answers for BOTH representations on purpose: it is the param's
+    // value_to_string (so it sees the param value, `gen_param_index()`) and
+    // the worker's label source (so it sees the canonical `GEN_SONG`).
+    if index == GEN_SONG || index >= gen_param_index() {
+        return "Gen".to_string();
+    }
     let i = index as usize;
     if i < SONGS.len() {
         SONGS[i].0.to_string()
@@ -583,7 +699,8 @@ impl DrumgenParams {
             fill: IntParam::new("Fill", 2, IntRange::Linear { min: 0, max: (FILLS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(fill_label)),
 
-            song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: (n_songs() - 1) as i32 })
+            // One past the last real song is "Gen": the seed composes the form.
+            song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: n_songs() as i32 })
                 .with_value_to_string(Arc::new(song_label)),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
@@ -720,6 +837,84 @@ mod tests {
         bank.lock().slots[0] = None;
         bank.bump();
         assert_eq!(bank.stored.load(Ordering::Relaxed), 0b1000, "a cleared pad stops firing");
+    }
+
+    #[test]
+    fn jam_entries_pack_and_unpack_losslessly() {
+        // The ring squeezes (tick, slot) into one atomic so the audio thread
+        // writes a switch with a single store. A lossy pack would misplace a
+        // segment in the exported jam.
+        for tick in [0i64, 1, 1920, 198_720, (1i64 << 54) - 1] {
+            for byte in [0u8, 15, JAM_END_EXIT, JAM_END_STOP] {
+                let (t, b) = JamRing::unpack(JamRing::pack(tick, byte));
+                assert_eq!((t, b), (tick, byte), "tick {tick} byte {byte}");
+            }
+        }
+        // Host pre-roll reports negative positions; clamp rather than corrupt
+        // the slot byte with sign bits.
+        assert_eq!(JamRing::unpack(JamRing::pack(-500, 3)), (0, 3));
+    }
+
+    #[test]
+    fn the_jam_ring_keeps_the_newest_switches() {
+        let ring = JamRing::default();
+        assert!(ring.snapshot().is_empty());
+
+        for i in 0..5i64 {
+            ring.push(i * 1920, i as u8);
+        }
+        assert_eq!(
+            ring.snapshot(),
+            (0..5i64).map(|i| (i * 1920, i as u8)).collect::<Vec<_>>()
+        );
+        assert!(!ring.truncated());
+
+        // Past capacity the recent material is the jam.
+        for i in 5..(JAM_CAP as i64 + 10) {
+            ring.push(i * 1920, (i % 16) as u8);
+        }
+        let snap = ring.snapshot();
+        assert_eq!(snap.len(), JAM_CAP);
+        assert_eq!(snap[0].0, 10 * 1920, "oldest kept entry");
+        assert!(ring.truncated());
+
+        // A new pass is a new jam.
+        ring.reset();
+        assert!(ring.snapshot().is_empty());
+        assert!(!ring.truncated());
+    }
+
+    #[test]
+    fn gen_is_labelled_from_both_representations() {
+        // song_label wears two hats: it is the SONG param's value_to_string
+        // (so it sees the param value, one past the last song) and the
+        // worker's label source (so it sees the canonical GEN_SONG).
+        assert_eq!(song_label(GEN_SONG), "Gen");
+        assert_eq!(song_label(gen_param_index()), "Gen");
+        assert_eq!(song_label(0), "Off");
+        // song_id folds the param value into the canonical id, once.
+        assert_eq!(song_id(gen_param_index()), GEN_SONG);
+        assert_eq!(song_id(0), 0);
+        assert_eq!(song_id(1), 1);
+    }
+
+    #[test]
+    fn a_gen_pad_survives_a_songs_txt_edit() {
+        // THE reason Gen gets a negative sentinel instead of its param value:
+        // editing songs.txt moves the Gen param index, and a pad that stored
+        // that index would silently become somebody else's song form.
+        let gen_pad = SlotSnapshot { song: GEN_SONG, ..snap("kidcrash", 1) };
+        let out = sanitize_bank(bank_with(vec![(0, gen_pad)]), &styles());
+        assert_eq!(out.slot(0).expect("Gen pad survives").song, GEN_SONG);
+
+        // Serde keeps it too — a reopened project must still be Gen.
+        let json = serde_json::to_string(&out).expect("serializes");
+        let back: BankState = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.slot(0).unwrap().song, GEN_SONG);
+
+        // A positive out-of-range song (songs.txt shrank) still falls to Off.
+        let stale = SlotSnapshot { song: 9999, ..snap("kidcrash", 1) };
+        assert_eq!(sanitize_bank(bank_with(vec![(1, stale)]), &styles()).slot(1).unwrap().song, 0);
     }
 
     #[test]

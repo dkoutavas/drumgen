@@ -3,9 +3,12 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 
 pub mod engine;
+mod composer;
 mod editor;
+
 mod export;
 mod generation;
+mod jam;
 mod params;
 mod pattern;
 mod playback;
@@ -174,6 +177,11 @@ struct Drumgen {
     /// Normally 0 (patterns are anchored to the timeline); a slot switch moves
     /// it to the boundary so the new slot starts from ITS bar 1.
     origin: f64,
+    /// The GUI's pattern mirror is behind `slot_patterns` and needs a re-sync.
+    slot_view_dirty: bool,
+    /// End tick of the last buffer that played — where a stop or a bank exit
+    /// closes the jam run, since neither event carries a musical position.
+    last_abs_tick: f64,
 
     /// Number of styles, for the editor's Style picker wrap-around.
     n_styles: usize,
@@ -240,6 +248,8 @@ impl Default for Drumgen {
             active_slot: -1,
             queued_slot: -1,
             origin: 0.0,
+            slot_view_dirty: false,
+            last_abs_tick: 0.0,
             n_styles,
         }
     }
@@ -305,7 +315,8 @@ impl Drumgen {
             meter: params::effective_meter(meter_index, host_meter),
             meter_index,
             fill: self.params.fill.value(),
-            song: self.params.song.value(),
+            // Canonical id: the Gen param value becomes GEN_SONG here, once.
+            song: params::song_id(self.params.song.value()),
             tempo,
         }
     }
@@ -337,6 +348,45 @@ impl Drumgen {
         if let Some(w) = &self.worker {
             w.log(ev);
         }
+    }
+
+    /// Close the jam run at the current position. Used when the transport
+    /// stops or a param tweak ends bank mode: both stop the pads sounding
+    /// without a musical anchor of their own, and a run left open would let
+    /// the exporter stretch the last pad over material it never played.
+    fn end_jam_run(&self, marker: u8) {
+        if self.active_slot >= 0 {
+            self.params.bank.jam.push(self.last_abs_tick as i64, marker);
+        }
+    }
+
+    /// Sync the GUI's pattern mirror to `slot_patterns`.
+    ///
+    /// Audio-thread safe: try_lock (a contended buffer retries next time),
+    /// `Arc` clones are refcount bumps, and every displaced pattern goes to
+    /// the worker's bin so no `free()` runs here.
+    fn publish_slot_views(&mut self) {
+        if !self.slot_view_dirty {
+            return;
+        }
+        let Ok(mut view) = self.params.bank.slot_view.try_lock() else { return };
+        for i in 0..params::BANK_SLOTS {
+            let same = match (&view[i], &self.slot_patterns[i]) {
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            };
+            if same {
+                continue;
+            }
+            let fresh = self.slot_patterns[i].clone();
+            if let Some(stale) = std::mem::replace(&mut view[i], fresh) {
+                if let Some(w) = &self.worker {
+                    w.retire(stale);
+                }
+            }
+        }
+        self.slot_view_dirty = false;
     }
 
     /// Ask the worker to (re)generate every dirty slot.
@@ -372,6 +422,7 @@ impl Drumgen {
                     if let Some(w) = &self.worker {
                         w.retire(old);
                     }
+                    self.slot_view_dirty = true;
                 }
                 self.slot_dirty &= !(1 << i);
             }
@@ -587,8 +638,10 @@ impl Plugin for Drumgen {
                 if let Some(stale) = self.slot_patterns[i].replace(p) {
                     w.retire(stale);
                 }
+                self.slot_view_dirty = true;
             }
         }
+        self.publish_slot_views();
         // A regenerated ACTIVE slot (tempo moved, or it was re-stored) takes
         // over at once, keeping its origin so the phrase does not re-phase.
         let mut bank_swapped = false;
@@ -684,6 +737,7 @@ impl Plugin for Drumgen {
                     if self.active_slot >= 0 || self.queued_slot >= 0 {
                         self.log(worker::LogEvent::BankExit { knob: false });
                     }
+                    self.end_jam_run(params::JAM_END_EXIT);
                     self.exit_bank();
                 }
             }
@@ -725,6 +779,7 @@ impl Plugin for Drumgen {
                             if self.active_slot >= 0 || self.queued_slot >= 0 {
                                 self.log(worker::LogEvent::BankExit { knob: true });
                             }
+                            self.end_jam_run(params::JAM_END_EXIT);
                             self.exit_bank();
                         }
                         if tempo_changed {
@@ -790,6 +845,9 @@ impl Plugin for Drumgen {
             if self.was_playing {
                 Self::flush(&mut self.active, context, 0);
                 self.was_playing = false;
+                // Close the run here: the pass is over, and the exporter needs
+                // an end for the last pad's segment.
+                self.end_jam_run(params::JAM_END_STOP);
                 self.log(worker::LogEvent::Playing(false));
             }
             // A slot armed while stopped applies at once — there is no bar to
@@ -834,6 +892,9 @@ impl Plugin for Drumgen {
         let just_started = !self.was_playing;
         self.was_playing = true;
         if just_started {
+            // A new pass is a new jam. v1 records from the first pad SWITCH,
+            // so whatever was already playing is not part of the run.
+            self.params.bank.jam.reset();
             self.log(worker::LogEvent::Playing(true));
         }
         let discontinuity = match (pos_samples, self.last_end_samples) {
@@ -893,6 +954,9 @@ impl Plugin for Drumgen {
                         .clamp(0, num_samples.saturating_sub(1))
                         as u32;
                     self.queued_slot = -1;
+                    // The jam's anchor: this pad's bar 1 sits exactly here, so
+                    // the exporter can stitch segments without guessing phase.
+                    self.params.bank.jam.push(boundary as i64, self.active_slot as u8);
                     self.log(worker::LogEvent::Swap {
                         slot: self.active_slot as u8,
                         origin: boundary as i64,
@@ -954,6 +1018,8 @@ impl Plugin for Drumgen {
         }
 
         self.last_end_samples = pos_samples.map(|s| s + num_samples);
+        // Where a stop or a bank exit will close the jam run.
+        self.last_abs_tick = abs_tick_start + buffer_ticks;
         silence_buffer(buffer);
         ProcessStatus::Normal
     }

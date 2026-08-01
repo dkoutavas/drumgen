@@ -50,6 +50,56 @@ pub struct Pattern {
     pub sections: Vec<(String, i32, String)>,
 }
 
+/// Sort a raw on/off list into emission order and prevent same-note overlap.
+///
+/// Two hits of one instrument less than NOTE_DURATION apart would emit
+/// on,on,off,off — and the FIRST off cuts the second note short. An early
+/// note-off is inserted just before the re-trigger. Port of
+/// `midi_engine.write_midi` (Python is the reference); an array keyed by note
+/// number, never a HashMap, so it stays deterministic.
+///
+/// Shared by `from_assemble` and the jam stitcher, which builds its event list
+/// by tiling patterns and must land on the same guarantees.
+pub(crate) fn finalize_events(mut raw: Vec<MidiEvent>) -> Vec<MidiEvent> {
+    // Scan order: note-ON before note-OFF at the same tick, so a re-trigger
+    // is seen while the previous note is still counted as sounding.
+    raw.sort_by(|a, b| {
+        a.tick
+            .cmp(&b.tick)
+            .then_with(|| b.is_note_on.cmp(&a.is_note_on))
+            .then_with(|| a.note.cmp(&b.note))
+    });
+
+    let mut active = [i64::MIN; 128];
+    let mut events: Vec<MidiEvent> = Vec::with_capacity(raw.len());
+    for e in raw {
+        let n = e.note as usize;
+        if n >= 128 {
+            events.push(e);
+            continue;
+        }
+        if e.is_note_on {
+            if e.tick < active[n] {
+                events.push(MidiEvent { tick: e.tick, note: e.note, velocity: 0, is_note_on: false });
+            }
+            active[n] = e.tick + NOTE_DURATION;
+        } else {
+            active[n] = i64::MIN;
+        }
+        events.push(e);
+    }
+
+    // Emission order: note-OFF before note-ON at the same tick, so the
+    // inserted off lands ahead of the re-trigger it protects.
+    events.sort_by(|a, b| {
+        a.tick
+            .cmp(&b.tick)
+            .then_with(|| a.is_note_on.cmp(&b.is_note_on))
+            .then_with(|| a.note.cmp(&b.note))
+    });
+    events
+}
+
 impl Pattern {
     /// Bake an `AssembleResult` into a `Pattern`.
     pub fn from_assemble(
@@ -80,47 +130,7 @@ impl Pattern {
             let off_tick = (ev.tick + NOTE_DURATION).min((total_ticks - 1).max(0));
             raw.push(MidiEvent { tick: off_tick, note, velocity: 0, is_note_on: false });
         }
-        // Scan order: note-ON before note-OFF at the same tick, so a re-trigger
-        // is seen while the previous note is still counted as sounding.
-        raw.sort_by(|a, b| {
-            a.tick
-                .cmp(&b.tick)
-                .then_with(|| b.is_note_on.cmp(&a.is_note_on))
-                .then_with(|| a.note.cmp(&b.note))
-        });
-
-        // Overlap prevention: two hits of the same instrument less than
-        // NOTE_DURATION apart would emit on,on,off,off — and the FIRST off cuts
-        // the second note short. Insert an early note-off just before the
-        // re-trigger. Port of midi_engine.write_midi (Python is the reference);
-        // an array keyed by note number, never a HashMap, so it stays deterministic.
-        let mut active = [i64::MIN; 128];
-        let mut events: Vec<MidiEvent> = Vec::with_capacity(raw.len());
-        for e in raw {
-            let n = e.note as usize;
-            if n >= 128 {
-                events.push(e);
-                continue;
-            }
-            if e.is_note_on {
-                if e.tick < active[n] {
-                    events.push(MidiEvent { tick: e.tick, note: e.note, velocity: 0, is_note_on: false });
-                }
-                active[n] = e.tick + NOTE_DURATION;
-            } else {
-                active[n] = i64::MIN;
-            }
-            events.push(e);
-        }
-
-        // Emission order: note-OFF before note-ON at the same tick, so the
-        // inserted off lands ahead of the re-trigger it protects.
-        events.sort_by(|a, b| {
-            a.tick
-                .cmp(&b.tick)
-                .then_with(|| a.is_note_on.cmp(&b.is_note_on))
-                .then_with(|| a.note.cmp(&b.note))
-        });
+        let events = finalize_events(raw);
 
         // bar_starts[i] = start tick of bar (i+1); terminal entry == total_ticks.
         let mut bar_starts = Vec::with_capacity(total_bars as usize + 1);

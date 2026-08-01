@@ -781,7 +781,7 @@ pub fn parse_arrangement(arrangement_str: &str, default_time_sig: (i32, i32)) ->
 }
 
 /// Consolidate adjacent time signature entries with the same values.
-fn consolidate_time_signatures(time_sigs: &[TimeSigEntry]) -> Vec<TimeSigEntry> {
+pub(crate) fn consolidate_time_signatures(time_sigs: &[TimeSigEntry]) -> Vec<TimeSigEntry> {
     if time_sigs.is_empty() {
         return Vec::new();
     }
