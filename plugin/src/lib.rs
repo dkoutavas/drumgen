@@ -1,6 +1,7 @@
 use nih_plug::prelude::*;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub mod engine;
 mod editor;
@@ -20,6 +21,20 @@ use engine::midi_math::PPQ;
 
 pub(crate) const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
 const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
+// Longest the audio thread may wait for a pattern it just requested (offline
+// render, or Bitwig's live engine which reports Offline). Generation takes
+// milliseconds; this only ever elapses when a build panicked and published
+// nothing. A stall of this length is a glitch, an unbounded wait was a hang.
+const OFFLINE_WAIT: Duration = Duration::from_millis(500);
+// First generation in `initialize()`, on the host's main thread.
+const INIT_WAIT: Duration = Duration::from_secs(5);
+// How long a bank slot request may go unanswered before it is re-requested
+// (a build that panicked, or a delivery dropped on a full channel). Builds take
+// milliseconds; this is generous so a slow batch is never mistaken for a loss.
+const SLOT_REPLY_SECS: f32 = 2.0;
+// Re-requests per slot per cause before giving up: a build that panics
+// deterministically must not retry forever.
+const MAX_SLOT_TRIES: u8 = 3;
 // Generative is always on: the engine re-realizes a probability grid per seed
 // (so the dice re-rolls the groove) and falls back to fixed cells otherwise.
 // No user-facing toggle — see design §3.
@@ -61,6 +76,73 @@ enum ChangeKind {
     /// immediately but must NOT exit bank mode — the host is not the user,
     /// and the playing pad survives (Auto pads re-bake to the new meter).
     HostMeter,
+}
+
+/// Which dirty bits survive the pump's filter: those that are forced, those of
+/// Auto-meter pads, and those of empty pads (which clear themselves). What
+/// drops is a host-meter-flip bit on a forced-meter pad.
+fn narrow_dirty(dirty: u16, force: u16, auto: u16, empty: u16) -> u16 {
+    dirty & (auto | empty | force)
+}
+
+/// Pattern-relative tick of the buffer's first sample.
+///
+/// A NEGATIVE position (the buffer starts before the pattern's bar 1) is only
+/// legitimate in the buffer a bank switch lands in: `playback::scan` places
+/// bar 1's downbeat at its exact sample. Anywhere else the timeline is simply
+/// before `origin` (a rewind, a loop jump, pre-roll after a mid-song swap) and
+/// the pattern extends periodically backwards, as `next_bar_boundary` assumes.
+/// Treating it as "before the pattern" played silence from the locate point
+/// all the way back up to the swap point.
+fn window_start(abs: f64, origin: f64, total_ticks: i64, swap_in_buffer: bool) -> f64 {
+    let raw = abs - origin;
+    if raw < 0.0 && swap_in_buffer {
+        raw
+    } else {
+        raw.rem_euclid(total_ticks.max(1) as f64)
+    }
+}
+
+/// Watches bank slot requests the worker accepted but never answered. The
+/// pump clears a slot's dirty bit when its request is ACCEPTED; if the build
+/// then panics or the delivery is dropped, nothing would ever re-dirty it and
+/// the pad would stay "generating" forever. Pure bookkeeping, no allocation.
+#[derive(Default)]
+struct SlotWatch {
+    /// Samples left until the request is considered lost; 0 = not waiting.
+    wait: [i64; params::BANK_SLOTS],
+    tries: [u8; params::BANK_SLOTS],
+}
+
+impl SlotWatch {
+    fn armed(&mut self, slot: usize, samples: i64) {
+        self.wait[slot] = samples.max(1);
+    }
+    fn delivered(&mut self, slot: usize) {
+        self.wait[slot] = 0;
+        self.tries[slot] = 0;
+    }
+    fn reset_tries(&mut self) {
+        self.tries = [0; params::BANK_SLOTS];
+    }
+    /// Advance by one buffer; returns the slots to re-request now.
+    fn tick(&mut self, samples: i64) -> u16 {
+        let mut due = 0u16;
+        for i in 0..params::BANK_SLOTS {
+            if self.wait[i] <= 0 {
+                continue;
+            }
+            self.wait[i] -= samples;
+            if self.wait[i] <= 0 {
+                self.wait[i] = 0;
+                if self.tries[i] < MAX_SLOT_TRIES {
+                    self.tries[i] += 1;
+                    due |= 1 << i;
+                }
+            }
+        }
+        due
+    }
 }
 
 fn classify_change(desired: &ParamSnapshot, requested: &ParamSnapshot) -> ChangeKind {
@@ -160,10 +242,16 @@ struct Drumgen {
     /// Bit i = slot i needs (re)generating. Set on an epoch change or a tempo
     /// move; cleared as requests are accepted by the worker.
     slot_dirty: u16,
-    /// The current dirty pass regenerates only Auto-meter pads (a host meter
-    /// flip): forced pads' patterns are still valid and swapping in identical
-    /// notes would cost a needless flush. Cleared by any full-dirty cause.
-    dirty_auto_only: bool,
+    /// Subset of `slot_dirty` that must regenerate whatever the pad's meter
+    /// (store/clear/restore, tempo, init, a lost build). Dirty bits OUTSIDE it
+    /// come from a host meter flip and only matter to Auto-meter pads: forced
+    /// pads' patterns are still valid, and swapping in identical notes would
+    /// cost a needless flush. A mask, not a flag: a flag let a host meter flip
+    /// erase the load-time dirty set of every forced-meter pad.
+    dirty_force: u16,
+    /// Requests the worker accepted but never answered (a build that panicked,
+    /// a delivery dropped on a full channel) get re-requested.
+    slot_watch: SlotWatch,
     /// Last bank epoch this thread acted on.
     bank_epoch_seen: u32,
     /// Slot currently playing, -1 = bank inactive (params drive playback).
@@ -235,7 +323,8 @@ impl Default for Drumgen {
             offline: false,
             slot_patterns: Default::default(),
             slot_dirty: 0,
-            dirty_auto_only: false,
+            dirty_force: 0,
+            slot_watch: SlotWatch::default(),
             bank_epoch_seen: 0,
             active_slot: -1,
             queued_slot: -1,
@@ -315,13 +404,31 @@ impl Drumgen {
         self.gen_counter
     }
 
-    /// Block until the worker delivers the pattern we just requested. ONLY for
-    /// offline rendering — never call this from a real-time buffer.
-    fn await_pending(&mut self) {
-        let Some(p) = self.worker.as_ref().and_then(|w| w.recv_blocking()) else { return };
-        let stale = self.pending.replace(p);
-        if let (Some(w), Some(stale)) = (&self.worker, stale) {
-            w.retire(stale);
+    /// Wait for the pattern we just requested (generation `target`), at most
+    /// `OFFLINE_WAIT`. For offline rendering — and for Bitwig, whose live
+    /// engine reports Offline (PROJECT.md lesson 12).
+    ///
+    /// Bounded on purpose: a generation that panics publishes nothing, and an
+    /// unbounded wait then hung the audio thread. An older in-flight pattern
+    /// that arrives first is kept as a fallback but does not end the wait
+    /// (`Pattern.generation` tells it apart from the one we asked for).
+    fn await_pending(&mut self, target: u64) {
+        let Some(w) = self.worker.as_ref() else { return };
+        let deadline = Instant::now() + OFFLINE_WAIT;
+        let mut got: Option<Arc<Pattern>> = None;
+        while let Some(p) = w.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            let fresh = p.generation >= target;
+            if let Some(older) = got.replace(p) {
+                w.retire(older);
+            }
+            if fresh {
+                break;
+            }
+        }
+        if let Some(p) = got {
+            if let Some(stale) = self.pending.replace(p) {
+                w.retire(stale);
+            }
         }
     }
 
@@ -354,15 +461,19 @@ impl Drumgen {
         if self.slot_dirty == 0 {
             return;
         }
-        let Ok(bank) = self.params.bank.state.try_lock() else { return };
+        // A poisoned lock (the GUI panicked holding it) still yields the data;
+        // treating it as "contended" would kill the pump for the whole session.
+        let bank = match self.params.bank.state.try_lock() {
+            Ok(b) => b,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
+        };
         let (gens, empty, auto) = plan_pump(self.slot_dirty, &bank);
         drop(bank);
 
-        // Host-meter pass: only Auto pads regenerate; forced pads' dirty bits
-        // clear without a request (their patterns are still right).
-        if self.dirty_auto_only {
-            self.slot_dirty &= auto | empty;
-        }
+        // Bits that came only from a host meter flip drop for forced pads
+        // (their patterns are still right); everything else stays.
+        self.slot_dirty = narrow_dirty(self.slot_dirty, self.dirty_force, auto, empty);
 
         // A slot that was cleared drops its cached pattern (via the worker's
         // bin — this thread must not run a free()).
@@ -374,6 +485,17 @@ impl Drumgen {
                     }
                 }
                 self.slot_dirty &= !(1 << i);
+                self.dirty_force &= !(1 << i);
+                self.slot_watch.delivered(i);
+                // A cleared pad cannot stay queued (it would blink forever)
+                // or stay "active" (it would draw lime over an empty pad).
+                if self.queued_slot == i as i32 {
+                    self.queued_slot = -1;
+                }
+                if self.active_slot == i as i32 {
+                    self.log(worker::LogEvent::BankExit { knob: false });
+                    self.exit_bank();
+                }
             }
         }
 
@@ -391,14 +513,27 @@ impl Drumgen {
                 .is_some_and(|w| w.request_slot(i as u8, req));
             if sent {
                 self.slot_dirty &= !(1 << i);
+                self.dirty_force &= !(1 << i);
+                self.slot_watch.armed(i, (SLOT_REPLY_SECS * self.sample_rate) as i64);
             } else {
                 // Queue full — stop here and retry from this slot next buffer.
                 break;
             }
         }
         if self.slot_dirty == 0 {
-            self.dirty_auto_only = false;
+            self.dirty_force = 0;
         }
+    }
+
+    /// Mark slots for regeneration. `force` = regenerate whatever the pad's
+    /// meter (every cause except a host meter flip). A new cause also earns
+    /// every slot a fresh set of retries.
+    fn mark_dirty(&mut self, mask: u16, force: bool) {
+        self.slot_dirty |= mask;
+        if force {
+            self.dirty_force |= mask;
+        }
+        self.slot_watch.reset_tries();
     }
 
     /// A slot's cached pattern, bounds-checked. Every index here comes off the
@@ -505,7 +640,7 @@ impl Plugin for Drumgen {
             let desired = self.inputs(120.0, (0, 0));
             let g = self.next_gen();
             worker.request(desired.to_request(g));
-            if let Some(p) = worker.recv_blocking() {
+            if let Some(p) = worker.recv_timeout(INIT_WAIT) {
                 self.current = p;
                 // Not the audio thread yet — a plain lock is fine here.
                 // A poisoned lock (editor panicked) still yields the slot.
@@ -526,8 +661,7 @@ impl Plugin for Drumgen {
         // Republish which pads hold a snapshot: the trigger gate reads this, and
         // a restored project must accept a press before anything else happens.
         self.params.bank.stored.store(filled as u32, Ordering::Relaxed);
-        self.slot_dirty = filled;
-        self.dirty_auto_only = false;
+        self.mark_dirty(filled, true);
         if filled != 0 {
             self.log(worker::LogEvent::Dirty { mask: filled, cause: 3 });
         }
@@ -584,6 +718,7 @@ impl Plugin for Drumgen {
                 if i >= params::BANK_SLOTS {
                     continue;
                 }
+                self.slot_watch.delivered(i);
                 if let Some(stale) = self.slot_patterns[i].replace(p) {
                     w.retire(stale);
                 }
@@ -596,12 +731,16 @@ impl Plugin for Drumgen {
             let i = self.active_slot as usize;
             if let Some(p) = self.slot_patterns.get(i).and_then(|p| p.as_ref()) {
                 if !Arc::ptr_eq(p, &self.current) {
+                    // A regeneration after an unrelated STORE or a tempo
+                    // wobble is note-identical: take the new Arc quietly,
+                    // flushing would cut the pad that is playing.
+                    let same_notes = p.content_key == self.current.content_key;
                     let fresh = p.clone();
                     let stale = std::mem::replace(&mut self.current, fresh);
                     if let Some(w) = &self.worker {
                         w.retire(stale);
                     }
-                    bank_swapped = true;
+                    bank_swapped = !same_notes;
                 }
             }
         }
@@ -701,10 +840,26 @@ impl Plugin for Drumgen {
                     self.requested = desired;
                     self.settle_remaining = 0;
                     sent_now = true;
-                    self.slot_dirty = u16::MAX;
-                    self.dirty_auto_only = true;
+                    // Auto pads only (see `dirty_force`): the bits this adds
+                    // are NOT forced, so a pending load-time or store dirty
+                    // set for forced-meter pads survives it.
+                    self.mark_dirty(u16::MAX, false);
                     self.log(worker::LogEvent::HostMeter(desired.meter.0, desired.meter.1));
                     self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 2 });
+                    // This branch outranks the continuous one in
+                    // `classify_change`, so a tempo move or knob turn landing
+                    // with a meter flip must be handled here or it is lost
+                    // (`requested` is overwritten below).
+                    if tempo_changed {
+                        self.mark_dirty(u16::MAX, true);
+                        self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 1 });
+                    }
+                    if knob_changed {
+                        if self.active_slot >= 0 || self.queued_slot >= 0 {
+                            self.log(worker::LogEvent::BankExit { knob: true });
+                        }
+                        self.exit_bank();
+                    }
                 }
             }
             ChangeKind::Continuous => {
@@ -731,8 +886,7 @@ impl Plugin for Drumgen {
                             // Patterns bake tempo (humanization is ms-based), so
                             // every stored slot is now wrong. Empty bits clear
                             // themselves in the pump.
-                            self.slot_dirty = u16::MAX;
-                            self.dirty_auto_only = false;
+                            self.mark_dirty(u16::MAX, true);
                             self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 1 });
                         }
                     }
@@ -747,9 +901,15 @@ impl Plugin for Drumgen {
         let epoch = self.params.bank.epoch.load(Ordering::Relaxed);
         if epoch != self.bank_epoch_seen {
             self.bank_epoch_seen = epoch;
-            self.slot_dirty = u16::MAX;
-            self.dirty_auto_only = false;
+            self.mark_dirty(u16::MAX, true);
             self.log(worker::LogEvent::Dirty { mask: u16::MAX, cause: 0 });
+        }
+        // Re-request any slot whose answer never came.
+        let lost = self.slot_watch.tick(num_samples);
+        if lost != 0 {
+            self.slot_dirty |= lost;
+            self.dirty_force |= lost;
+            self.log(worker::LogEvent::Dirty { mask: lost, cause: 4 });
         }
         self.pump_slots(desired.tempo, host_meter);
 
@@ -781,7 +941,7 @@ impl Plugin for Drumgen {
         // as fast as it can), so wait for the pattern we just asked for instead
         // of baking the previous one into the next few buffers of the bounce.
         if sent_now && self.offline {
-            self.await_pending();
+            self.await_pending(self.gen_counter);
         }
 
         // 4. Stopped: flush once, apply any pending swap immediately, silence.
@@ -812,6 +972,8 @@ impl Plugin for Drumgen {
                     if let Some(w) = &self.worker {
                         w.retire(stale);
                     }
+                    // A params pattern is anchored to the timeline.
+                    self.origin = 0.0;
                 }
             }
             self.publish_bank();
@@ -835,6 +997,11 @@ impl Plugin for Drumgen {
         self.was_playing = true;
         if just_started {
             self.log(worker::LogEvent::Playing(true));
+            // Starting the transport re-anchors to the timeline, like a params
+            // pattern. A stale origin from a mid-song swap would otherwise
+            // offset the phase (or, before the fix, play nothing) after a
+            // rewind.
+            self.origin = 0.0;
         }
         let discontinuity = match (pos_samples, self.last_end_samples) {
             (Some(cur), Some(prev)) => (cur - prev).abs() > 8,
@@ -872,6 +1039,7 @@ impl Plugin for Drumgen {
         // Recomputed every buffer (never latched) so a loop jump or locate
         // cannot strand a queued slot on a boundary that no longer arrives.
         let mut swap_timing = 0u32;
+        let mut swapped_here = false;
         if self.queued_slot >= 0 {
             let boundary = next_bar_boundary(&self.current.bar_starts, self.origin, abs_tick_start);
             if boundary < abs_tick_start + buffer_ticks {
@@ -882,6 +1050,7 @@ impl Plugin for Drumgen {
                     }
                     // The new slot's bar 1 lands exactly on the boundary.
                     self.origin = boundary;
+                    swapped_here = true;
                     self.active_slot = self.queued_slot;
                     need_flush = true;
                     // ponytail: the swap happens at buffer granularity, so the
@@ -915,8 +1084,7 @@ impl Plugin for Drumgen {
         // boundary is still ahead of the buffer start) — playback::scan handles
         // a negative p0 and places bar 1's downbeat at its exact sample, so the
         // kick on 1 is neither dropped nor early. Every other buffer wraps.
-        let raw = abs_tick_start - self.origin;
-        let p0 = if raw < 0.0 { raw } else { raw.rem_euclid(total_ticks as f64) };
+        let p0 = window_start(abs_tick_start, self.origin, total_ticks, swapped_here);
 
         // Telegraph/cursor: publish the playhead tick. One relaxed store —
         // nothing else is allowed on this thread (the GUI derives the bar).
@@ -1225,5 +1393,107 @@ mod tests {
         assert_eq!(next_bar_boundary(&mixed, 0.0, 10.0), 1680.0);
         assert_eq!(next_bar_boundary(&mixed, 0.0, 1700.0), 3600.0);
         assert_eq!(next_bar_boundary(&mixed, 0.0, 5000.0), 5520.0);
+    }
+
+    // ── window_start: the silence-after-rewind bug ───────────────────────────
+
+    #[test]
+    fn rewind_before_the_swap_point_still_plays() {
+        // A pad swapped in at bar 20 sets origin there. Stop, rewind to bar 1,
+        // play: the position is far BEFORE origin. It used to return a negative
+        // window (silence) until the transport climbed back to bar 20.
+        let origin = 19.0 * 1920.0;
+        let p0 = window_start(0.0, origin, 3840, false);
+        assert!((0.0..3840.0).contains(&p0), "must wrap into the pattern, got {p0}");
+    }
+
+    #[test]
+    fn loop_jump_before_the_origin_still_plays() {
+        let origin = 8.0 * 1920.0;
+        for abs in [0.0, 480.0, 5.0 * 1920.0, origin - 1.0] {
+            let p0 = window_start(abs, origin, 1920 * 4, false);
+            assert!((0.0..7680.0).contains(&p0), "abs {abs} -> {p0}");
+        }
+    }
+
+    #[test]
+    fn the_swap_buffer_keeps_its_negative_start() {
+        // In the buffer a switch lands in, the boundary is still ahead of the
+        // buffer start: scan() relies on the negative p0 to put bar 1's downbeat
+        // on its exact sample.
+        let p0 = window_start(1900.0, 1920.0, 3840, true);
+        assert_eq!(p0, -20.0);
+    }
+
+    #[test]
+    fn window_start_is_continuous_across_the_pattern_wrap() {
+        let total = 3840;
+        let a = window_start(3839.0, 0.0, total, false);
+        let b = window_start(3840.0, 0.0, total, false);
+        assert_eq!(a, 3839.0);
+        assert_eq!(b, 0.0);
+        // Phase follows the origin: bar 1 of the pattern sits ON the origin.
+        assert_eq!(window_start(5000.0, 5000.0, total, false), 0.0);
+    }
+
+    // ── dirty masks: the forced-pad bug ──────────────────────────────────────
+
+    #[test]
+    fn a_host_meter_flip_does_not_erase_the_load_time_dirty_set() {
+        // Load: pads 0 (Auto) and 1 (forced 7/8) are stored and both dirty and
+        // forced. The first process() sees the host meter and takes the host
+        // meter branch, which adds every bit WITHOUT forcing it. Pad 1 must
+        // still be regenerated, or it stays "generating" forever.
+        let auto: u16 = 0b01;
+        let empty: u16 = !0b11;
+        let force: u16 = 0b11;
+        let dirty = 0b11 | u16::MAX; // mark_dirty(MAX, false) ORs into the set
+        let kept = narrow_dirty(dirty, force, auto, empty);
+        assert_eq!(kept & 0b11, 0b11, "forced-meter pad lost its regeneration");
+    }
+
+    #[test]
+    fn a_pure_host_meter_flip_still_spares_forced_pads() {
+        let auto: u16 = 0b01;
+        let empty: u16 = !0b11;
+        let kept = narrow_dirty(u16::MAX, 0, auto, empty);
+        assert_eq!(kept & 0b11, 0b01, "only the Auto pad should re-bake");
+    }
+
+    // ── SlotWatch: dropped builds are retried, boundedly ─────────────────────
+
+    #[test]
+    fn an_unanswered_slot_is_re_requested_after_the_wait() {
+        let mut w = SlotWatch::default();
+        w.armed(3, 1000);
+        assert_eq!(w.tick(400), 0);
+        assert_eq!(w.tick(400), 0);
+        assert_eq!(w.tick(400), 1 << 3, "request should be considered lost");
+        assert_eq!(w.tick(400), 0, "and reported once, not every buffer");
+    }
+
+    #[test]
+    fn a_delivery_cancels_the_wait() {
+        let mut w = SlotWatch::default();
+        w.armed(0, 1000);
+        w.delivered(0);
+        assert_eq!(w.tick(5000), 0);
+    }
+
+    #[test]
+    fn a_build_that_always_fails_stops_being_retried() {
+        let mut w = SlotWatch::default();
+        let mut retries = 0;
+        for _ in 0..20 {
+            w.armed(5, 100);
+            if w.tick(200) & (1 << 5) != 0 {
+                retries += 1;
+            }
+        }
+        assert_eq!(retries, MAX_SLOT_TRIES as usize);
+        // A new cause (store, tempo) earns fresh tries.
+        w.reset_tries();
+        w.armed(5, 100);
+        assert_eq!(w.tick(200), 1 << 5);
     }
 }

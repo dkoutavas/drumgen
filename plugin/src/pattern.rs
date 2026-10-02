@@ -20,10 +20,6 @@ pub struct MidiEvent {
 }
 
 /// A baked, immutable pattern ready for playback.
-// dead_code: bar_starts/time_signatures/generation/seed/style_name/cell_name are
-// not read yet — they feed the planned GUI status line, step-grid preview, and
-// SAVE .MID export. Remove the allow when those land.
-#[allow(dead_code)]
 pub struct Pattern {
     /// All events, sorted by (tick, note-off before note-on).
     pub events: Vec<MidiEvent>,
@@ -33,8 +29,14 @@ pub struct Pattern {
     /// Length is `total_bars + 1`; always starts with 0.
     pub bar_starts: Vec<i64>,
     pub time_signatures: Vec<TimeSigEntry>,
-    /// Monotonic generation counter — GUI rebakes its display when this changes.
+    /// Monotonic generation counter. The offline wait reads it to tell the
+    /// pattern it asked for from an older one still in flight.
     pub generation: u64,
+    /// Hash of everything that sounds or lays out (events, length, bars). Two
+    /// patterns with the same key are note-identical, so swapping one for the
+    /// other needs no flush: a bank re-generation after an unrelated STORE or
+    /// tempo wobble must not cut the pad that is playing.
+    pub content_key: u64,
     // ── metadata (status line / export) ──
     /// The raw dice seed (the SEED param value), NOT the style-salted seed the
     /// engine consumed — this is what the GUI and .mid export display, and it
@@ -42,12 +44,37 @@ pub struct Pattern {
     pub seed: u64,
     pub tempo: f64,
     pub style_name: String,
+    /// Carries the song label in Song Mode. Nothing reads it (the GUI walks
+    /// `sections` instead). ponytail: delete with the next `from_assemble`
+    /// signature change rather than churn every caller for one field now.
+    #[allow(dead_code)]
     pub cell_name: String,
     /// Song-mode section map: (section_type, bars, cell_name) in order, empty
     /// in loop mode. The GUI walks this to label the viewed bar. `cell_name`
     /// is what actually PLAYS; `section_type` is only what the song form asked
     /// for, and the two diverge whenever a style cannot serve the section.
     pub sections: Vec<(String, i32, String)>,
+}
+
+/// FNV-1a over the pattern's audible content. Deterministic, allocation-free.
+fn content_key(events: &[MidiEvent], total_ticks: i64, bar_starts: &[i64]) -> u64 {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |v: u64| {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+    };
+    mix(total_ticks as u64);
+    for &b in bar_starts {
+        mix(b as u64);
+    }
+    for e in events {
+        mix(e.tick as u64);
+        mix(((e.note as u64) << 16) | ((e.velocity as u64) << 8) | e.is_note_on as u64);
+    }
+    h
 }
 
 impl Pattern {
@@ -137,12 +164,14 @@ impl Pattern {
             bar_starts.push(midi_math::calculate_bar_start_ticks(bar, &res.time_signatures, PPQ));
         }
 
+        let content_key = content_key(&events, total_ticks, &bar_starts);
         Pattern {
             events,
             total_ticks,
             bar_starts,
             time_signatures: res.time_signatures.clone(),
             generation,
+            content_key,
             seed: display_seed,
             tempo: res.tempo,
             style_name,
@@ -183,6 +212,22 @@ mod tests {
     }
 
     /// Same-tick same-pitch hits collapse to one note-on (the loudest).
+    /// The key lets the audio thread swap in a regenerated-but-identical pad
+    /// without a flush, so it must be stable for equal notes and move for any
+    /// audible change.
+    #[test]
+    fn content_key_tracks_the_notes() {
+        let a = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let same = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let louder = result(vec![hit(0, Instrument::Kick, 101), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let moved = result(vec![hit(0, Instrument::Kick, 100), hit(481, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let longer = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 2, 4, 4)], 2);
+        assert_eq!(bake(&a).content_key, bake(&same).content_key);
+        for other in [&louder, &moved, &longer] {
+            assert_ne!(bake(&a).content_key, bake(other).content_key);
+        }
+    }
+
     #[test]
     fn same_tick_same_pitch_is_one_note_on() {
         let res = result(

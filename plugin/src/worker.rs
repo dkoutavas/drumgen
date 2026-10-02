@@ -38,7 +38,8 @@ pub enum LogEvent {
     /// Bank mode ended: a knob (humanize/swing) or a discrete param tweak.
     BankExit { knob: bool },
     /// Slots marked for regeneration. cause: 0=store/clear/restore (epoch),
-    /// 1=tempo move, 2=host meter flip (Auto pads only), 3=plugin init.
+    /// 1=tempo move, 2=host meter flip (Auto pads only), 3=plugin init,
+    /// 4=a slot request got no answer (build panicked or delivery dropped).
     Dirty { mask: u16, cause: u8 },
 }
 
@@ -104,6 +105,7 @@ impl LogSink {
                     0 => "bank edited",
                     1 => "tempo moved",
                     2 => "host meter flip: Auto pads re-bake",
+                    4 => "slot build never answered: re-requesting",
                     _ => "plugin init",
                 }
             ),
@@ -160,7 +162,11 @@ impl GenWorker {
         let (req_tx, req_rx) = bounded::<Msg>(32);
         let (pat_tx, pat_rx) = bounded::<Arc<Pattern>>(1);
         let (slot_tx, slot_rx) = bounded::<(u8, Arc<Pattern>)>(BANK_SLOTS);
-        let (gc_tx, gc_rx) = bounded::<Arc<Pattern>>(8);
+        // A 16-slot refresh hands the audio thread 16 deliveries, and it
+        // retires the 16 stale patterns they replace. A bin of 8 overflowed and
+        // freed the rest ON the audio thread; this holds a full refresh plus
+        // the live pattern and the GUI view with room to spare.
+        let (gc_tx, gc_rx) = bounded::<Arc<Pattern>>(2 * BANK_SLOTS + 8);
         let (log_tx, log_rx) = bounded::<LogEvent>(128);
         // The worker keeps a clone of the pattern receiver purely to evict a
         // stale unclaimed pattern before publishing a fresh one (latest-wins).
@@ -224,9 +230,17 @@ impl GenWorker {
         latest
     }
 
-    /// Blocking — for the synchronous first generation in `initialize()` only.
-    pub fn recv_blocking(&self) -> Option<Arc<Pattern>> {
-        self.pat_rx.recv().ok()
+    /// Wait for the next published pattern, at most `timeout`. `None` on a
+    /// timeout or a dead worker. Used by `initialize()` and the offline wait.
+    ///
+    /// Never unbounded: a generation that panics is caught in `build_pattern`
+    /// and publishes nothing, while the worker thread lives on holding the
+    /// channel open, so an untimed `recv()` would wait forever. In Bitwig the
+    /// live engine reports Offline, so that was the AUDIO thread hanging.
+    /// ponytail: a panicking build costs one `timeout` stall, not a hang; the
+    /// upgrade is a generation-tagged failure message so the wait ends at once.
+    pub fn recv_timeout(&self, timeout: Duration) -> Option<Arc<Pattern>> {
+        self.pat_rx.recv_timeout(timeout).ok()
     }
 
     /// Shut the worker down and join it.
@@ -328,72 +342,53 @@ fn worker_loop(
             continue;
         };
 
-        // Drain the whole queue into one batch: the LIVE request keeps
-        // latest-wins (only the newest matters, the rest are already stale),
-        // while slot requests coalesce PER SLOT and never across slots — a
-        // 16-slot refresh must produce 16 patterns, not one.
+        // Fold the queue into one batch: the LIVE request keeps latest-wins
+        // (only the newest matters), while slot requests coalesce PER SLOT and
+        // never across slots — a 16-slot refresh must produce 16 patterns.
         let mut live: Option<GenRequest> = None;
         let mut slot_reqs: [Option<GenRequest>; BANK_SLOTS] = [None; BANK_SLOTS];
-        let mut batch = Some(msg);
+        let mut shutdown = fold(msg, &mut live, &mut slot_reqs);
+
         loop {
-            match batch.take() {
-                Some(Msg::Generate(r)) => live = Some(r),
-                Some(Msg::GenerateSlot(i, r)) => {
-                    if let Some(entry) = slot_reqs.get_mut(i as usize) {
-                        *entry = Some(r);
-                    }
+            // Fold anything that arrived meanwhile, between EVERY generation:
+            // a live request (a dice press, a knob) waits behind at most the
+            // one slot build in flight, not the whole 16-slot refresh.
+            while !shutdown {
+                match req_rx.try_recv() {
+                    Ok(m) => shutdown = fold(m, &mut live, &mut slot_reqs),
+                    Err(_) => break,
                 }
-                Some(Msg::Shutdown) => {
-                    sink.line("=== session end (shutdown) ===");
-                    sink.flush();
+            }
+            if shutdown {
+                sink.line("=== session end (shutdown) ===");
+                sink.flush();
+                return;
+            }
+
+            // Live first: it is what the user is hearing right now.
+            if let Some(req) = live.take() {
+                if !serve_live(&mut sink, &gen, &req, &pat_tx, &pat_rx_evict) {
                     return;
                 }
-                None => {}
+                continue;
             }
-            match req_rx.try_recv() {
-                Ok(m) => batch = Some(m),
-                Err(_) => break,
-            }
-        }
 
-        // Live first: it is what the user is hearing right now.
-        if let Some(req) = live {
-            log_request(&mut sink, &gen, "live", &req);
-            if let Some(pattern) = build_pattern(&gen, &req) {
-                log_built(&mut sink, "live", &pattern);
-                // Publish latest-wins: on a full slot, evict the stale pattern
-                // and retry.
-                let mut to_send = Arc::new(pattern);
-                loop {
-                    match pat_tx.try_send(to_send) {
-                        Ok(()) => break,
-                        Err(TrySendError::Full(p)) => {
-                            let _ = pat_rx_evict.try_recv();
-                            to_send = p;
-                        }
-                        Err(TrySendError::Disconnected(_)) => return,
-                    }
-                }
-            }
-        }
-
-        // ponytail: a live request arriving mid-batch waits for the whole slot
-        // batch (~16 generations, tens of ms) before it is seen. Upgrade path:
-        // poll req_rx between slots and restart the batch on a live request.
-        for i in 0..BANK_SLOTS {
-            let Some(req) = slot_reqs[i] else { continue };
+            // Free what the audio thread retired while we were building.
+            while gc_rx.try_recv().is_ok() {}
+            let Some(i) = slot_reqs.iter().position(Option::is_some) else { break };
+            let Some(req) = slot_reqs[i].take() else { break };
             let label = format!("pad{}", i + 1);
             log_request(&mut sink, &gen, &label, &req);
             let Some(pattern) = build_pattern(&gen, &req) else {
-                sink.line(&format!("BUILD FAILED {label} (generation panicked — pad stays dirty)"));
+                sink.line(&format!("BUILD FAILED {label} (generation panicked)"));
                 continue;
             };
             log_built(&mut sink, &label, &pattern);
             match slot_tx.try_send((i as u8, Arc::new(pattern))) {
                 Ok(()) => {}
                 // A full slot channel means the audio thread has not drained in
-                // 16 deliveries; dropping is correct — the slot stays dirty and
-                // is re-requested.
+                // 16 deliveries; the pattern is dropped here and the pump's
+                // retry timer re-requests the pad.
                 Err(TrySendError::Full(_)) => {}
                 Err(TrySendError::Disconnected(_)) => return,
             }
@@ -402,6 +397,52 @@ fn worker_loop(
     }
     sink.line("=== session end (host dropped the queue) ===");
     sink.flush();
+}
+
+/// Fold one queued message into the pending batch. Returns true on Shutdown.
+fn fold(
+    msg: Msg,
+    live: &mut Option<GenRequest>,
+    slots: &mut [Option<GenRequest>; BANK_SLOTS],
+) -> bool {
+    match msg {
+        Msg::Generate(r) => *live = Some(r),
+        Msg::GenerateSlot(i, r) => {
+            if let Some(entry) = slots.get_mut(i as usize) {
+                *entry = Some(r);
+            }
+        }
+        Msg::Shutdown => return true,
+    }
+    false
+}
+
+/// Build and publish the live pattern (latest-wins: a stale unclaimed pattern
+/// is evicted first). Returns false when the audio side is gone.
+fn serve_live(
+    sink: &mut LogSink,
+    gen: &GenerationManager,
+    req: &GenRequest,
+    pat_tx: &Sender<Arc<Pattern>>,
+    pat_rx_evict: &Receiver<Arc<Pattern>>,
+) -> bool {
+    log_request(sink, gen, "live", req);
+    let Some(pattern) = build_pattern(gen, req) else {
+        sink.line("BUILD FAILED live (generation panicked — previous pattern kept)");
+        return true;
+    };
+    log_built(sink, "live", &pattern);
+    let mut to_send = Arc::new(pattern);
+    loop {
+        match pat_tx.try_send(to_send) {
+            Ok(()) => return true,
+            Err(TrySendError::Full(p)) => {
+                let _ = pat_rx_evict.try_recv();
+                to_send = p;
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+    }
 }
 
 /// One log line per generation request, with the style resolved to its name.
@@ -454,7 +495,7 @@ mod tests {
 
     fn serve_once(worker: &GenWorker, seed: u64) -> Arc<Pattern> {
         assert!(worker.request(req(seed)), "request must be accepted on an empty queue");
-        worker.recv_blocking().expect("worker delivers a pattern")
+        worker.recv_timeout(Duration::from_secs(5)).expect("worker delivers a pattern")
     }
 
     #[test]
@@ -520,7 +561,7 @@ mod tests {
         for seed in 1..=6u64 {
             assert!(worker.request_slot(3, req(seed)));
         }
-        let _ = worker.recv_blocking();
+        let _ = worker.recv_timeout(Duration::from_secs(5));
         let got = drain_slots(&worker, 1);
         assert_eq!(got.len(), 1, "six requests for one slot collapse to one pattern");
         assert_eq!(got[0].0, 3);
@@ -536,7 +577,7 @@ mod tests {
             assert!(worker.request_slot(i, req(i as u64 + 10)));
         }
         assert!(worker.request(req(7)));
-        let live = worker.recv_blocking().expect("live pattern delivered");
+        let live = worker.recv_timeout(Duration::from_secs(5)).expect("live pattern delivered");
         assert_eq!(live.seed, 7);
         assert_eq!(drain_slots(&worker, 4).len(), 4, "slots still complete");
         worker.shutdown();
@@ -550,7 +591,7 @@ mod tests {
         let worker = GenWorker::spawn(GenerationManager::new());
         let r = req(4242);
         assert!(worker.request(r));
-        let live = worker.recv_blocking().expect("live pattern");
+        let live = worker.recv_timeout(Duration::from_secs(5)).expect("live pattern");
         assert!(worker.request_slot(5, r));
         let slot = drain_slots(&worker, 1);
         assert_eq!(slot.len(), 1);
@@ -575,6 +616,69 @@ mod tests {
         }
         // Still alive and serving after the bin overflowed.
         assert!(!serve_once(&worker, 3).events.is_empty());
+        worker.shutdown();
+    }
+
+    /// A meter with a zero denominator is a reliable way to make generation
+    /// panic (the host path filters it out; this simulates "one unlucky cell").
+    fn poison(seed: u64) -> GenRequest {
+        GenRequest { meter: (4, 0), ..req(seed) }
+    }
+
+    #[test]
+    fn a_panicking_build_returns_none_not_a_dead_worker() {
+        let gen = GenerationManager::new();
+        assert!(build_pattern(&gen, &poison(1)).is_none());
+        assert!(build_pattern(&gen, &req(1)).is_some());
+    }
+
+    /// The hang: a failed live build publishes nothing while the worker thread
+    /// lives on, so an unbounded wait never returned. The bounded wait must
+    /// give up, and the worker must still serve the next request.
+    #[test]
+    fn a_panicking_live_build_cannot_hang_the_waiter() {
+        let worker = GenWorker::spawn(GenerationManager::new());
+        assert!(worker.request(poison(1)));
+        let t0 = Instant::now();
+        assert!(worker.recv_timeout(Duration::from_millis(300)).is_none());
+        assert!(t0.elapsed() < Duration::from_secs(3), "wait must be bounded");
+        // The worker survived the panic and still builds.
+        let p = serve_once(&worker, 2);
+        assert!(!p.events.is_empty());
+        worker.shutdown();
+    }
+
+    #[test]
+    fn recv_timeout_is_bounded_when_nothing_was_requested() {
+        let worker = GenWorker::spawn(GenerationManager::new());
+        let t0 = Instant::now();
+        assert!(worker.recv_timeout(Duration::from_millis(50)).is_none());
+        assert!(t0.elapsed() < Duration::from_secs(3));
+        worker.shutdown();
+    }
+
+    /// Slot requests coalesce per slot and every slot still arrives, even with
+    /// a live request interleaved behind them.
+    #[test]
+    fn every_slot_and_the_live_pattern_are_delivered() {
+        let worker = GenWorker::spawn(GenerationManager::new());
+        for i in 0..BANK_SLOTS as u8 {
+            assert!(worker.request_slot(i, req(100 + i as u64)));
+        }
+        assert!(worker.request(req(7)));
+        let live = worker.recv_timeout(Duration::from_secs(10)).expect("live pattern");
+        assert_eq!(live.generation, 7);
+        let mut got = [false; BANK_SLOTS];
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while got.iter().any(|g| !g) && Instant::now() < deadline {
+            if let Some((i, p)) = worker.try_recv_slot() {
+                assert_eq!(p.generation, 100 + i as u64);
+                got[i as usize] = true;
+            } else {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        assert!(got.iter().all(|g| *g), "a slot was lost: {got:?}");
         worker.shutdown();
     }
 }

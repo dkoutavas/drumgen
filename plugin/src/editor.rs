@@ -377,7 +377,7 @@ fn bank_row(
                 ui.painter().rect_stroke(
                     rect,
                     egui::CornerRadius::ZERO,
-                    egui::Stroke::new(2.0, TEXT),
+                    egui::Stroke::new(2.0_f32, TEXT),
                     egui::StrokeKind::Inside,
                 );
             }
@@ -668,6 +668,7 @@ mod tests {
             bar_starts: vec![0, 4 * PPQ, 8 * PPQ],
             time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 4, denominator: 4 }],
             generation: 0,
+            content_key: 0,
             seed: 0,
             tempo: 120.0,
             style_name: "test".into(),

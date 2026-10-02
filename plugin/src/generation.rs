@@ -150,12 +150,8 @@ impl GenerationManager {
         )
     }
 
-    /// Number of loaded cells.
-    pub fn num_cells(&self) -> usize {
-        self.library.num_cells()
-    }
-
     /// Number of available styles.
+    #[cfg(test)]
     pub fn num_styles(&self) -> usize {
         self.library.num_styles()
     }

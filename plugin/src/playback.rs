@@ -107,6 +107,7 @@ mod tests {
             bar_starts: vec![0, 1920],
             time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 1, numerator: 4, denominator: 4 }],
             generation: 0,
+            content_key: 0,
             seed: 0,
             tempo: 120.0,
             style_name: String::new(),

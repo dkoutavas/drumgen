@@ -290,6 +290,7 @@ impl CellLibrary {
     }
 
     /// Number of styles.
+    #[cfg(test)]
     pub fn num_styles(&self) -> usize {
         self.style_names.len()
     }
@@ -442,6 +443,7 @@ impl CellLibrary {
     }
 
     /// Number of cells loaded.
+    #[cfg(test)]
     pub fn num_cells(&self) -> usize {
         self.cells.len()
     }
