@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~6,300 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 309 Python + 107 Rust tests green.
+Python engine/tools, 309 Python + 131 Rust tests green.
 
 ### Feature inventory
 
@@ -130,7 +130,7 @@ Python engine/tools, 309 Python + 107 Rust tests green.
 | GUI | 8-bit (Sweetie-16 + Press Start 2P), 720×440 resizable, horizon strip w/ sweeping playhead cursor, telegraph countdown, bank row, step grid, pageable bars |
 | Export | SAVE .MID (hand-rolled SMF) + `on_save` hook → auto MusicXML score |
 | Notation | `notation.py` → MusicXML → MuseScore 4 (installed via Flatpak) → PDF |
-| RT safety | generation on a worker thread; audio thread does one relaxed atomic store, no allocation, no locks that block |
+| RT safety | generation and the session log on a worker thread; audio thread uses relaxed atomics and `try_lock`/`try_send` only, no allocation, one bounded wait (`await_pending`) |
 
 ## 5. Architecture
 
@@ -175,7 +175,7 @@ python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 107 tests
+cd plugin && cargo test                      # 131 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.
@@ -216,8 +216,9 @@ Use it for anything ambiguous or risky; it earns its cost.
 8. MuseScore 4 has no MIDI import panel. MusicXML is the only clean door.
 9. Guitar Pro 5 survives as a file format; the application is gone (Wine is a dead end;
    TuxGuitar converts MusicXML → .gp5 if a drummer insists).
-10. The audio thread gets exactly one relaxed atomic store for the GUI
-    playhead. Everything else derives GUI-side.
+10. The audio thread publishes to the GUI with relaxed atomics only (playhead
+    tick, bank state). Locks are `try_lock`, the log and all file IO live on the
+    worker. Everything else derives GUI-side.
 11. Features that exist only as files do not exist. songs.txt and the
     notation pipeline both had to be surfaced (starter file planted on first
     run; save hook; hover texts) before the author found them.
@@ -232,6 +233,18 @@ Use it for anything ambiguous or risky; it earns its cost.
     99 tests and still froze in the field, because no harness mislabels its
     process mode. The session log exists so the next field-only bug costs
     one text file, not three screenshots.
+15. Every wait on the audio thread needs a deadline. `await_pending` blocked on
+    an unbounded `recv()`; a generation that panicked published nothing while
+    the worker lived on, so the wait never ended. Under lesson 12's Offline lie
+    that was the live audio thread. It is bounded (`OFFLINE_WAIT`) now.
+16. "Before the pattern" is only silence where the pattern really starts. A
+    pad swapped in at bar 20 left `origin` there; rewinding or looping to
+    before it produced a negative window, which played nothing until the
+    transport climbed back. A negative start is legitimate only in the buffer
+    the swap lands in.
+17. A flag where a mask belongs loses events. `dirty_auto_only: bool` let one
+    host meter report overwrite the load-time dirty set of every forced-meter
+    pad, so they never generated. Overlapping causes need per-cause sets.
 
 ## 8. Open threads
 
@@ -247,9 +260,12 @@ The 2026-08-01 queue, in order:
 3. Generated arrangements — the reason the bank exists. A generated form is
    an arrangement string plus meter turns; store it on a pad. Needs a plan
    session before code.
-4. `await_pending` blocks the audio thread on every live param change,
-   because Bitwig mislabels its engine as offline (lesson 12). Inaudible
-   today (generation is milliseconds); still a real-time violation.
+4. `await_pending` still blocks the audio thread on every live param change,
+   because Bitwig mislabels its engine as offline (lesson 12). It is bounded
+   now (a panicking build costs a 500 ms stall, not a hang) and a live request
+   no longer waits behind a whole 16-slot refresh, but it remains a real-time
+   violation. Upgrade path: a generation-tagged failure message so the wait
+   ends at once, and a reliable live/offline signal to skip it entirely.
 5. Editing a stored pad means trigger → tweak (exits bank) → re-store. If
    that grates mid-jam, add a "recall pad to knobs" gesture.
 6. Merge `plugin-hardening` → `main` after the author's ears sign off the

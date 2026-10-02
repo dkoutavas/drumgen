@@ -91,8 +91,15 @@ pub(crate) fn output_dir() -> PathBuf {
 /// (filename seed, track-name meta) come from the pattern itself, so they
 /// always describe the notes actually written.
 pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
-    let dir = output_dir();
-    std::fs::create_dir_all(&dir)?;
+    let path = save_pattern_in(&output_dir(), pattern)?;
+    run_save_hook(&path);
+    Ok(path)
+}
+
+/// `save_pattern` into an explicit directory (no hook), so the collision
+/// handling can be tested without touching `$HOME`.
+fn save_pattern_in(dir: &std::path::Path, pattern: &Pattern) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
 
     let bars = pattern.bar_starts.len().saturating_sub(1).max(1);
     let meter = pattern
@@ -106,17 +113,22 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
         pattern.style_name, pattern.tempo.round() as i64, pattern.seed, meter_suffix, bars
     );
 
-    let mut path = dir.join(format!("{base}.mid"));
-    let mut n = 0;
-    while path.exists() {
-        n += 1;
-        path = dir.join(format!("{base}_{n}.mid"));
-    }
-
     let bytes = encode_smf(pattern);
-    let mut f = std::fs::File::create(&path)?;
+    // `create_new` makes the existence check and the creation ONE atomic step.
+    // `exists()` then `File::create` raced: two instances saving the same
+    // style/tempo/seed could both pick a free name and the second truncated
+    // the first's file.
+    let mut n = 0u32;
+    let (path, mut f) = loop {
+        let name = if n == 0 { format!("{base}.mid") } else { format!("{base}_{n}.mid") };
+        let path = dir.join(name);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(f) => break (path, f),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && n < 9999 => n += 1,
+            Err(e) => return Err(e),
+        }
+    };
     f.write_all(&bytes)?;
-    run_save_hook(&path);
     Ok(path)
 }
 
@@ -124,15 +136,34 @@ pub fn save_pattern(pattern: &Pattern) -> std::io::Result<PathBuf> {
 /// executable it is spawned with the saved .mid path as its argument. This is
 /// how SAVE .MID grows superpowers (e.g. auto-render a MuseScore-ready score
 /// via notation.py) without the plugin ever depending on Python. Runs on the
-/// GUI thread, detached — never blocks, failures only log.
+/// GUI thread and never blocks it, failures only log.
+///
+/// The hook gets null stdio (it must not scribble on the DAW's terminal or
+/// hold its pipes open) and a short-lived thread reaps it: a dropped `Child`
+/// is never `wait`ed, so every SAVE used to leave a zombie in the DAW's
+/// process table until the DAW exited.
 fn run_save_hook(path: &std::path::Path) -> bool {
     let Some(home) = std::env::var_os("HOME") else { return false };
     let hook = PathBuf::from(home).join(".config/drumgen/on_save");
     if !hook.is_file() {
         return false;
     }
-    match std::process::Command::new(&hook).arg(path).spawn() {
-        Ok(_) => true,
+    use std::process::Stdio;
+    match std::process::Command::new(&hook)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            let _ = std::thread::Builder::new()
+                .name("drumgen-hook-reaper".into())
+                .spawn(move || {
+                    let _ = child.wait();
+                });
+            true
+        }
         Err(e) => {
             nih_plug::nih_log!("drumgen: on_save hook failed to spawn: {e}");
             false
@@ -211,5 +242,51 @@ mod tests {
         assert!(bytes.windows(3).any(|w| w == [0x99, 36, 100]));
         // Matching note-off 0x89.
         assert!(bytes.windows(3).any(|w| w == [0x89, 36, 0]));
+    }
+
+    fn sample_pattern() -> Pattern {
+        Pattern {
+            events: vec![
+                MidiEvent { tick: 0, note: 36, velocity: 100, is_note_on: true },
+                MidiEvent { tick: 30, note: 36, velocity: 0, is_note_on: false },
+            ],
+            total_ticks: 1920,
+            bar_starts: vec![0, 1920],
+            time_signatures: vec![TimeSigEntry { bar_start: 1, bar_end: 1, numerator: 4, denominator: 4 }],
+            generation: 0,
+            content_key: 0,
+            seed: 7,
+            tempo: 120.0,
+            style_name: "screamo".into(),
+            cell_name: String::new(),
+            sections: Vec::new(),
+        }
+    }
+
+    /// Saving the same pattern twice must keep both files: auto-increment, never
+    /// truncate. (The old exists()-then-create check could also lose a race
+    /// between two plugin instances.)
+    #[test]
+    fn saving_twice_never_overwrites() {
+        let dir = std::env::temp_dir().join(format!(
+            "drumgen-save-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let p = sample_pattern();
+        let a = save_pattern_in(&dir, &p).unwrap();
+        let b = save_pattern_in(&dir, &p).unwrap();
+        let c = save_pattern_in(&dir, &p).unwrap();
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert!(b.to_string_lossy().ends_with("_1.mid"));
+        assert!(c.to_string_lossy().ends_with("_2.mid"));
+        for f in [&a, &b, &c] {
+            assert_eq!(std::fs::read(f).unwrap(), encode_smf(&p), "file must hold the full SMF");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

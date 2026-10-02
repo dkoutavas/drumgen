@@ -194,7 +194,7 @@ impl ParamSnapshot {
 /// drumgen — algorithmic drum-pattern MIDI generator (VST3 + CLAP).
 ///
 /// No audio processing: it reads the DAW transport and emits MIDI notes that
-/// drive a drum sampler on another track. Generation runs on a background
+/// drive a drum sampler after it in the same device chain. Generation runs on a background
 /// worker thread; the audio thread only reads the current immutable pattern.
 struct Drumgen {
     params: Arc<DrumgenParams>,
@@ -230,6 +230,9 @@ struct Drumgen {
     // ── transport bookkeeping ──
     was_playing: bool,
     last_end_samples: Option<i64>,
+    /// Where the previous buffer's tick window ended (pattern-relative), so
+    /// the next one can start exactly there. See `playback::seam_start`.
+    last_p1: Option<f64>,
     sample_rate: f32,
     /// Host is rendering faster than real time (bounce/freeze). Generation then
     /// waits inline — nothing is audible, and a stale pattern would be baked in.
@@ -319,6 +322,7 @@ impl Default for Drumgen {
             settle_samples: 0,
             was_playing: false,
             last_end_samples: None,
+            last_p1: None,
             sample_rate: 44100.0,
             offline: false,
             slot_patterns: Default::default(),
@@ -674,6 +678,7 @@ impl Plugin for Drumgen {
         self.active = 0;
         self.was_playing = false;
         self.last_end_samples = None;
+        self.last_p1 = None;
         self.playhead_tick.store(-1, Ordering::Relaxed);
     }
 
@@ -978,6 +983,7 @@ impl Plugin for Drumgen {
             }
             self.publish_bank();
             self.last_end_samples = None;
+            self.last_p1 = None;
             silence_buffer(buffer);
             return ProcessStatus::Normal;
         }
@@ -1084,7 +1090,16 @@ impl Plugin for Drumgen {
         // boundary is still ahead of the buffer start) — playback::scan handles
         // a negative p0 and places bar 1's downbeat at its exact sample, so the
         // kick on 1 is neither dropped nor early. Every other buffer wraps.
-        let p0 = window_start(abs_tick_start, self.origin, total_ticks, swapped_here);
+        let host_p0 = window_start(abs_tick_start, self.origin, total_ticks, swapped_here);
+        // Start where the last window ended when the host agrees to within a
+        // hair: closes the double/dropped hit on a seam (see seam_start). Not
+        // across a swap, a locate or a transport start, where the host's
+        // position is the only truth.
+        let p0 = if host_p0 >= 0.0 && !need_flush && !discontinuity && !just_started {
+            playback::seam_start(host_p0, self.last_p1, total_ticks as f64)
+        } else {
+            host_p0
+        };
 
         // Telegraph/cursor: publish the playhead tick. One relaxed store —
         // nothing else is allowed on this thread (the GUI derives the bar).
@@ -1093,6 +1108,7 @@ impl Plugin for Drumgen {
         // 9. Scan events into the reused scratch (no allocation after warmup).
         self.scratch.clear();
         playback::scan(&self.current, p0, buffer_ticks, samples_per_tick, num_samples, &mut self.scratch);
+        self.last_p1 = (host_p0 >= 0.0).then(|| (p0 + buffer_ticks).rem_euclid(total_ticks as f64));
 
         // 10. Emit and track active notes.
         for e in &self.scratch {
@@ -1232,6 +1248,7 @@ mod tests {
             meter: 0, // Auto
             fill: 0,
             song: 0,
+            song_name: String::new(),
         };
         bank.slots[0] = Some(auto_pad.clone());
         bank.slots[1] = Some(params::SlotSnapshot { meter: 2, ..auto_pad }); // forced 4/4
@@ -1266,6 +1283,7 @@ mod tests {
             meter: 0,
             fill: 1,
             song: 1, // Verse/Chor — the difference from the loop-mode test
+            song_name: params::song_label(1),
         });
         bank.bump();
 
@@ -1311,6 +1329,7 @@ mod tests {
             meter: 0,
             fill: 2,
             song: 0,
+            song_name: String::new(),
         });
         bank.bump();
 
@@ -1447,7 +1466,7 @@ mod tests {
         let auto: u16 = 0b01;
         let empty: u16 = !0b11;
         let force: u16 = 0b11;
-        let dirty = 0b11 | u16::MAX; // mark_dirty(MAX, false) ORs into the set
+        let dirty = u16::MAX; // mark_dirty(MAX, false) ORs every bit into the set, pad 1 already in it
         let kept = narrow_dirty(dirty, force, auto, empty);
         assert_eq!(kept & 0b11, 0b11, "forced-meter pad lost its regeneration");
     }

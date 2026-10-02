@@ -36,7 +36,16 @@ pub struct SlotSnapshot {
     /// keep following the host after a reload.
     pub meter: i32,
     pub fill: i32,
+    /// SONG param INDEX at store time. An index into a list that includes the
+    /// user's songs.txt, so it moves when they edit that file.
     pub song: i32,
+    /// The song's NAME ("" = Off): what the slot actually means. `sanitize_bank`
+    /// resolves it back to an index, so reordering or inserting a line in
+    /// songs.txt cannot silently turn a pad into a different form.
+    /// `serde(default)`: banks saved before this field existed still load (an
+    /// empty name keeps the stored index, the old behaviour).
+    #[serde(default)]
+    pub song_name: String,
 }
 
 impl SlotSnapshot {
@@ -73,9 +82,8 @@ impl SlotGen {
     /// Build a generation request for this slot. Mirrors
     /// `ParamSnapshot::to_request` in lib.rs.
     ///
-    /// ponytail: an Auto-meter slot bakes whatever host meter was in force when
-    /// it generated; a later host meter flip does not re-dirty slots. Upgrade
-    /// path: fold the host meter into the dirty check for Auto slots only.
+    /// An Auto-meter slot bakes the host meter in force when it generated; a
+    /// later host meter flip re-dirties Auto slots only (lib.rs `dirty_force`).
     pub fn to_request(&self, tempo: f32, host_meter: (i32, i32), generation: u64) -> GenRequest {
         GenRequest {
             style: self.style,
@@ -134,6 +142,7 @@ impl BankState {
 /// shrank) falls back to Off rather than silently playing a different form.
 pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
     let n_songs = n_songs() as i32;
+    let labels: Vec<String> = (0..n_songs).map(song_label).collect();
     let mut slots = vec![None; BANK_SLOTS];
 
     for (i, dst) in slots.iter_mut().enumerate() {
@@ -146,6 +155,7 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
                 .map(|n| (s.style_index, n.clone())),
         };
         let Some((style_index, style_name)) = resolved else { continue };
+        let song = resolve_song(&s.song_name, s.song, &labels);
 
         *dst = Some(SlotSnapshot {
             style_name,
@@ -156,7 +166,8 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
             swing: s.swing.clamp(0.0, 1.0),
             meter: if (0..METERS.len() as i32).contains(&s.meter) { s.meter } else { 0 },
             fill: if (0..FILLS.len() as i32).contains(&s.fill) { s.fill } else { 0 },
-            song: if (0..n_songs).contains(&s.song) { s.song } else { 0 },
+            song,
+            song_name: song_name_for(song),
         });
     }
 
@@ -277,7 +288,8 @@ pub struct DrumgenParams {
 
     /// Time signature. 0 = Auto (follows the HOST's time signature, falling
     /// back to the style's native meter when the host reports none); otherwise
-    /// forces a meter, falling back gracefully if the style has no cell in it.
+    /// forces a meter. The meter is a promise: a style with no cell in it gets
+    /// its closest cell adapted to the bar (see `assemble`), never silence.
     #[id = "meter"]
     pub meter: IntParam,
 
@@ -348,7 +360,8 @@ fn fill_label(index: i32) -> String {
 /// Song structure presets: (stepper label, arrangement string). Index 0 = Off
 /// (loop mode). Strings use the engine's section vocabulary and were verified
 /// against SECTION_PREFERENCES + the style pools (see the Song Mode design).
-/// All 4/4 and fill-token-free until the fill-section engine change lands.
+/// Forms use `fill` sections and per-section meters (`@N/M`) where the record
+/// they come from does.
 pub const SONGS: [(&str, &str); 10] = [
     ("Off", ""),
     // 20 bars — the workhorse Fugazi/ATDI verse-chorus skeleton.
@@ -356,7 +369,7 @@ pub const SONGS: [(&str, &str); 10] = [
     // 16 bars — Daitro/City of Caterpillar: 8-bar crescendo (matches the
     // 8-bar build cells) erupting into blast, heavy landing.
     ("Skramz Arc", "2:intro 8:build 1:fill 4:blast 1:breakdown"),
-    // 17 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
+    // 16 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
     ("Stop/Go", "2:blast 1:silence 2:blast 1:silence 2:blast 1:silence 4:breakdown 3:chorus"),
     // 20 bars — Saetia quiet-loud-quiet: fragile passage, eruption, a held
     // silence (the gasp), fragile again, full blast, decay.
@@ -402,18 +415,17 @@ pub fn valid_arrangement(arr: &str) -> bool {
         if !(1..=32).contains(&bars) {
             return false;
         }
-        let (section, meter) = match rest.split_once('@') {
+        let section = match rest.split_once('@') {
             Some((sec, ts)) => {
                 let Some((n, d)) = ts.split_once('/') else { return false };
                 let (Ok(n), Ok(d)) = (n.parse::<i32>(), d.parse::<i32>()) else { return false };
                 if !(1..=15).contains(&n) || !(d == 4 || d == 8) {
                     return false;
                 }
-                (sec, Some((n, d)))
+                sec
             }
-            None => (rest, None),
+            None => rest,
         };
-        let _ = meter;
         if !SECTIONS.contains(&section.to_lowercase().as_str()) {
             return false;
         }
@@ -517,6 +529,37 @@ pub fn song_str(index: i32) -> &'static str {
 /// visited once before the path repeats, and no seed maps to itself.
 pub fn dice_roll(seed: i32) -> i32 {
     (seed + 7919) % 10000
+}
+
+/// The name a snapshot stores for a SONG index ("" = Off).
+pub fn song_name_for(index: i32) -> String {
+    if index <= 0 {
+        String::new()
+    } else {
+        song_label(index)
+    }
+}
+
+/// Resolve a stored song back to an index. `labels[i]` is the label of song
+/// index `i` (`labels[0]` = Off).
+///   - a stored NAME wins: found → its index now; gone → Off (an Off pad beats
+///     a pad that silently plays a different form);
+///   - no name (Off, or a bank saved before names existed) → keep the stored
+///     index if it is still in range, else Off.
+fn resolve_song(name: &str, index: i32, labels: &[String]) -> i32 {
+    if !name.is_empty() {
+        return labels
+            .iter()
+            .skip(1)
+            .position(|l| l == name)
+            .map(|p| p as i32 + 1)
+            .unwrap_or(0);
+    }
+    if (0..labels.len() as i32).contains(&index) {
+        index
+    } else {
+        0
+    }
 }
 
 /// Display name for a song index — built-in preset or user songs.txt entry.
@@ -624,6 +667,7 @@ mod tests {
             meter: 0,
             fill: 2,
             song: 0,
+            song_name: String::new(),
         }
     }
 
@@ -783,5 +827,58 @@ mod tests {
         assert!(!valid_arrangement("blast")); // missing count
         assert!(!valid_arrangement("33:verse 32:blast")); // > 64 total
         assert!(!valid_arrangement("4:verse@x/y")); // garbage meter
+    }
+
+    fn labels(names: &[&str]) -> Vec<String> {
+        std::iter::once("Off").chain(names.iter().copied()).map(String::from).collect()
+    }
+
+    /// The reason the name exists: songs.txt is edited by hand, and an index
+    /// into it silently re-meant a pad when a line was inserted above it.
+    #[test]
+    fn a_reordered_songs_file_cannot_change_which_form_a_pad_plays() {
+        let before = labels(&["Verse/Chor", "Mine", "Other"]);
+        let after = labels(&["Verse/Chor", "Other", "Mine"]); // user swapped two lines
+        assert_eq!(resolve_song("Mine", 2, &before), 2);
+        assert_eq!(resolve_song("Mine", 2, &after), 3, "must follow the NAME, not the index");
+    }
+
+    #[test]
+    fn a_deleted_song_falls_back_to_off_not_to_another_form() {
+        let after = labels(&["Verse/Chor", "Other"]);
+        assert_eq!(resolve_song("Mine", 2, &after), 0);
+    }
+
+    #[test]
+    fn a_nameless_song_keeps_its_index_if_in_range() {
+        // Off (empty name, index 0) and banks saved before names existed.
+        let l = labels(&["Verse/Chor", "Mine"]);
+        assert_eq!(resolve_song("", 0, &l), 0);
+        assert_eq!(resolve_song("", 2, &l), 2);
+        assert_eq!(resolve_song("", 9, &l), 0, "out of range falls back to Off");
+        assert_eq!(resolve_song("", -1, &l), 0);
+    }
+
+    #[test]
+    fn a_bank_saved_before_song_names_still_loads() {
+        // Adding a required field would have made every existing `bank-v1`
+        // payload fail to deserialize, and nih-plug then keeps the default:
+        // all pads silently lost.
+        let old = r#"{"style_name":"a","style_index":0,"humanize":0.4,"bars":4,
+                      "seed":1,"swing":0.0,"meter":0,"fill":0,"song":1}"#;
+        let s: SlotSnapshot = serde_json::from_str(old).expect("old payload must load");
+        assert_eq!(s.song, 1);
+        assert_eq!(s.song_name, "");
+    }
+
+    #[test]
+    fn song_names_round_trip_and_off_is_empty() {
+        assert_eq!(song_name_for(0), "");
+        assert_eq!(song_name_for(1), song_label(1));
+        let mut s = snap("a", 0);
+        s.song = 1;
+        s.song_name = song_label(1);
+        let back: SlotSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
     }
 }

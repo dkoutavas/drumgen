@@ -15,6 +15,40 @@ pub struct Emit {
     pub is_note_on: bool,
 }
 
+/// How far (in ticks) the host's reported buffer start may sit from where the
+/// previous window ended and still be treated as the same continuous stretch.
+pub const SEAM_TOLERANCE_TICKS: f64 = 0.05;
+
+/// Where the next buffer's window should start.
+///
+/// Each window is `[p0, p0 + buffer_ticks)`, half-open. `p0` comes from the
+/// host's beat clock but `buffer_ticks` is extrapolated from the buffer-start
+/// tempo, so consecutive windows meet at two slightly different numbers. When
+/// an event sits exactly on a seam (it does whenever a buffer edge lands on a
+/// whole tick) rounding in either direction fires it TWICE (overlap) or NEVER
+/// (gap). Starting the next window exactly where the last one ended closes it.
+///
+/// Only when the two agree to within `SEAM_TOLERANCE_TICKS`: beyond that the
+/// host really moved (a locate, a loop jump, a tempo step) and its position is
+/// the truth. The tolerance also bounds how far we can drift from the host
+/// during a tempo ramp, because every buffer re-checks against it.
+/// ponytail: a fast tempo ramp that opens a gap wider than the tolerance can
+/// still lose an event sitting in the sliver; the upgrade is a two-window scan
+/// bridging last end to host start.
+pub fn seam_start(host_p0: f64, last_p1: Option<f64>, total: f64) -> f64 {
+    let Some(last) = last_p1 else { return host_p0 };
+    if total <= 0.0 {
+        return host_p0;
+    }
+    // Circular distance, so a seam at the loop wrap compares correctly.
+    let d = (host_p0 - last + total / 2.0).rem_euclid(total) - total / 2.0;
+    if d.abs() <= SEAM_TOLERANCE_TICKS {
+        last
+    } else {
+        host_p0
+    }
+}
+
 /// Scan the pattern for events in the tick window `[p0, p0 + buffer_ticks)`,
 /// wrapping at `total_ticks`, appending `Emit`s to `out` (which the caller
 /// clears and reuses — no allocation once its capacity has stabilized).
@@ -116,9 +150,61 @@ mod tests {
         }
     }
 
+    fn hits_at_480(windows: &[(f64, f64)], p: &Pattern) -> usize {
+        let mut out = Vec::new();
+        for &(p0, bt) in windows {
+            scan(p, p0, bt, 1.0, 100, &mut out);
+        }
+        // Note 38 also sits at tick 1440; none of these windows reach it.
+        out.iter().filter(|e| e.note == 38 && e.is_note_on).count()
+    }
+
+    /// The seam bug: window A ends a hair PAST tick 480 and the host's next
+    /// start is exactly 480, so the event is in both windows.
+    #[test]
+    fn a_hit_on_the_seam_fires_once_not_twice() {
+        let p = one_bar();
+        let p1 = 470.0 + 10.000000000000057; // 480.00000000000006
+        assert!(p1 > 480.0);
+        // Naive: next window starts at the host's 480.0.
+        assert_eq!(hits_at_480(&[(470.0, 10.000000000000057), (480.0, 10.0)], &p), 2);
+        // Fixed: next window starts where the last one ended.
+        let next = seam_start(480.0, Some(p1), 1920.0);
+        assert_eq!(next, p1);
+        assert_eq!(hits_at_480(&[(470.0, 10.000000000000057), (next, 10.0)], &p), 1);
+    }
+
+    /// The mirror: window A ends a hair SHORT of 480, the host starts at 480.0,
+    /// and the event would be in neither... except the host window catches it.
+    /// Continuity must not lose it either.
+    #[test]
+    fn a_hit_on_the_seam_is_not_lost_when_the_window_ends_short() {
+        let p = one_bar();
+        let p1 = 470.0 + 9.999999999999943; // 479.99999999999994
+        assert!(p1 < 480.0);
+        let next = seam_start(480.0, Some(p1), 1920.0);
+        assert_eq!(hits_at_480(&[(470.0, 9.999999999999943), (next, 10.0)], &p), 1);
+    }
+
+    #[test]
+    fn a_real_jump_is_not_smoothed_over() {
+        // A locate or loop jump: the host's position is the truth.
+        assert_eq!(seam_start(100.0, Some(900.0), 1920.0), 100.0);
+        assert_eq!(seam_start(100.0, None, 1920.0), 100.0);
+    }
+
+    #[test]
+    fn the_seam_at_the_loop_wrap_compares_circularly() {
+        // Last window ended just short of the wrap, the host says the start of
+        // the loop: same moment, 0.02 ticks apart.
+        let last = 1919.99;
+        assert_eq!(seam_start(0.0, Some(last), 1920.0), last);
+        // But 2 ticks apart across the wrap is a genuine jump.
+        assert_eq!(seam_start(0.0, Some(1918.0), 1920.0), 0.0);
+    }
+
     // samples_per_tick at 120 BPM, 48kHz: 60*48000 / (120*480) = 500.
     const SPT: f64 = 500.0;
-    const TPS: f64 = 1.0 / SPT;
 
     #[test]
     fn offset_is_pattern_relative_on_first_loop() {
@@ -146,7 +232,6 @@ mod tests {
         assert_eq!(out.len(), 1);
         // note at 480 is 120 ticks into the buffer → 120 * 500 = 60000 samples.
         assert_eq!(out[0].timing, 60000);
-        let _ = TPS;
     }
 
     #[test]

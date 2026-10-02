@@ -64,12 +64,13 @@ impl GenerationManager {
         // a cell produced byte-identical MIDI at the same seed. Plugin-boundary
         // only — the engine stays a faithful port that takes a raw seed.
         //
-        // ADDITION, not XOR: the salted seed also drives `rotate_pick`, and
-        // DICE is seed+1. Under XOR, consecutive seeds do not give consecutive
-        // rotation indices — preoccupations landed on the same cell for seeds
-        // 1&2 and again for 3&4, so four dice presses changed nothing audible.
-        // Adding keeps +1 on the seed as +1 on the rotation while still giving
-        // every style its own offset into the stream.
+        // ADDITION, not XOR: the salted seed also drives `rotate_pick`, and the
+        // SEED scrub moves it by +1 (DICE is a prime-stride roll, see
+        // `params::dice_roll`). Under XOR, consecutive seeds do not give
+        // consecutive rotation indices — preoccupations landed on the same cell
+        // for seeds 1&2 and again for 3&4, so four presses changed nothing
+        // audible. Adding keeps +1 on the seed as +1 on the rotation while
+        // still giving every style its own offset into the stream.
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
 
         // The looped pattern must CONTAIN the fill cycle. Fills fire at

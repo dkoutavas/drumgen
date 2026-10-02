@@ -85,7 +85,7 @@ cd plugin && ./build-linux.sh            # --check to build without installing
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
 
-# Run Rust tests (107)
+# Run Rust tests (131)
 cd plugin && cargo test
 
 # CI (.github/workflows/build-plugin.yml) builds Linux + Windows (native MSVC) +
@@ -167,7 +167,7 @@ drive a drum sampler after it in the same Bitwig device chain (see
 a plugin without one, never remove it.
 
 - `plugin/src/engine/`: Hand-duplicated port of the Python engine: `midi_math.rs` (PPQ=480, position→tick), `cell.rs` (instruments, `TrigCond`, `Limb`), `humanizer.rs`, `assembler.rs`, `cell_library.rs`. When changing engine logic in Python, mirror it here (and vice versa).
-- `plugin/src/lib.rs`: nih-plug `Plugin` impl. Change detection (discrete params regenerate instantly; continuous ones use a 150ms settle), immediate pattern swap with note flush, `u128` active-note mask, host tempo + time signature reading, and one relaxed `AtomicI64` store per buffer publishing the playhead tick for the GUI. That store is the audio thread's only extra work, keep it that way.
+- `plugin/src/lib.rs`: nih-plug `Plugin` impl. Change detection (discrete params regenerate instantly; continuous ones use a 150ms settle), immediate pattern swap with note flush, `u128` active-note mask, host tempo + time signature reading, and relaxed atomic stores per buffer publishing the playhead tick and the bank state (active/queued/ready) for the GUI. Beyond those the audio thread only does `try_lock` on the bank and the pattern view, `try_send` of Copy log events, and the bounded `await_pending` wait (lesson 12 in PROJECT.md). Keep it that way. `window_start` (pattern-relative buffer start), `seam_start` in `playback.rs` (closes double/dropped hits on a buffer seam), `SlotWatch` (re-requests an unanswered pad build) and `narrow_dirty` are pure helpers with their own tests.
 - `plugin/src/params.rs`: DAW-automatable params: `style`, `humanize`, `bars`, `seed`, `swing`, `meter`, `fill`, `song`. Also owns `METERS`/`FILLS`/`SONGS` tables, the `songs.txt` loader (`OnceLock`, strict validator, starter-file planting), the editor size + persisted `editor-state-v2` key, and the pattern bank types (`SlotSnapshot`/`BankState`/`BankShared`, persisted under `bank-v1`; `sanitize_bank` repairs a restored bank against the current library — style name wins, index is the fallback, unresolvable slots drop).
 - `plugin/src/worker.rs`: `GenWorker`: the generation thread. `GenRequest` in, `Arc<Pattern>` out, crossbeam channels with latest-wins coalescing. `request()` returns whether the send was accepted, the caller must not record a dropped request as sent. Bank slots use `request_slot`/`try_recv_slot`: per-slot latest-wins, NEVER coalesced across slots (a 16-slot refresh must produce 16 patterns), delivered on a dedicated channel. `build_pattern` is shared by both paths so a stored slot is note-identical to the live pattern it captured.
 - `plugin/src/pattern.rs`: Immutable baked `Pattern`: sorted events, `bar_starts`, `time_signatures`, `sections`, tempo, and the raw display seed (not the salted one).
@@ -323,6 +323,6 @@ Cells must respect real drummer limb constraints (documented in `styles/drumgen-
 - Nothing is "done" until it has been heard in the DAW. Tests green + build installed means ready to verify; verification is the listen itself. Say so in commit messages.
 - Mirror engine changes across `*.py` and `plugin/src/engine/*.rs`. Cross-engine RNG bit-parity is impossible (Mersenne Twister vs ChaCha8) and not a goal; structural parity is.
 - Determinism is a feature: same seed + same params = identical notes. Never introduce unseeded randomness or `HashMap` iteration into an RNG-consuming path (use `BTreeMap`).
-- The audio thread does no allocation, no blocking lock, and no generation. Publishing state to the GUI = one relaxed atomic store.
+- The audio thread does no allocation, no blocking lock (`try_lock` only), no file IO, and no generation. It publishes state to the GUI with relaxed atomics (playhead tick, bank state). The one wait it can make, `await_pending`, is bounded by `OFFLINE_WAIT`: an unbounded wait hung the audio thread when a build panicked.
 - Deliberate shortcuts get a `ponytail:` comment naming the ceiling and the upgrade path.
 - Run `python -m pytest test_drumgen.py -q` and `cd plugin && cargo test` before committing anything that touches shared behavior.

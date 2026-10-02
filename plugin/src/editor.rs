@@ -153,14 +153,21 @@ fn pixel_knob(ui: &mut egui::Ui, setter: &ParamSetter, label: &str, p: &FloatPar
             painter.rect_filled(cell, 0.0, if on { ACCENT_A } else { BG });
         }
 
+        // One host gesture per drag: begin on press, set while it moves, end on
+        // release. Emitting begin/set/end every frame made each frame its own
+        // undo/automation entry, and the old `drag_started` branch after
+        // `dragged` was unreachable (egui reports both on the first frame).
+        if resp.drag_started() {
+            setter.begin_set_parameter(p);
+        }
         if resp.dragged() {
             let dv = -resp.drag_delta().y / 100.0;
-            let nv = (value + dv).clamp(0.0, 1.0);
-            setter.begin_set_parameter(p);
-            setter.set_parameter(p, nv);
+            if dv != 0.0 {
+                setter.set_parameter(p, (value + dv).clamp(0.0, 1.0));
+            }
+        }
+        if resp.drag_stopped() {
             setter.end_set_parameter(p);
-        } else if resp.drag_started() {
-            setter.begin_set_parameter(p);
         }
         resp.on_hover_text("drag up/down");
 
@@ -184,18 +191,24 @@ fn seed_drag(ui: &mut egui::Ui, setter: &ParamSetter, p: &IntParam, acc: &mut f3
             egui::FontId::proportional(8.0),
             TEXT,
         );
+        // One gesture per scrub, same as the knobs: a drag across 200 seeds is
+        // one undo step, not 200.
+        if resp.drag_started() {
+            setter.begin_set_parameter(p);
+        }
         if resp.dragged() {
             *acc += resp.drag_delta().x - resp.drag_delta().y;
             let steps = *acc as i32;
             if steps != 0 {
                 *acc -= steps as f32;
                 let next = (p.value() + steps).rem_euclid(10000);
-                setter.begin_set_parameter(p);
                 setter.set_parameter(p, next);
-                setter.end_set_parameter(p);
             }
         } else {
             *acc = 0.0;
+        }
+        if resp.drag_stopped() {
+            setter.end_set_parameter(p);
         }
         resp.on_hover_text("drag to scrub seed");
     });
@@ -433,6 +446,7 @@ fn bank_row(
                 meter: params.meter.value(),
                 fill: params.fill.value(),
                 song: params.song.value(),
+                song_name: params::song_name_for(params.song.value()),
             };
             bank.lock().slots[i] = Some(snapshot);
             bank.bump();
