@@ -7,11 +7,12 @@ import tempfile
 from pathlib import Path
 from datetime import datetime
 
-from cell_library import CELLS, STYLE_POOLS, STYLE_MAP, SECTION_PREFERENCES, list_cells
+from cell_library import CELLS, STYLE_POOLS, STYLE_MAP
 from assembler import assemble, assemble_arrangement, assemble_layered
 from midi_engine import write_midi, DEFAULT_PPQ, unique_filepath
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
 from midi_reader import midi_to_cell, save_cell, auto_tag_cell, validate_cell
+from platform_paths import default_output_dir, open_folder
 
 st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", initial_sidebar_state="expanded")
 
@@ -20,28 +21,7 @@ st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", 
 CONFIG_PATH = Path(__file__).parent / ".drumgen_config.json"
 
 
-def _detect_default_output():
-    """Pick a sensible default output folder based on platform."""
-    if sys.platform == "win32":
-        return str(Path.home() / "Documents" / "drumgen_output")
-    # WSL: default to Windows Documents so Ableton can access files directly
-    if Path("/mnt/c").is_dir():
-        try:
-            result = subprocess.run(
-                ["cmd.exe", "/C", "echo %USERNAME%"],
-                capture_output=True, text=True, timeout=5,
-            )
-            win_user = result.stdout.strip()
-            if win_user:
-                wsl_path = f"/mnt/c/Users/{win_user}/Documents/drumgen_output"
-                return wsl_path
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    # macOS / native Linux fallback
-    return str(Path(__file__).parent / "output")
-
-
-DEFAULT_OUTPUT = _detect_default_output()
+DEFAULT_OUTPUT = default_output_dir()
 
 
 def load_config():
@@ -71,19 +51,8 @@ def windows_to_wsl(win_path):
 
 
 def _open_folder(path):
-    """Open a folder in the platform's file manager."""
-    if sys.platform == "win32":
-        os.startfile(path)
-    else:
-        # Use wslpath for reliable conversion (handles both /mnt/ and native WSL paths)
-        try:
-            result = subprocess.run(
-                ["wslpath", "-w", path], capture_output=True, text=True, timeout=5
-            )
-            win_path = result.stdout.strip() if result.returncode == 0 else wsl_to_windows_path(path)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            win_path = wsl_to_windows_path(path)
-        subprocess.Popen(["explorer.exe", win_path])
+    """Open a folder in the platform's file manager (xdg-open on Linux)."""
+    open_folder(path)
 
 
 # ── Auto filename ─────────────────────────────────────────────────────────────
@@ -524,10 +493,8 @@ if generate or generate_top:
                 generative=generative,
             )
             total_bars = bars
-            if resolved_cell:
-                actual_cell = resolved_cell
-            else:
-                actual_cell = STYLE_MAP.get(style.lower(), "?")
+            # The cell that actually played, not the style's first pool cell.
+            actual_cell = result.get("cell_name") or resolved_cell or STYLE_MAP.get(style.lower(), "?")
             result["actual_cell"] = actual_cell
 
         # Handle variations

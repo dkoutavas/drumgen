@@ -2,7 +2,8 @@ import random
 
 import sys
 
-from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS, CELLS
+from cell_library import (get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS,
+                          SECTION_PREFERENCES)
 from humanizer import Humanizer, get_cluster_amount, infer_section_type
 from midi_engine import position_to_ticks, get_time_sig_for_bar, DEFAULT_PPQ
 
@@ -514,7 +515,8 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
-    num, den = [int(x) for x in time_sig.split("/")]
+    num, den = parse_time_sig(time_sig)
+    _check_run(tempo, bars)
     requested_ts = (num, den)
 
     # Resolve cell
@@ -627,6 +629,9 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             last_fill = fill_cell
             active_hits = _normalize_hits(fill_cell)
             active_cell = fill_cell
+            # ponytail: assumes a fill is ONE bar (all 26 are; a test enforces it).
+            # A multi-bar fill would play bar (bar_idx % n)+1 of itself, the wrong
+            # phase. Upgrade path: count bars since the fill started.
             cell_bar = (bar_idx % active_cell["num_bars"]) + 1
         elif is_prob or is_euclid:
             # Realized hits already carry correct output bar numbers
@@ -673,7 +678,39 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         "tempo": tempo,
         "time_signatures": time_signatures,
         "seed": seed,
+        # The cell that actually played (meter and generative filters pick it),
+        # for the GUI: it used to show the style's FIRST pool cell instead.
+        "cell_name": cell["name"],
     }
+
+
+VALID_DENOMINATORS = (2, 4, 8, 16)
+MAX_NUMERATOR = 32
+
+
+def parse_time_sig(text):
+    """'7/8' -> (7, 8). Raises ValueError, with a message a user can act on, for
+    anything the engine cannot play. A zero denominator used to surface as a
+    ZeroDivisionError deep inside the tick math, and 0/4 as a silent 3-tick file."""
+    try:
+        num, den = (int(x) for x in str(text).split("/"))
+    except ValueError:
+        raise ValueError(f"Invalid time signature '{text}' - expected N/D, e.g. 7/8") from None
+    if den not in VALID_DENOMINATORS or not 1 <= num <= MAX_NUMERATOR:
+        raise ValueError(
+            f"Unsupported time signature '{text}' - beats 1-{MAX_NUMERATOR}, "
+            f"denominator one of {', '.join(map(str, VALID_DENOMINATORS))}"
+        )
+    return num, den
+
+
+def _check_run(tempo, bars):
+    """Reject a run the tick math cannot do (tempo 0 divided by zero in the
+    humanizer; bars <= 0 wrote an empty file with a negative end bar)."""
+    if tempo <= 0:
+        raise ValueError(f"Tempo must be above 0, got {tempo}")
+    if bars < 1:
+        raise ValueError(f"Bars must be at least 1, got {bars}")
 
 
 def parse_arrangement(arrangement_str, default_time_sig="4/4"):
@@ -681,7 +718,7 @@ def parse_arrangement(arrangement_str, default_time_sig="4/4"):
 
     Supports @N/M suffix for per-section time signatures.
     """
-    default_num, default_den = [int(x) for x in default_time_sig.split("/")]
+    default_num, default_den = parse_time_sig(default_time_sig)
     sections = []
     for token in arrangement_str.strip().split():
         if ":" not in token:
@@ -698,15 +735,28 @@ def parse_arrangement(arrangement_str, default_time_sig="4/4"):
         if "@" in rest:
             section_type, ts_str = rest.split("@", 1)
             try:
-                ts_num, ts_den = [int(x) for x in ts_str.split("/")]
-            except ValueError:
-                raise ValueError(f"Invalid time signature '@{ts_str}' in token '{token}'")
-            sections.append((count, section_type.lower(), (ts_num, ts_den)))
+                ts_num, ts_den = parse_time_sig(ts_str)
+            except ValueError as e:
+                raise ValueError(f"{e} (in token '{token}')") from None
+            section_type = section_type.lower()
+            _check_section(section_type, token)
+            sections.append((count, section_type, (ts_num, ts_den)))
         else:
+            _check_section(rest.lower(), token)
             sections.append((count, rest.lower(), (default_num, default_den)))
     if not sections:
         raise ValueError("Arrangement string is empty")
     return sections
+
+
+def _check_section(section_type, token):
+    """An unknown section used to fall through to the pool's first cell with no
+    warning, so a typo played the wrong music silently."""
+    if section_type not in SECTION_PREFERENCES:
+        raise ValueError(
+            f"Unknown section type '{section_type}' in token '{token}'. "
+            f"Valid: {', '.join(sorted(SECTION_PREFERENCES))}"
+        )
 
 
 def _consolidate_time_signatures(time_signatures):
@@ -736,7 +786,9 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     sections = parse_arrangement(arrangement_str, default_time_sig=time_sig)
     pool = get_pool(style)
 
-    default_num, default_den = [int(x) for x in time_sig.split("/")]
+    default_num, default_den = parse_time_sig(time_sig)
+    if tempo <= 0:
+        raise ValueError(f"Tempo must be above 0, got {tempo}")
     total_bars = sum(count for count, _, _ in sections)
 
     # Build per-section time signatures
@@ -916,7 +968,8 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
-    num, den = [int(x) for x in time_sig.split("/")]
+    num, den = parse_time_sig(time_sig)
+    _check_run(tempo, bars)
     time_signatures = [{"bar_start": 1, "bar_end": bars, "numerator": num, "denominator": den}]
 
     ppq = DEFAULT_PPQ

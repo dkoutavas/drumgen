@@ -7,7 +7,7 @@ vector uses a fixed-hit cell at humanize=0, swing=0, vary=0, no fill — the
 configuration with the least randomness in it.
 
 It is NOT zero randomness, and that surprised us: `humanize_velocity` floors
-`scaled_variance` at 3 (humanizer.py:143), so every hit still draws
+`scaled_variance` at 3 (see `Humanizer.humanize_velocity`), so every hit still draws
 `randint(center-3, center+3)` even at humanize=0. Ticks, instruments, event
 order and MIDI note numbers are therefore fully deterministic and pinned
 exactly; velocities can differ between the engines by at most 6 (±3 each way)
@@ -16,10 +16,13 @@ and the Rust test allows exactly that much drift and no more.
 Writes plugin/fixtures/golden_vector.json. Regenerate (and re-verify BOTH test
 suites) only when the reference engine's output is intentionally changed:
 
-    python export_golden.py
+    python export_golden.py            # rewrite the fixture
+    python export_golden.py --check    # write nothing; exit 1 if it is stale
 """
 
+import argparse
 import json
+import sys
 import os
 
 from assembler import assemble
@@ -55,7 +58,27 @@ def build():
     }
 
 
+def is_current():
+    """True when the committed fixture matches what the engine produces now."""
+    try:
+        with open(OUT) as f:
+            on_disk = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return on_disk == json.loads(json.dumps(build()))
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Export the cross-engine golden vector.")
+    parser.add_argument("--check", action="store_true",
+                        help="Write nothing; exit 1 if the fixture is stale (what CI runs)")
+    if parser.parse_args().check:
+        if is_current():
+            print(f"{OUT} is current")
+            sys.exit(0)
+        print(f"{OUT} is STALE: if the engine change was intended, run "
+              "`python export_golden.py`, re-verify BOTH suites, and commit it", file=sys.stderr)
+        sys.exit(1)
     data = build()
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:

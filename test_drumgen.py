@@ -2276,3 +2276,172 @@ class TestMeterAdapter:
             end = calculate_bar_start_ticks(5, r["time_signatures"])
             assert r["events"], style
             assert all(0 <= e[0] < end for e in r["events"]), (style, meter)
+
+
+# ── Drift checks: the plugin's data files must match their sources ────────────
+
+class TestDrift:
+    """These run in CI. The plugin embeds builtin.json and checks a golden
+    vector, and either can go stale silently when the Python side changes."""
+
+    def test_builtin_json_matches_cell_library(self):
+        import export_cells
+        assert export_cells.is_current(), (
+            "plugin/cells/builtin.json is stale: run `python export_cells.py` and commit it")
+
+    def test_golden_vector_matches_the_reference_engine(self):
+        import export_golden
+        assert export_golden.is_current(), (
+            "plugin/fixtures/golden_vector.json is stale: if the engine change was intended, "
+            "run `python export_golden.py`, re-verify BOTH suites, and commit it")
+
+    def test_a_missing_or_corrupt_export_reads_as_stale(self, tmp_path):
+        import export_cells
+        bad = tmp_path / "builtin.json"
+        assert not export_cells.is_current(str(bad))
+        bad.write_text("{not json")
+        assert not export_cells.is_current(str(bad))
+
+
+# ── Input validation: bad input is a message, not a traceback ─────────────────
+
+class TestInputValidation:
+    @pytest.mark.parametrize("text,want", [("4/4", (4, 4)), ("7/8", (7, 8)), ("15/4", (15, 4)),
+                                           ("2/2", (2, 2)), ("5/16", (5, 16))])
+    def test_good_time_signatures(self, text, want):
+        from assembler import parse_time_sig
+        assert parse_time_sig(text) == want
+
+    @pytest.mark.parametrize("text", ["4/0", "0/4", "4", "x/y", "", "4/3", "33/4", "-1/4", "4/4/4", "7/32"])
+    def test_bad_time_signatures_are_value_errors(self, text):
+        from assembler import parse_time_sig
+        with pytest.raises(ValueError):
+            parse_time_sig(text)
+
+    @pytest.mark.parametrize("kwargs", [{"tempo": 0}, {"tempo": -5}, {"bars": 0}, {"bars": -2}])
+    def test_engine_rejects_a_run_it_cannot_do(self, kwargs):
+        # tempo 0 divided by zero in the humanizer; bars <= 0 wrote an empty file.
+        with pytest.raises(ValueError):
+            assemble(style="screamo", **kwargs)
+
+    def test_degenerate_meters_are_rejected_everywhere(self):
+        with pytest.raises(ValueError):
+            assemble(style="screamo", time_sig="4/0")
+        with pytest.raises(ValueError):
+            assemble_arrangement("screamo", "4:verse", time_sig="0/4")
+        with pytest.raises(ValueError):
+            assemble_layered({"kick": "blast_traditional"}, time_sig="4/0")
+        with pytest.raises(ValueError):
+            parse_arrangement("4:verse@7/0")
+
+    def test_an_unknown_section_is_an_error_not_the_first_cell(self):
+        with pytest.raises(ValueError, match="Unknown section type 'blasst'"):
+            parse_arrangement("4:verse 2:blasst")
+        # Every real section still parses.
+        for sec in SECTION_PREFERENCES:
+            assert parse_arrangement(f"2:{sec}")[0][1] == sec
+
+    @pytest.mark.parametrize("args,needle", [
+        (["--tempo", "0"], "Tempo must be above 0"),
+        (["--time-sig", "4/0"], "Unsupported time signature"),
+        (["--bars", "0"], "Bars must be at least 1"),
+        (["--humanize", "5"], "--humanize must be between"),
+        (["--swing", "2"], "--swing must be between"),
+        (["--vary", "3"], "--vary must be between"),
+        (["--variations", "0"], "--variations must be at least 1"),
+        (["--fill-every", "-1"], "--fill-every must be"),
+        (["-a", "4:foo"], "Unknown section type"),
+        (["--kit", "nope"], "Kit mapping not found"),
+    ])
+    def test_cli_reports_bad_input_without_a_traceback(self, args, needle, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "screamo", "--bars", "2",
+             "-o", str(tmp_path / "x.mid"), *args],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode != 0
+        assert "Traceback" not in run.stderr, run.stderr
+        assert needle in run.stderr, run.stderr
+
+    def test_cli_unknown_cell_message_is_not_a_repr(self, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--cell", "nope", "-o", str(tmp_path / "x.mid")],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode == 1
+        assert "\\n" not in run.stderr, "KeyError repr leaked a literal backslash-n"
+        assert "Traceback" not in run.stderr
+
+
+# ── Platform paths ────────────────────────────────────────────────────────────
+
+class TestPlatformPaths:
+    def test_native_linux_is_not_wsl_just_because_mnt_c_exists(self, monkeypatch):
+        import platform_paths
+        calls = []
+        monkeypatch.setattr(platform_paths.subprocess, "run", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: False)
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        assert platform_paths.default_output_dir() == str(platform_paths.REPO_OUTPUT)
+        assert calls == [], "must not spawn cmd.exe off WSL"
+
+    def test_wsl_is_detected_from_the_kernel_not_a_directory(self, monkeypatch, tmp_path):
+        import platform_paths
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        fake = tmp_path / "version"
+        monkeypatch.setattr(platform_paths, "Path", lambda p: fake)
+        fake.write_text("Linux version 5.15.0-microsoft-standard-WSL2")
+        assert platform_paths.is_wsl()
+        fake.write_text("Linux version 6.1.0-generic")
+        assert not platform_paths.is_wsl()
+
+    @pytest.mark.parametrize("platform,wsl,want", [
+        ("linux", False, "xdg-open"), ("darwin", False, "open"), ("linux", True, "explorer.exe"),
+    ])
+    def test_open_folder_uses_the_platforms_launcher(self, monkeypatch, platform, wsl, want):
+        import platform_paths
+        launched = []
+        monkeypatch.setattr(platform_paths.sys, "platform", platform)
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: wsl)
+        monkeypatch.setattr(platform_paths.subprocess, "Popen", lambda cmd, **k: launched.append(cmd))
+        monkeypatch.setattr(platform_paths.subprocess, "run",
+                            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})())
+        cmd = platform_paths.open_folder("/home/x/out")
+        assert cmd[0] == want
+        assert launched == [cmd]
+
+    def test_open_folder_without_a_launcher_does_not_crash(self, monkeypatch):
+        import platform_paths
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: False)
+        def boom(*a, **k):
+            raise FileNotFoundError("xdg-open")
+        monkeypatch.setattr(platform_paths.subprocess, "Popen", boom)
+        assert platform_paths.open_folder("/tmp") is None
+
+
+class TestReportedCell:
+    def test_assemble_reports_the_cell_that_played(self):
+        r = assemble(style="faraquet", bars=2, tempo=140, time_sig="7/8", humanize=0.0, seed=1)
+        assert r["cell_name"] in CELLS
+        assert tuple(CELLS[r["cell_name"]]["time_sig"]) == (7, 8), \
+            "a 7/8 request must report a 7/8 cell, not the style's first pool cell"
+
+    def test_an_explicit_cell_is_reported_as_itself(self):
+        r = assemble(cell_name="blast_traditional", bars=2, tempo=180, humanize=0.0, seed=1)
+        assert r["cell_name"] == "blast_traditional"
+
+    def test_every_fill_is_one_bar(self):
+        # assemble() indexes a fill as (bar_idx % num_bars) + 1, which is only
+        # right for one-bar fills. This keeps the ceiling honest.
+        multi = [n for n, c in BUILTIN_CELLS.items() if c.get("role") == "fill" and c["num_bars"] != 1]
+        assert multi == []
+
+
+class TestSectionDriftKeys:
+    def test_every_drift_key_is_a_reachable_section(self):
+        from humanizer import _SECTION_DRIFT, _SECTION_TYPE_TAGS
+        reachable = set(SECTION_PREFERENCES) | {sec for sec, _ in _SECTION_TYPE_TAGS}
+        assert sorted(set(_SECTION_DRIFT) - reachable) == []

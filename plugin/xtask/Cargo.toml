@@ -1,7 +1,10 @@
 [package]
 name = "xtask"
-version = "0.1.0"
+version = "0.3.0-dev"
 edition = "2021"
 
 [dependencies]
-nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug.git" }
+# Same rev as the plugin's nih_plug lines: cargo treats git+URL and
+# git+URL?rev=... as different sources, and an unpinned xtask drifts on any
+# `cargo update`.
+nih_plug_xtask = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "28b149ec4d62757d0b448809148a0c3ca6e09a95" }

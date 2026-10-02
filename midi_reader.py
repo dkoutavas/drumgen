@@ -18,14 +18,13 @@ Usage:
 import argparse
 import hashlib
 import json
-import math
 import os
 import sys
 from collections import Counter
 
 import mido
 
-from midi_engine import load_kit_mapping, DEFAULT_PPQ, MIDI_CHANNEL
+from midi_engine import load_kit_mapping, MIDI_CHANNEL
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")
 

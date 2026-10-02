@@ -41,8 +41,10 @@ def _serialize_cell(cell):
     return out
 
 
-def export(output_path):
-    """Build the export dict and write it to output_path."""
+def build_export():
+    """Build the export dict: (data, notes). Pure, writes nothing, so a test or
+    `--check` can compare it with the committed file."""
+    notes = []
     # Only export built-in cells (skip user-imported ones)
     builtin_cells = {}
     for name, cell in sorted(CELLS.items()):
@@ -80,8 +82,8 @@ def export(output_path):
                 aliased.append(f"{style} -> {canonical}")
                 continue
             # Pool diverged from its twin — export it and warn loudly.
-            print(f"WARNING: {style} no longer matches {canonical}; exporting both. "
-                  f"Remove it from style_aliases in export_cells.py.")
+            notes.append(f"WARNING: {style} no longer matches {canonical}; exporting both. "
+                         f"Remove it from style_aliases in export_cells.py.")
         keep = [n for n in names if n in builtin_cells]
         dropped += len(names) - len(keep)
         if keep:
@@ -92,6 +94,17 @@ def export(output_path):
         "style_pools": pruned_pools,
         "section_preferences": {sec: list(tags) for sec, tags in sorted(SECTION_PREFERENCES.items())},
     }
+    if dropped:
+        notes.append(f"  pruned {dropped} dangling pool entries (user-imported cells not shipped)")
+    if aliased:
+        notes.append(f"  skipped {len(aliased)} alias styles (identical pools): " + ", ".join(aliased))
+    return data, notes
+
+
+def export(output_path):
+    """Build the export dict and write it to output_path."""
+    data, notes = build_export()
+    builtin_cells = data["cells"]
 
     # Create output directory if needed
     out_dir = os.path.dirname(output_path)
@@ -102,18 +115,28 @@ def export(output_path):
         json.dump(data, f, indent=2)
 
     # Summary
-    n_fixed = sum(1 for c in builtin_cells.values() if c["type"] == "fixed")
-    n_prob = sum(1 for c in builtin_cells.values() if c["type"] == "probability")
+    kinds = {k: sum(1 for c in builtin_cells.values() if c["type"] == k)
+             for k in ("fixed", "probability", "euclidean")}
     n_styles = len(data["style_pools"])
     n_sections = len(data["section_preferences"])
 
-    print(f"Exported {len(builtin_cells)} cells ({n_fixed} fixed, {n_prob} probability)")
+    print(f"Exported {len(builtin_cells)} cells ({kinds['fixed']} fixed, "
+          f"{kinds['probability']} probability, {kinds['euclidean']} euclidean)")
     print(f"  {n_styles} style pools, {n_sections} section preferences")
-    if dropped:
-        print(f"  pruned {dropped} dangling pool entries (user-imported cells not shipped)")
-    if aliased:
-        print(f"  skipped {len(aliased)} alias styles (identical pools): " + ", ".join(aliased))
+    for note in notes:
+        print(note)
     print(f"  -> {output_path}")
+
+
+def is_current(path=DEFAULT_OUTPUT):
+    """True when the committed JSON matches what cell_library.py would export."""
+    data, _ = build_export()
+    try:
+        with open(path) as f:
+            on_disk = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return on_disk == json.loads(json.dumps(data))
 
 
 def main():
@@ -125,7 +148,17 @@ def main():
         default=DEFAULT_OUTPUT,
         help=f"Output path (default: {DEFAULT_OUTPUT})",
     )
+    parser.add_argument(
+        "--check", action="store_true",
+        help="Write nothing; exit 1 if the file is stale (what CI runs)",
+    )
     args = parser.parse_args()
+    if args.check:
+        if is_current(args.output):
+            print(f"{args.output} is current")
+            return
+        print(f"{args.output} is STALE: run `python export_cells.py` and commit it", file=sys.stderr)
+        sys.exit(1)
     export(args.output)
 
 

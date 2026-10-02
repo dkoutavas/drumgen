@@ -2,34 +2,36 @@
 import argparse
 import os
 import random
-import subprocess
 import sys
-from pathlib import Path
 
 from assembler import assemble, assemble_arrangement, assemble_layered
-from cell_library import list_cells, STYLE_POOLS, CELLS, SECTION_PREFERENCES
+from cell_library import list_cells, STYLE_POOLS, SECTION_PREFERENCES
 from midi_engine import write_midi, generate_test_mapping, unique_filepath
+from platform_paths import default_output_dir
+
+OUTPUT_DIR = default_output_dir()
 
 
-def _default_output_dir():
-    """Return the default output directory, using Windows Documents on WSL."""
-    if sys.platform == "win32":
-        return str(Path.home() / "Documents" / "drumgen_output")
-    if Path("/mnt/c").is_dir():
-        try:
-            result = subprocess.run(
-                ["cmd.exe", "/C", "echo %USERNAME%"],
-                capture_output=True, text=True, timeout=5,
-            )
-            win_user = result.stdout.strip()
-            if win_user:
-                return f"/mnt/c/Users/{win_user}/Documents/drumgen_output"
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    return str(Path(__file__).parent / "output")
+def _validate_args(args):
+    """First problem with the numeric options, as a message, else None.
 
-
-OUTPUT_DIR = _default_output_dir()
+    The engine rejects what it cannot play (tempo, bars, time signature,
+    section names); these are the ranges the --help text promises. Out-of-range
+    values used to be accepted silently: --humanize 5, --swing 2, --vary 3,
+    --variations 0 and --fill-every -1 all ran.
+    """
+    for name, value, lo, hi in (
+        ("--humanize", args.humanize, 0.0, 1.0),
+        ("--swing", args.swing, 0.0, 1.0),
+        ("--vary", args.vary, 0.0, 1.0),
+    ):
+        if value is not None and not lo <= value <= hi:
+            return f"{name} must be between {lo} and {hi}, got {value}"
+    if args.variations < 1:
+        return f"--variations must be at least 1, got {args.variations}"
+    if args.fill_every < 0:
+        return f"--fill-every must be 0 (off) or more, got {args.fill_every}"
+    return None
 
 
 def _ts_suffix(time_sig):
@@ -101,14 +103,14 @@ def _print_cells(cells, style_filter):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="drumgen v3 — algorithmic drum pattern generator",
+        description="drumgen — algorithmic drum pattern generator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
   %(prog)s --style screamo --tempo 180 --bars 4
-  %(prog)s --style shellac --tempo 130 --bars 8 --humanize 0.8
+  %(prog)s --style fugazi --tempo 130 --bars 8 --humanize 0.8
   %(prog)s --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
-  %(prog)s --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+  %(prog)s --style fugazi -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
   %(prog)s --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
   %(prog)s --style faraquet --generative --variations 3 --tempo 140 --bars 8
   %(prog)s --list-cells
@@ -116,7 +118,7 @@ examples:
   %(prog)s --test-mapping ugritone
 """,
     )
-    parser.add_argument("--style", "-s", type=str, help="Style tag (blast, dbeat, shellac, fugazi, screamo, emoviolence, euro_screamo, black_metal, etc.)")
+    parser.add_argument("--style", "-s", type=str, help="Style (see --list-cells for every style pool: screamo, fugazi, zona, euro_screamo, kidcrash, ...)")
     parser.add_argument("--cell", type=str, help="Exact cell name (overrides --style)")
     parser.add_argument("--tempo", "-t", type=int, default=120, help="BPM (default: 120)")
     parser.add_argument("--bars", "-b", type=int, default=4, help="Number of bars (default: 4)")
@@ -145,6 +147,9 @@ examples:
     parser.add_argument("--test-mapping", type=str, metavar="MAPPING", help="Generate test MIDI for a kit mapping")
 
     args = parser.parse_args()
+    problem = _validate_args(args)
+    if problem:
+        parser.error(problem)
 
     # --list-cells mode
     if args.list_cells:
@@ -322,6 +327,8 @@ examples:
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, KeyError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        # str(KeyError) is the repr of its message: quotes and a literal \n.
+        msg = e.args[0] if isinstance(e, KeyError) and e.args else e
+        print(f"Error: {msg}", file=sys.stderr)
         sys.exit(1)
