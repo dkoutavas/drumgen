@@ -429,7 +429,12 @@ mod tests {
         // (Auto with no host info) may take the cell's native meter. Every
         // pattern must also be non-empty and fit its own grid.
         let gen = GenerationManager::new();
-        let meters = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
+        // The seven METERS entries, plus what a host can report under Auto once
+        // `params::normalize_host_meter` has let it through (9/8, 12/8, 2/4, 15/4).
+        let meters = [
+            (0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8),
+            (2, 4), (9, 8), (12, 8), (15, 4),
+        ];
 
         for i in 0..gen.num_styles() as i32 {
             for meter in meters {

@@ -787,7 +787,9 @@ impl Plugin for Drumgen {
             // Host time signature — drives METER Auto so the pattern follows
             // the project's meter changes live.
             let hm = match (transport.time_sig_numerator, transport.time_sig_denominator) {
-                (Some(n), Some(d)) if n > 0 && d > 0 => (n, d),
+                // Clamped to a meter the engine can play (see the helper): the
+                // raw host value used to reach the engine verbatim.
+                (Some(n), Some(d)) if n > 0 && d > 0 => params::normalize_host_meter(n, d),
                 _ => (0, 0),
             };
             (

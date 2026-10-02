@@ -11,7 +11,7 @@ from assembler import (
     parse_arrangement, realize_probability_grid, extract_layer,
     realize_euclidean, _euclid_pattern, _trig_allows,
     _normalize_grid, _validate_physical_constraints, _resolve_layer_conflicts,
-    _consolidate_time_signatures, LAYER_GROUPS,
+    _consolidate_time_signatures, _adapt_to_bar, LAYER_GROUPS,
 )
 from cell_library import (
     CELLS, STYLE_POOLS, SECTION_PREFERENCES,
@@ -2193,3 +2193,86 @@ class TestLayerModeRealization:
         want_ticks = sorted((position_to_ticks(b, beat, sub, ts), inst)
                             for b, beat, sub, inst, _ in want)
         assert sorted((e[0], e[1]) for e in r["events"]) == want_ticks
+
+
+# ── Meter adapter ─────────────────────────────────────────────────────────────
+
+_ADAPT_METERS = [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (9, 8), (12, 8), (2, 4), (15, 4)]
+
+
+def _bar_ticks(sig):
+    return sig[0] * (DEFAULT_PPQ * 4 // sig[1])
+
+
+def _tick_in_bar(hit, sig):
+    _, beat, sub, _, _ = hit
+    return (beat - 1 + sub) * (DEFAULT_PPQ * 4 // sig[1])
+
+
+def _old_adapter(bar_hits, cell_beats, bar_beats):
+    """The adapter as it was before denominators were considered (reference)."""
+    if cell_beats == bar_beats:
+        return bar_hits
+    adapted = [h for h in bar_hits if h[1] <= bar_beats]
+    shift = cell_beats
+    while shift < bar_beats:
+        adapted += [(b, beat + shift, s, i, v)
+                    for b, beat, s, i, v in bar_hits if beat + shift <= bar_beats]
+        shift += cell_beats
+    return adapted
+
+
+class TestMeterAdapter:
+    HITS = [(1, 1, 0.0, "kick", "accent"), (1, 2, 0.0, "snare", "normal"),
+            (1, 2, 0.5, "hihat_closed", "soft"), (1, 3, 0.25, "kick", "normal"),
+            (1, 4, 0.0, "snare", "accent"), (1, 4, 0.75, "snare_ghost", "ghost")]
+
+    @pytest.mark.parametrize("cn,bn", [(4, 6), (4, 3), (4, 5), (7, 4), (6, 9), (3, 3)])
+    @pytest.mark.parametrize("den", [4, 8])
+    def test_same_denominator_is_unchanged(self, cn, bn, den):
+        # The equal-denominator path decides RNG order for every adapted bar
+        # already heard in Bitwig: it must stay byte-identical.
+        got = _adapt_to_bar(self.HITS, (cn, den), (bn, den))
+        assert got == _old_adapter(self.HITS, cn, bn)
+
+    def test_quarter_note_stays_a_quarter_in_a_six_eight_bar(self):
+        # 4/4 beat 2 is tick 480. In 6/8 (240-tick beats) that is beat 3. It used
+        # to land on beat 2 (tick 240): the whole cell at double speed.
+        got = _adapt_to_bar(self.HITS, (4, 4), (6, 8))
+        snare = [h for h in got if h[3] == "snare"]
+        assert (1, 3, 0.0) == snare[0][:3]
+        assert _tick_in_bar(snare[0], (6, 8)) == 480
+
+    def test_a_wider_cell_is_clipped_not_compressed(self):
+        # 4/4 in 7/8: the figure keeps its pulse and loses what passes the bar.
+        got = _adapt_to_bar(self.HITS, (4, 4), (7, 8))
+        assert all(_tick_in_bar(h, (7, 8)) < _bar_ticks((7, 8)) for h in got)
+        # beat 4 of the cell is at tick 1440; the 7/8 bar is 1680 long, so it stays.
+        assert any(h[3] == "snare" and _tick_in_bar(h, (7, 8)) == 1440 for h in got)
+
+    def test_a_six_eight_cell_vamps_twice_into_six_four(self):
+        cell = [(1, 1, 0.0, "kick", "accent"), (1, 4, 0.0, "snare", "accent")]
+        got = _adapt_to_bar(cell, (6, 8), (6, 4))
+        assert [_tick_in_bar(h, (6, 4)) for h in got] == [0, 720, 1440, 2160]
+
+    @pytest.mark.parametrize("cell_sig", _ADAPT_METERS)
+    @pytest.mark.parametrize("bar_sig", _ADAPT_METERS)
+    def test_every_adapted_hit_lands_inside_the_bar(self, cell_sig, bar_sig):
+        hits = [h for h in self.HITS if h[1] <= cell_sig[0]]
+        got = _adapt_to_bar(hits, cell_sig, bar_sig)
+        assert got, "an adapted bar must never be silent"
+        for h in got:
+            assert 0 <= _tick_in_bar(h, bar_sig) < _bar_ticks(bar_sig), (cell_sig, bar_sig, h)
+
+    def test_degenerate_signatures_do_not_loop_forever(self):
+        assert _adapt_to_bar(self.HITS, (4, 0), (4, 4)) == self.HITS
+        assert _adapt_to_bar(self.HITS, (0, 4), (4, 4)) == self.HITS
+
+    @pytest.mark.parametrize("meter", ["6/8", "7/8", "9/8", "12/8", "2/4"])
+    def test_a_forced_meter_plays_inside_its_bars_for_every_style(self, meter):
+        num, den = (int(x) for x in meter.split("/"))
+        for style in STYLE_POOLS:
+            r = assemble(style=style, bars=4, tempo=140, time_sig=meter, humanize=0.0, seed=3)
+            end = calculate_bar_start_ticks(5, r["time_signatures"])
+            assert r["events"], style
+            assert all(0 <= e[0] < end for e in r["events"]), (style, meter)

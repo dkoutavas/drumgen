@@ -151,10 +151,10 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 ## Development
 
 ```bash
-python -m pytest test_drumgen.py -q     # 309 tests
+python -m pytest test_drumgen.py -q     # 430 tests
 python validate_midi.py                  # pipeline sanity across configs
 python export_cells.py                   # after ANY cell_library.py edit
-cd plugin && cargo test                  # 131 tests
+cd plugin && cargo test                  # 142 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 

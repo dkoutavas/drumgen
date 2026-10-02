@@ -413,6 +413,50 @@ def _resolve_layer_conflicts(merged_hits):
     return filtered
 
 
+def _adapt_to_bar(bar_hits, cell_sig, bar_sig):
+    """Fit one bar of a cell's hits (5-tuples) into a bar of a different meter.
+
+    Same denominator: vamp the head of the figure to fill a wider bar and clip
+    hits past the barline of a narrower one (counting beats).
+
+    Different denominators (a /4 cell in a /8 bar, or the reverse): beats are
+    not the same length, so counting them would silently change the pulse. A
+    4/4 cell in a 6/8 bar used to play its quarter-note beats as EIGHTHS, at
+    double speed. Convert by TIME instead: a quarter stays a quarter, then the
+    same vamp/clip rule applies. Sub-grid positions stay exact for the 16th-based
+    vocabulary (/4 -> /8 doubles them, /8 -> /4 halves them).
+
+    Deterministic, order-stable, consumes no RNG. Mirrored by `adapt_to_bar` in
+    assembler.rs.
+    """
+    (cn, cd), (bn, bd) = cell_sig, bar_sig
+    if cd <= 0 or bd <= 0 or cn <= 0:
+        return bar_hits
+    if cd == bd:
+        if cn == bn:
+            return bar_hits
+        adapted = [h for h in bar_hits if h[1] <= bn]
+        shift = cn
+        while shift < bn:
+            adapted += [(b, beat + shift, s, i, v)
+                        for b, beat, s, i, v in bar_hits if beat + shift <= bn]
+            shift += cn
+        return adapted
+
+    scale = bd / cd            # bar beats per cell beat
+    span = cn * scale          # the cell's length, in bar beats
+    adapted = []
+    shift = 0.0
+    while shift < bn - 1e-9:
+        for b, beat, sub, inst, vel in bar_hits:
+            pos = (beat - 1 + sub) * scale + shift
+            if pos < bn - 1e-9:
+                whole = int(pos + 1e-9)
+                adapted.append((b, whole + 1, round(max(pos - whole, 0.0), 6), inst, vel))
+        shift += span
+    return adapted
+
+
 def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
                  tempo, time_sig_list, ppq, beat_ticks, swing, humanize_override,
                  velocity_offset=0, section_drift_ms=0.0):
@@ -437,16 +481,8 @@ def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
     # bar (what a drummer does when the riff is short of the bar), and clip
     # hits past the barline (a wider cell used to bleed into the next bar).
     # Deterministic, order-stable, consumes no RNG.
-    bar_beats = get_time_sig_for_bar(bar_number, time_sig_list)[0]
-    cell_beats = active_cell.get("time_sig", (4, 4))[0]
-    if cell_beats != bar_beats:
-        adapted = [h for h in bar_hits if h[1] <= bar_beats]
-        shift = cell_beats
-        while shift < bar_beats:
-            adapted += [(b, beat + shift, s, i, v)
-                        for b, beat, s, i, v in bar_hits if beat + shift <= bar_beats]
-            shift += cell_beats
-        bar_hits = adapted
+    bar_hits = _adapt_to_bar(bar_hits, tuple(active_cell.get("time_sig", (4, 4))),
+                             get_time_sig_for_bar(bar_number, time_sig_list))
 
     for hit_bar, beat, sub, instrument, vel_level in bar_hits:
         abs_tick = position_to_ticks(bar_number, beat, sub, time_sig_list, ppq)

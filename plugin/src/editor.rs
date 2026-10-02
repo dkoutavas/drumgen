@@ -218,7 +218,11 @@ fn seed_drag(ui: &mut egui::Ui, setter: &ParamSetter, p: &IntParam, acc: &mut f3
 
 const GRID_LANES: usize = 6;
 const LANE_LABELS: [&str; GRID_LANES] = ["CRA", "RID", "HAT", "TOM", "SNR", "KCK"];
-const MAX_COLS: usize = 24; // covers every shipped meter (6/4 = 24 sixteenths)
+// The widest bar the plugin can be in: 15/4 = 60 sixteenths. That is the cap
+// `songs.txt` enforces (1..=15 beats) and the cap on a normalized host meter,
+// so no reachable bar is clamped. It was 24, which clamped 7/4 (28) and made
+// every hit past column 23 pile into the last cell at full velocity.
+const MAX_COLS: usize = 64;
 
 /// GM drum note → grid lane (top to bottom: crash, ride, hats, toms, snare, kick).
 fn lane_of(note: u8) -> Option<usize> {
@@ -234,7 +238,7 @@ fn lane_of(note: u8) -> Option<usize> {
 }
 
 /// Bar-1 sixteenth grid: max note-on velocity per (lane, column), plus the
-/// number of sixteenth columns bar 1 actually has (capped at MAX_COLS).
+/// number of sixteenth columns the bar actually has (capped at MAX_COLS).
 fn grid_cells(pattern: &Pattern, bar: usize) -> ([[u8; MAX_COLS]; GRID_LANES], usize) {
     let mut grid = [[0u8; MAX_COLS]; GRID_LANES];
     let start = pattern.bar_starts.get(bar).copied().unwrap_or(0);
@@ -354,7 +358,10 @@ fn bank_row(
                 )
                 .fill(if *armed { ACCENT_B } else { PANEL }),
             )
-            .on_hover_text("arm, then click a pad to capture the current sound into it");
+            .on_hover_text(
+                "arm, then click a pad to copy what is playing into it: \
+                 the pad that is playing, or the knobs when none is",
+            );
         if store.clicked() {
             *armed = !*armed;
         }
@@ -409,13 +416,13 @@ fn bank_row(
             );
 
             let resp = resp.on_hover_text(if *armed {
-                "click: store the current sound here"
+                "click: store what is playing here"
             } else if is_active {
                 "playing — click another pad to switch"
             } else if filled {
                 "click: play from the next bar · right-click: clear"
             } else {
-                "empty — arm STORE, then click to capture the current sound"
+                "empty — arm STORE, then click to store what is playing"
             });
             if resp.clicked() {
                 if *armed {
@@ -432,7 +439,7 @@ fn bank_row(
 
         if let Some(i) = store_into {
             let style_index = params.style.value();
-            let snapshot = params::SlotSnapshot {
+            let knobs = || params::SlotSnapshot {
                 style_name: bank
                     .styles
                     .get(style_index as usize)
@@ -447,6 +454,11 @@ fn bank_row(
                 fill: params.fill.value(),
                 song: params.song.value(),
                 song_name: params::song_name_for(params.song.value()),
+            };
+            // The pad that is playing if one is, else the knobs.
+            let snapshot = {
+                let guard = bank.lock();
+                params::store_source(active, &guard.slots, knobs)
             };
             bank.lock().slots[i] = Some(snapshot);
             bank.bump();
@@ -826,6 +838,42 @@ mod tests {
             vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 6, denominator: 4 }];
         let (_, ncols) = grid_cells(&pat, 0);
         assert_eq!(ncols, 24);
+    }
+
+    /// Every bar the plugin can be in must get its true column count. The cap
+    /// was 24, so 7/4 and anything wider silently piled hits into one cell.
+    #[test]
+    fn grid_covers_every_reachable_meter_without_clamping() {
+        for n in 1..=15i64 {
+            for d in [4i64, 8] {
+                let bar = n * PPQ * 4 / d;
+                let mut pat = test_pattern(vec![on(0, 36, 100)]);
+                pat.bar_starts = vec![0, bar, 2 * bar];
+                pat.time_signatures = vec![TimeSigEntry {
+                    bar_start: 1, bar_end: 2, numerator: n as i32, denominator: d as i32,
+                }];
+                let (_, ncols) = grid_cells(&pat, 0);
+                let want = ((bar + PPQ / 4 - 1) / (PPQ / 4)) as usize;
+                assert_eq!(ncols, want, "{n}/{d} was clamped");
+            }
+        }
+    }
+
+    /// Late hits in a wide bar land on their own column, not the last one.
+    #[test]
+    fn a_hit_late_in_a_wide_bar_keeps_its_column() {
+        // 7/4 = 28 sixteenths; a snare on the 28th sixteenth's neighbor.
+        let bar = 7 * PPQ;
+        let sixteenth = PPQ / 4;
+        let mut pat = test_pattern(vec![on(26 * sixteenth, 38, 100), on(27 * sixteenth, 36, 100)]);
+        pat.bar_starts = vec![0, bar, 2 * bar];
+        pat.time_signatures =
+            vec![TimeSigEntry { bar_start: 1, bar_end: 2, numerator: 7, denominator: 4 }];
+        let (grid, ncols) = grid_cells(&pat, 0);
+        assert_eq!(ncols, 28);
+        assert_eq!(grid[4][26], 100, "snare on column 26");
+        assert_eq!(grid[5][27], 100, "kick on column 27");
+        assert_eq!(grid[4][23], 0, "nothing piled into the old clamp column");
     }
 
     #[test]

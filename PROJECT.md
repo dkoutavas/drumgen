@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
 forms plus unlimited user forms, ~6,300 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 309 Python + 131 Rust tests green.
+Python engine/tools, 430 Python + 142 Rust tests green.
 
 ### Feature inventory
 
@@ -170,12 +170,12 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 309 tests
+python -m pytest test_drumgen.py -q          # 430 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 131 tests
+cd plugin && cargo test                      # 142 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.

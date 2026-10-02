@@ -343,6 +343,42 @@ fn meter_label(index: i32) -> String {
     }
 }
 
+/// Clamp the HOST's reported time signature to what the engine can play.
+///
+/// Under METER Auto the host's signature was stamped verbatim, so anything the
+/// DAW could say reached the engine: a denominator above 1920 gives a zero-tick
+/// beat, 1/1 or 3/16 or 31/4 are meters the cells and the grid were never
+/// authored for. What survives is the vocabulary the plugin has: /4 and /8 with
+/// 1..=15 beats (the same bounds `songs.txt` enforces). A /2 bar is the same
+/// length as a /4 bar of twice the beats, so 2/2 plays as 4/4 and 3/2 as 6/4.
+/// Anything else is "the host said something we cannot play": (0,0), which the
+/// engine reads as the style's native meter, same as a host that says nothing.
+pub fn normalize_host_meter(n: i32, d: i32) -> (i32, i32) {
+    let (n, d) = if d == 2 { (n.saturating_mul(2), 4) } else { (n, d) };
+    if (1..=15).contains(&n) && (d == 4 || d == 8) {
+        (n, d)
+    } else {
+        (0, 0)
+    }
+}
+
+/// What a STORE click captures: the pad that is PLAYING if one is, otherwise
+/// the knobs. In bank mode the bank is an overlay and the knobs are not what
+/// the user hears, so storing them would capture a sound that is not playing
+/// (and the pad's own header says "PAD n"). A knob tweak exits bank mode, which
+/// is how the user says "the knobs are the sound now".
+pub fn store_source(
+    active: i32,
+    slots: &[Option<SlotSnapshot>],
+    knobs: impl FnOnce() -> SlotSnapshot,
+) -> SlotSnapshot {
+    usize::try_from(active)
+        .ok()
+        .and_then(|i| slots.get(i))
+        .and_then(|s| s.clone())
+        .unwrap_or_else(knobs)
+}
+
 /// Fill param index → fill-every-N-bars (0 = off), ordered by intensity.
 pub const FILLS: [i32; 4] = [0, 8, 4, 2];
 
@@ -880,5 +916,52 @@ mod tests {
         s.song_name = song_label(1);
         let back: SlotSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn host_meters_the_engine_can_play_pass_through() {
+        for (n, d) in [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (2, 4), (9, 8), (12, 8), (15, 4)] {
+            assert_eq!(normalize_host_meter(n, d), (n, d));
+        }
+    }
+
+    #[test]
+    fn a_half_note_denominator_folds_to_quarters() {
+        // Same bar length: 2/2 = 4/4, 3/2 = 6/4.
+        assert_eq!(normalize_host_meter(2, 2), (4, 4));
+        assert_eq!(normalize_host_meter(3, 2), (6, 4));
+    }
+
+    #[test]
+    fn host_meters_the_engine_cannot_play_become_native() {
+        // 1/1, 3/16, 7/32, 16/4, 0/4 and a denominator that would give a
+        // zero-tick beat all mean "no usable host meter".
+        for (n, d) in [(1, 1), (3, 16), (7, 32), (16, 4), (0, 4), (4, 0), (4, 4096), (-3, 4), (8, 2)] {
+            assert_eq!(normalize_host_meter(n, d), (0, 0), "{n}/{d}");
+        }
+    }
+
+    fn pad(name: &str) -> SlotSnapshot {
+        SlotSnapshot { seed: 77, ..snap(name, 0) }
+    }
+
+    #[test]
+    fn store_copies_the_playing_pad_not_the_knobs() {
+        let mut slots = vec![None; BANK_SLOTS];
+        slots[3] = Some(pad("playing"));
+        let knobs = || snap("knobs", 1);
+        let got = store_source(3, &slots, knobs);
+        assert_eq!(got.style_name, "playing");
+        assert_eq!(got.seed, 77);
+    }
+
+    #[test]
+    fn store_takes_the_knobs_when_no_pad_is_playing() {
+        let slots = vec![None; BANK_SLOTS];
+        assert_eq!(store_source(-1, &slots, || snap("knobs", 1)).style_name, "knobs");
+        // A stale active index pointing at an empty or out-of-range slot must
+        // not lose the store either.
+        assert_eq!(store_source(5, &slots, || snap("knobs", 1)).style_name, "knobs");
+        assert_eq!(store_source(99, &slots, || snap("knobs", 1)).style_name, "knobs");
     }
 }

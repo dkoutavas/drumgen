@@ -499,26 +499,14 @@ fn process_bar(
     // bar (what a drummer does when the riff is short of the bar), and clip
     // hits past the barline (a wider cell used to bleed into the next bar).
     // Deterministic, order-stable, consumes no RNG. Mirrors _process_bar.
-    let bar_beats = midi_math::get_time_sig_for_bar(bar_number, time_sig_list).0;
-    let cell_beats = cell.time_sig.0;
+    let bar_sig = midi_math::get_time_sig_for_bar(bar_number, time_sig_list);
     let adapted: Vec<Hit>;
-    let bar_hits: Vec<&Hit> = if cell_beats != bar_beats {
-        let mut hits: Vec<Hit> = bar_hits
-            .iter()
-            .filter(|h| h.beat <= bar_beats)
-            .map(|&h| h.clone())
-            .collect();
-        let mut shift = cell_beats;
-        while shift < bar_beats {
-            for h in bar_hits.iter().filter(|h| h.beat + shift <= bar_beats) {
-                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
-            }
-            shift += cell_beats;
+    let bar_hits: Vec<&Hit> = match adapt_to_bar(&bar_hits, cell.time_sig, bar_sig) {
+        Some(hits) => {
+            adapted = hits;
+            adapted.iter().collect()
         }
-        adapted = hits;
-        adapted.iter().collect()
-    } else {
-        bar_hits
+        None => bar_hits,
     };
 
     for hit in bar_hits {
@@ -550,6 +538,64 @@ fn process_bar(
 
     humanizer.humanize_amount = saved;
     events
+}
+
+/// Fit one bar of a cell's hits into a bar of a different meter. `None` means
+/// the bar already fits (same meter, or a degenerate signature).
+///
+/// Same denominator: vamp the head of the figure to fill a wider bar and clip
+/// hits past the barline of a narrower one, counting beats.
+///
+/// Different denominators (a /4 cell in a /8 bar, or the reverse): beats are
+/// not the same length, so counting them silently changed the pulse — a 4/4
+/// cell in a 6/8 bar played its quarter-note beats as EIGHTHS, at double speed.
+/// Convert by TIME instead (a quarter stays a quarter), then apply the same
+/// vamp/clip rule. Sub positions stay exact for the 16th-based vocabulary.
+///
+/// Deterministic, order-stable, consumes no RNG. Mirrors `_adapt_to_bar` in
+/// assembler.py; the equal-denominator path must stay identical to what it was
+/// (it decides RNG order for every adapted bar already heard).
+fn adapt_to_bar(bar_hits: &[&Hit], cell_sig: (i32, i32), bar_sig: (i32, i32)) -> Option<Vec<Hit>> {
+    let ((cn, cd), (bn, bd)) = (cell_sig, bar_sig);
+    if cd <= 0 || bd <= 0 || cn <= 0 {
+        return None;
+    }
+    if cd == bd {
+        if cn == bn {
+            return None;
+        }
+        let mut hits: Vec<Hit> = bar_hits
+            .iter()
+            .filter(|h| h.beat <= bn)
+            .map(|&h| h.clone())
+            .collect();
+        let mut shift = cn;
+        while shift < bn {
+            for h in bar_hits.iter().filter(|h| h.beat + shift <= bn) {
+                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
+            }
+            shift += cn;
+        }
+        return Some(hits);
+    }
+
+    let scale = bd as f64 / cd as f64; // bar beats per cell beat
+    let span = cn as f64 * scale; // the cell's length, in bar beats
+    let bar_len = bn as f64;
+    let mut hits = Vec::new();
+    let mut shift = 0.0;
+    while shift < bar_len - 1e-9 {
+        for h in bar_hits {
+            let pos = (h.beat as f64 - 1.0 + h.sub) * scale + shift;
+            if pos < bar_len - 1e-9 {
+                let whole = (pos + 1e-9).floor();
+                let sub = ((pos - whole).max(0.0) * 1e6).round() / 1e6;
+                hits.push(Hit { beat: whole as i32 + 1, sub, ..(*h).clone() });
+            }
+        }
+        shift += span;
+    }
+    Some(hits)
 }
 
 /// Assemble a single-cell pattern.
@@ -1249,6 +1295,96 @@ mod tests {
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
+    }
+
+    fn mk(beat: i32, sub: f64, instrument: Instrument) -> Hit {
+        Hit { bar: 1, beat, sub, instrument, velocity_level: VelocityLevel::Normal }
+    }
+
+    fn tick_in_bar(h: &Hit, den: i32) -> f64 {
+        (h.beat as f64 - 1.0 + h.sub) * (PPQ * 4 / den as i64) as f64
+    }
+
+    fn adapted(hits: &[Hit], cell: (i32, i32), bar: (i32, i32)) -> Vec<Hit> {
+        let refs: Vec<&Hit> = hits.iter().collect();
+        adapt_to_bar(&refs, cell, bar).unwrap_or_else(|| hits.to_vec())
+    }
+
+    /// The cross-denominator bug: a 4/4 cell in a 6/8 bar played its quarter
+    /// beats as eighths, at double speed. A quarter must stay a quarter.
+    #[test]
+    fn adapter_keeps_the_pulse_across_denominators() {
+        let cell = [mk(1, 0.0, Instrument::Kick), mk(2, 0.0, Instrument::Snare), mk(4, 0.0, Instrument::Snare)];
+        let out = adapted(&cell, (4, 4), (6, 8));
+        // Beat 2 of 4/4 is tick 480: beat 3 of 6/8.
+        let snare = out.iter().find(|h| h.instrument == Instrument::Snare).unwrap();
+        assert_eq!((snare.beat, snare.sub), (3, 0.0));
+        assert_eq!(tick_in_bar(snare, 8), 480.0);
+        // Beat 4 (tick 1440) is the end of the 6/8 bar and is clipped, not folded in.
+        assert!(out.iter().all(|h| tick_in_bar(h, 8) < 6.0 * 240.0));
+        assert_eq!(out.iter().filter(|h| h.instrument == Instrument::Snare).count(), 1);
+    }
+
+    #[test]
+    fn adapter_vamps_a_six_eight_cell_twice_into_six_four() {
+        let cell = [mk(1, 0.0, Instrument::Kick), mk(4, 0.0, Instrument::Snare)];
+        let out = adapted(&cell, (6, 8), (6, 4));
+        let ticks: Vec<f64> = out.iter().map(|h| tick_in_bar(h, 4)).collect();
+        assert_eq!(ticks, vec![0.0, 720.0, 1440.0, 2160.0]);
+    }
+
+    /// The equal-denominator path decides RNG order for every adapted bar
+    /// already heard: pin it against the reference counting-beats logic.
+    #[test]
+    fn adapter_same_denominator_is_the_old_vamp() {
+        let cell = [
+            mk(1, 0.0, Instrument::Kick), mk(2, 0.5, Instrument::HihatClosed),
+            mk(3, 0.25, Instrument::Kick), mk(4, 0.75, Instrument::SnareGhost),
+        ];
+        for den in [4, 8] {
+            for bn in [3, 5, 6, 7, 9] {
+                let refs: Vec<&Hit> = cell.iter().collect();
+                let got = adapt_to_bar(&refs, (4, den), (bn, den)).expect("differs, so adapted");
+                let mut want: Vec<Hit> = cell.iter().filter(|h| h.beat <= bn).cloned().collect();
+                let mut shift = 4;
+                while shift < bn {
+                    for h in cell.iter().filter(|h| h.beat + shift <= bn) {
+                        want.push(Hit { beat: h.beat + shift, ..h.clone() });
+                    }
+                    shift += 4;
+                }
+                let key = |v: &[Hit]| -> Vec<(i32, i64, &'static str)> {
+                    v.iter().map(|h| (h.beat, (h.sub * 1000.0) as i64, h.instrument.as_str())).collect()
+                };
+                assert_eq!(key(&got), key(&want), "den {den} bar {bn}");
+            }
+        }
+        // Same meter, or a degenerate signature: nothing to do.
+        let refs: Vec<&Hit> = cell.iter().collect();
+        assert!(adapt_to_bar(&refs, (4, 4), (4, 4)).is_none());
+        assert!(adapt_to_bar(&refs, (4, 0), (4, 4)).is_none());
+        assert!(adapt_to_bar(&refs, (0, 4), (4, 4)).is_none());
+    }
+
+    #[test]
+    fn adapter_never_leaves_a_hit_outside_the_bar_or_a_bar_empty() {
+        let cell = [
+            mk(1, 0.0, Instrument::Kick), mk(2, 0.5, Instrument::HihatClosed),
+            mk(3, 0.25, Instrument::Kick), mk(4, 0.0, Instrument::Snare),
+        ];
+        let meters = [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (9, 8), (12, 8), (2, 4), (15, 4)];
+        for cell_sig in meters {
+            let src: Vec<Hit> = cell.iter().filter(|h| h.beat <= cell_sig.0).cloned().collect();
+            for bar_sig in meters {
+                let out = adapted(&src, cell_sig, bar_sig);
+                assert!(!out.is_empty(), "{cell_sig:?} -> {bar_sig:?} went silent");
+                let bar_ticks = (bar_sig.0 as i64 * (PPQ * 4 / bar_sig.1 as i64)) as f64;
+                for h in &out {
+                    let t = tick_in_bar(h, bar_sig.1);
+                    assert!((0.0..bar_ticks).contains(&t), "{cell_sig:?} -> {bar_sig:?}: tick {t}");
+                }
+            }
+        }
     }
 
     #[test]
