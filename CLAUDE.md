@@ -55,10 +55,10 @@ python notation.py ~/drumgen_output/take.mid
 python drumgen.py --style zona --tempo 140 --bars 8 --musicxml   # generate + notate
 ./scripts/install-notation-hook.sh       # SAVE .MID in the plugin auto-notates
 
-# Run tests (430 Python)
+# Run tests (475 Python)
 python -m pytest test_drumgen.py -v
 
-# Validate the MIDI pipeline across many configurations
+# Validate the MIDI pipeline across many configurations (CI runs the quick mode)
 python validate_midi.py                  # quick mode (8 styles)
 python validate_midi.py --full           # exhaustive matrix
 python validate_midi.py --style fugazi   # single style
@@ -76,11 +76,14 @@ re-adding the device is not always enough to pick up a new build.
 ```bash
 # Regenerate the embedded cell library after editing cell_library.py
 python export_cells.py                   # writes plugin/cells/builtin.json
+python export_cells.py --check           # exit 1 if it is stale (pytest checks too)
+python export_golden.py [--check]        # the cross-engine golden vector; only regenerate when
+                                         # the reference engine's output changed ON PURPOSE
 
 # Native Linux build + install (-> ~/.vst3 and ~/.clap)
 cd plugin && ./build-linux.sh            # --check to build without installing
 
-# Cross-compile a Windows VST3/CLAP from Linux (mingw) -> plugin/dist/windows/
+# Manual fallback: cross-compile a Windows VST3/CLAP from Linux (mingw) -> plugin/dist/windows/
 # (needs: rustup target add x86_64-pc-windows-gnu
 #         openSUSE: sudo zypper in mingw64-cross-gcc)
 cd plugin && ./build-windows.sh          # --install DIR to also copy the bundle
@@ -135,28 +138,30 @@ The pipeline flows: CLI/GUI -> Assembler -> Cell Library + Humanizer -> MIDI Eng
 
 A second frontend exists as a Rust VST3/CLAP plugin (`plugin/`) that ports the same engine and emits MIDI in real time inside a DAW instead of writing files (see "VST3 Plugin" below).
 
-- `drumgen.py`: CLI entry point (argparse). Parses args, delegates to `assemble()`, `assemble_arrangement()`, or `assemble_layered()`, then `write_midi()`. Supports `--generative`, `--variations`, and layer mode (`--kick/--snare/--cymbal/--toms`). `OUTPUT_DIR` auto-detects WSL and defaults to `C:\Users\%USERNAME%\Documents\drumgen_output`. `_ts_suffix()` appends time signature to filenames for non-4/4 meters.
-- `app.py`: Streamlit GUI. Same generation pipeline as CLI. Sidebar organized into visual sections (Output, What, Sound, Feel, Modes, Generate). Output folder defaults to Windows Documents on WSL (auto-detects `%USERNAME%`). "Open folder" button uses `wslpath -w` for reliable WSL→Windows path conversion (handles both `/mnt/` and native WSL paths). WSL caption shows the Windows-equivalent path. Mode-aware controls: Style/Cell disabled when layer mode active, Bars disabled in arrangement mode. Layer Mode expander includes clear button and active summary. Arrangement mode has meter quick-add selector for per-section time signatures. Smart filename auto-updates based on active mode (generative prefix, layer names, cell override, time signature for non-4/4). Generate button in both sidebar and main area. Post-generate layout: compact success row with download + open folder, audio preview with optional auto-play, pattern grid in collapsible expander, params/stats collapsed. MIDI import expander at bottom of sidebar.
+- `drumgen.py`: CLI entry point (argparse). Parses args, delegates to `assemble()`, `assemble_arrangement()`, or `assemble_layered()`, then `write_midi()`. Supports `--generative`, `--variations`, and layer mode (`--kick/--snare/--cymbal/--toms`). `OUTPUT_DIR` comes from `platform_paths.default_output_dir()`: `output/` next to the code on Linux/macOS, Windows Documents on Windows and (legacy) WSL. Bad input exits with a message, not a traceback (`_validate_args`; the engine validates time signatures, tempo, bars and section names). `_ts_suffix()` appends time signature to filenames for non-4/4 meters.
+- `app.py`: Streamlit GUI. Same generation pipeline as CLI, mode-aware controls (Style/Cell disabled in layer mode, Bars disabled in arrangement mode), smart auto-filename, a MIDI-import expander. "Open folder" goes through `platform_paths.open_folder` (xdg-open on Linux). It reports the cell that actually played (`assemble()` returns `cell_name`). WSL path display helpers remain for the legacy WSL setup only.
+- `platform_paths.py`: where output goes and how to open it. WSL is detected from the kernel (`/proc/version`), never from `/mnt/c` existing.
 - `assembler.py`: Core orchestrator. Four main functions:
   - `assemble()`: Single-cell mode: repeats a cell for N bars, inserting fills if requested. Supports `generative=True` to prefer probability grid cells.
   - `assemble_arrangement()`: Multi-section mode: parses arrangement strings like `"4:build 8:drive@7/8 2:blast"`, picks best cell per section via tag scoring. Supports per-section time signatures via `@N/M` suffix and `generative=True`.
   - `assemble_layered()`: Layer mode: mixes instrument layers (kick/snare/cymbal/toms) from different cells into one pattern, with conflict resolution.
   - Also handles: hit normalization (4-tuple to 5-tuple), probability grid realization (`realize_probability_grid`), physical constraint validation, layer extraction/conflict resolution, variation mutations (`vary_hits`), velocity drift per section, per-bar humanize overrides. All three assemble functions apply advanced humanization post-processing (flam, ghost clustering) after bar loop and pass section drift into `_process_bar()`.
 - `cell_library.py`: All rhythmic cells defined as Python functions returning dicts. Includes both fixed cells (with `hits`) and probability grid cells (with `type: "probability"` and `grid`). Contains `CELLS` registry, `STYLE_POOLS` (style -> list of cell names), `SECTION_PREFERENCES` (section type -> preferred tags), and lookup functions (`get_cell`, `get_pool`, `get_cell_for_section`). Loads user-imported cells from `user_cells/` via `load_user_cells()` and auto-integrates them into `STYLE_POOLS` via `TAG_TO_POOLS` tag-to-pool mapping.
-- `test_drumgen.py`: Test suite (pytest, 430 tests). Covers cell integrity, time signatures, style pools, assembler, humanizer, MIDI engine, end-to-end generation, probability grids, layer mode, mixed meters (including note position verification), variations, Phase 3 style palette expansion, advanced humanization (velocity contour, flam, section drift, ghost clustering, seed reproducibility), MIDI duration overshoot verification for odd meters, Stage-1 shaped randomness (trig conditions, Euclidean realization, steering determinism), section dynamics, into-aware fill sections, the zona pool's format discipline, and the notation round-trip.
+- `test_drumgen.py`: Test suite (pytest, 475 tests). Covers cell integrity, time signatures, style pools, assembler, humanizer, MIDI engine, end-to-end generation, probability grids, layer mode, mixed meters (including note position verification), variations, Phase 3 style palette expansion, advanced humanization (velocity contour, flam, section drift, ghost clustering, seed reproducibility), MIDI duration overshoot verification for odd meters, Stage-1 shaped randomness (trig conditions, Euclidean realization, steering determinism), section dynamics, into-aware fill sections, the zona pool's format discipline, and the notation round-trip.
 - `midi_reader.py`: Standalone CLI + importable library. Reads `.mid` files via mido, converts to drumgen's native cell format (flat 5-tuple hits), saves as JSON in `user_cells/`. Includes content-based auto-tagging (`auto_tag_cell()`), validation (`validate_cell()`), hit deduplication, trailing bar trim, and content hashing for dedup. Auto-generated cell names include `_{bpm}bpm` suffix when BPM metadata is available (explicit `--name` is not affected). Exposes `midi_to_cell()`, `save_cell()`, `auto_tag_cell()`, `validate_cell()` for GUI use.
 - `als_extractor.py`: Standalone CLI. Opens `.als` files (gzip-compressed XML), finds MidiClip elements from both Session and Arrangement views, writes each as a `.mid` file to `extracted/`. Filters non-drum tracks via name blacklist (synth, sampler, pad, etc.) when `--drums-only` is used.
 - `humanizer.py`: `Humanizer` class with seeded RNG. Per-instrument velocity variance tables (25 instruments), timing tendencies (e.g., snare slightly late, ride slightly early), swing application. Advanced humanization: velocity contour (wrist pattern for cymbals including hihat_wide_open + beat-1 emphasis), section push/pull drift (verse drags, chorus pushes, build gradually pushes), kick-snare flam (kick pulled 5-12ms early on simultaneous hits), and ghost note clustering (ghosts gravitate toward snare accents, style-dependent via `_CLUSTER_TAG_AMOUNTS`). Module-level helpers: `get_cluster_amount(cell)`, `infer_section_type(cell)`.
 - `midi_engine.py`: Position-to-tick math and MIDI file writing via `mido`. Constants: PPQ=480, note duration=30 ticks, MIDI channel=9. Includes note overlap prevention (inserts early note_off when humanizer timing causes pitch collisions). Note_off events are clamped to the expected bar boundary so MIDI clips don't overshoot the grid in DAWs (especially important for odd meters). Time signature meta messages and note events are interleaved in a single sorted pass (by absolute tick) to avoid mixed-meter delta calculation bugs. Resolves kit aliases so aliased instrument names map to the correct MIDI note. `unique_filepath()` utility auto-increments filename suffix (`_1`, `_2`, etc.) to prevent overwriting existing files, used by both CLI and GUI.
 - `notation.py`: `.mid` → drum-staff MusicXML for a human drummer. Snaps ticks to the sixteenth grid (lossless: the whole vocabulary is 16th-based), recovers velocity levels via `midi_reader._classify_velocity`, emits two voices (hands stems-up / feet stems-down with `<backup>`), x noteheads for cymbals, circle-x for open hats, parenthesized ghost snares, accents, and a fresh `<time>` at every meter change. `<midi-unpitched>` is 1-based (classic silent off-by-one). Open the result in MuseScore 4 → PDF. See `NOTATION.md`.
 - `scripts/install-notation-hook.sh`: Writes `~/.config/drumgen/on_save`, the executable the plugin spawns after SAVE .MID (detached, fire-and-forget). Installing it makes every plugin save also render a score.
-- `validate_midi.py`: Standalone validation script (also runnable via pytest). Generates MIDI across many style/cell/meter/tempo configurations and checks pipeline correctness (bar alignment, note bounds, round-trip via `midi_to_cell`).
-- `run-drumgen`: Bash launcher script. Activates venv and runs `streamlit run app.py`. On WSL, sets `BROWSER=explorer.exe` so Streamlit auto-opens in the Windows default browser.
+- `validate_midi.py`: Standalone validation script (run directly; CI runs its quick mode; it has no pytest tests). Generates MIDI across many style/cell/meter/tempo configurations and checks pipeline correctness (bar alignment, note bounds, round-trip via `midi_to_cell`).
+- `run-drumgen`: Bash launcher script. Activates venv and runs `streamlit run app.py`. Under WSL only, sets `BROWSER=explorer.exe` so Streamlit opens in the Windows browser.
+- `export_golden.py`: writes `plugin/fixtures/golden_vector.json`, the cross-engine fixture the Rust side checks. `--check` writes nothing.
 - `preview.py`: Optional FluidSynth-based WAV rendering for the Streamlit GUI.
 - `kit_mappings/`: JSON files mapping instrument names to MIDI note numbers. Default: `ugritone.json` (25 instruments including chokes, fx cymbals, ride_crash, china_2, hihat_wide_open, tom_mid_high). Also `addictive_drums.json` (note 48 = snare) and `general_midi.json`. Kit files support an `aliases` field for additional note-to-instrument mappings (e.g., `floor_tom` → `tom_floor`).
 - `user_cells/`: Directory for imported cell JSON files (gitignored). Loaded automatically by `cell_library.py` at import time.
 - `extracted/`: Directory for MIDI files extracted from .als projects (gitignored).
-- `styles/drumgen-style-dna.md`: Reference document describing rhythmic vocabulary per genre (blast beats, d-beats, Shellac precision, etc.). Build-time guidance for a human or agent; no code reads it.
+- `styles/drumgen-style-dna.md`: Reference document describing rhythmic vocabulary per genre (blast beats, d-beats, Shellac precision, etc.). Genre reference, not an inventory of pools (the `shellac` pool is gone, newer styles are not covered). Build-time guidance for a human or agent; no code reads it.
 
 ### VST3 Plugin (`plugin/`)
 
@@ -176,9 +181,8 @@ a plugin without one, never remove it.
 - `plugin/src/editor.rs`: The 8-bit GUI (see Key Concepts). 720×440, resizable grip, telegraph, horizon strip with playhead cursor, step grid, DICE/SEED/SAVE.
 - `plugin/src/export.rs`: Hand-rolled SMF (format 0) writer for SAVE .MID, plus the `on_save` hook spawn.
 - `plugin/cells/builtin.json`: Built-in cells + style pools + section preferences embedded into the plugin. Generated by `export_cells.py` from `cell_library.py` (imported user cells are excluded), rerun the export after adding or editing built-in cells.
-- `plugin/build-windows.sh`: Cross-compiles from WSL2 with `cargo xtask bundle` (mingw-w64 target) and installs to `C:\Program Files\Common Files\VST3\`.
+- `plugin/build-windows.sh`: manual fallback; cross-compiles with `cargo xtask bundle` (mingw-w64 target) into `plugin/dist/windows/`, `--install DIR` copies the bundle. Prefer CI's native MSVC artifact.
 - `export_cells.py`: Serializes `CELLS`/`STYLE_POOLS`/`SECTION_PREFERENCES` to `plugin/cells/builtin.json`.
-- `live_player.py`: Real-time MIDI player (python-rtmidi) that streams drumgen patterns into a virtual MIDI port (loopMIDI, port named "drumgen") for Ableton. Must run on Windows Python — WSL2 cannot access Windows MIDI devices.
 
 ## Key Concepts
 
@@ -194,7 +198,7 @@ Shaped randomness: `realize_probability_grid` applies a syncopation guard (a bar
 
 Section dynamics: `SECTION_DYNAMICS` (assembler.py) / `section_dynamics()` (assembler.rs) maps each section type to `(vel_base, vel_slope_per_bar, tension_mult)`. A build starts −12 velocity and climbs ~15 over 8 bars while running denser; atmospheric sits −14 and thin; blast lands +7 and thick. Supersedes the old up/down drift.
 
-Song Mode: the `song` param picks an arrangement string from `SONGS` (params.rs) — 10 built-in forms grounded in real records — or from the user's `~/.config/drumgen/songs.txt` (`Name | 3:verse@7/8 2:blast …`, loaded once at instantiation, strict validator, whole-line reject with `nih_log`, starter file planted when missing). Song Mode drives the same `assemble_arrangement` the Python CLI uses; BARS/METER/FILL are ignored while a song is active.
+Song Mode: the `song` param picks an arrangement string from `SONGS` (params.rs; index 0 is Off, so 9 built-in forms) grounded in real records — or from the user's `~/.config/drumgen/songs.txt` (`Name | 3:verse@7/8 2:blast …`, loaded once at instantiation, strict validator, whole-line reject with `nih_log`, starter file planted when missing). Song Mode drives the same `assemble_arrangement` the Python CLI uses; BARS/METER/FILL are ignored while a song is active.
 
 Fill sections: a `fill` section resolves via `get_cell_for_section`'s special case — `role == "fill"` cells library-wide (fills deliberately live outside style pools), meter-filtered, preferring cells tagged `into_<next_section>`. In loop mode the FILL param swaps a meter-matched fill in every N bars, drawn per fill bar so consecutive fills differ.
 
@@ -263,7 +267,7 @@ Full pipeline: Use `als_extractor.py` to get .mid files from Ableton projects, t
 
 ## Mined cells from reference records (`brainsnares`, 2026-07-26)
 
-`user_cells/` currently holds 49 cells transcribed from reference records:
+On the author's machine `user_cells/` holds 49 cells transcribed from reference records (it is gitignored, so a fresh clone has none):
 Kidcrash *Snacks* (40), Lord Snow, and Ruined Families. They came from
 brainsnares (`~/dev/brainsnares`, named after Kidcrash *Snacks* track 6), which
 runs demucs → LarsNet per-drum stems → onset transcription → interpretation →

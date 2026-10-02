@@ -2,12 +2,13 @@
 """MIDI pipeline validation script.
 
 Generates MIDI across many configurations and validates pipeline correctness.
-Runnable standalone or via pytest.
+Run it directly (it has no pytest tests); CI runs the quick mode. The pytest
+suite covers the same ground in test_drumgen.py.
 
 Usage:
     python validate_midi.py                  # quick mode (8 styles)
     python validate_midi.py --full           # exhaustive matrix
-    python validate_midi.py --style shellac  # single style
+    python validate_midi.py --style fugazi   # single style
     python validate_midi.py --cell blast_traditional  # single cell
     python validate_midi.py -v               # verbose (show pass details)
     python validate_midi.py --fail-fast      # stop on first failure

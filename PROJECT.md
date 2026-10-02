@@ -76,7 +76,7 @@ notes, forever. A groove you loved is recoverable by writing down a number.
 Taste is data. The cell library is a curated vocabulary rather than a dataset.
 The author's ear is the training signal, applied at authoring time.
 
-## 4. Where it stands (2026-08-01)
+## 4. Where it stands (2026-10-02)
 
 `main` is tagged v0.2.0 (2026-07-26): the hardening batch, the vocabulary
 work, kidcrash/lord_snow, and the dice roll, merged after the author's
@@ -108,9 +108,24 @@ PDF drum chart — the notation chain is proven end-to-end. lord_snow reads as
 it as more Lord Snow material gets mined.
 
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
-plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
-forms plus unlimited user forms, ~6,300 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 430 Python + 142 Rust tests green.
+plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
+forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
+lines of Python engine/tools plus 4,000 of cells, 475 Python + 142 Rust tests green.
+
+The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
+finding checked against the source before fixing) found and fixed, on both
+engines unless noted: a lone `hihat_pedal` played twice; every intense section
+start in Song Mode stacked a second kick/crash a few ticks from the cell's own
+(a flam at nearly every section change); layer mode lost Euclidean phasing and
+trig conditions and doubled hits in odd meters (Python); and the meter adapter
+counted beats instead of time, so a /4 cell in a /8 bar played at double speed.
+In the plugin: an unbounded wait hung the audio thread when a build panicked,
+rewinding after a pad switch played silence, forced-meter pads never generated
+after a project load, an unanswered pad build was never retried, a hit on a
+buffer seam could fire twice or never, SONG in a pad was an index into an
+editable file, and the step grid clamped at 24 columns. The cause of the 2 FAIL
+and 32 WARN `validate_midi --full` had been reporting while pytest read green
+was the first two; it is clean now and CI runs it.
 
 ### Feature inventory
 
@@ -120,7 +135,7 @@ Python engine/tools, 430 Python + 142 Rust tests green.
 | Cell types | fixed hits, probability grids (per-seed realization), Euclidean limbs (polymeter) |
 | Trig conditions | `A:B` pass ratios, `1st`, `last`, `pre`, `!pre`: memory across the pattern |
 | Shaped randomness | syncopation guard (Witek inverted-U band), tension envelope per pattern |
-| Song Mode | 10 forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere) + `~/.config/drumgen/songs.txt` |
+| Song Mode | 9 forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere) + `~/.config/drumgen/songs.txt` |
 | Section dynamics | per-section velocity base/slope + tension multiplier (builds rise and thicken) |
 | Fills | 26 cells, meter-matched, chosen by `into_<next_section>` intent, alternating per fill bar |
 | Humanization | velocity variance, timing tendencies, swing, wrist contour, section drift, kick-snare flam, ghost clustering |
@@ -170,7 +185,7 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 430 tests
+python -m pytest test_drumgen.py -q          # 475 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
@@ -248,6 +263,28 @@ Use it for anything ambiguous or risky; it earns its cost.
 
 ## 8. Open threads
 
+Awaiting the author's ears (2026-10-02). Tests are green and the data files are
+current, but none of this has been heard:
+
+- Song Mode into a chorus / blast: one kick and one crash on the downbeat, not
+  a stacked pair. A zona groove: no doubled chick on beats 2 and 4.
+- A /4 style forced to 6/8 and 7/8: it now keeps its pulse and loses the end of
+  the figure, instead of playing at double speed. This one is a taste call.
+- Store two pads, one with a forced meter, save, reopen: both play. Jam, stop,
+  rewind, play: sound from bar 1. Loop a region across a pad switch.
+- STORE while a pad plays copies that pad. Drag a knob: one undo step.
+- Playback across a tempo ramp; a host in 9/8 or 12/8 under Auto; a 7/4 bar in
+  the step grid.
+- Open question, not a bug report: drumgen consumes the track's incoming notes
+  as pad triggers and forwards none. Check that finger-drumming through the
+  chain behaves the way you want.
+
+Also open from the review, deliberately not touched: the project has no LICENSE
+file (the author's call); `vary_hits` still mutates fills at bar 2+ (changing it
+alters ear-verified fill variety); `CLAUDE.md` is long and carries narrative that
+belongs here; the Windows/WSL branches of the Python GUI remain, small and
+labelled legacy.
+
 The 2026-08-01 queue, in order:
 
 1. Does Bitwig apply the meter map on `.mid` import? SAVE .MID embeds every
@@ -269,7 +306,8 @@ The 2026-08-01 queue, in order:
 5. Editing a stored pad means trigger → tweak (exits bank) → re-store. If
    that grates mid-jam, add a "recall pad to knobs" gesture.
 6. Merge `plugin-hardening` → `main` after the author's ears sign off the
-   bank sessions; tag v0.3.0.
+   bank sessions and the 2026-10-02 listen list above; bump `plugin/Cargo.toml`
+   from `0.3.0-dev` and tag v0.3.0 (CI refuses a tag that disagrees with it).
 
 ### The vocabulary matrix (measured 2026-07-25, the live problem)
 
@@ -322,7 +360,7 @@ Queued, gated on need:
   excludes imported cells from the plugin entirely, so Song Mode never sees
   them; `midi_reader.auto_tag_cell` emits only density/blast/halftime tags and
   cannot detect `build`/`quiet`/intro function; and `TAG_TO_POOLS` has no route
-  to zona/faraquet/shellac. Mass-importing today would add more unreachable
+  to zona. Mass-importing today would add more unreachable
   grooves to the pools that are already fine. Fix those three first.
 - Phrase-logic retrofit for older chatty grids (euro_screamo, posthardcore).
 - Corpus stage: mass-import the author's years of Ableton projects

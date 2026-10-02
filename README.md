@@ -30,16 +30,28 @@ cd plugin && ./build-linux.sh     # builds + installs to ~/.vst3 and ~/.clap
 
 Then in Bitwig: one instrument track, device chain = drumgen → your drum
 sampler, press play. (Restart Bitwig after reinstalling, the old `.so` stays
-in memory.)
+in memory.) If the plugin does not show up: Settings → Locations, make sure
+`~/.vst3` and `~/.clap` are scanned.
+
+Building needs a Rust toolchain plus the X11 and OpenGL development headers the
+GUI links. On Debian/Ubuntu (what CI installs):
+
+```bash
+sudo apt install pkg-config libx11-dev libxcb1-dev libx11-xcb-dev libxcursor-dev \
+  libxkbcommon-dev libgl1-mesa-dev libxcb-icccm4-dev libxcb-dri2-0-dev
+```
+
+On openSUSE install the `-devel` packages of the same libraries. Without them
+`cargo` stops early on a missing `gl.pc` or `x11-xcb.pc`.
 
 ### What the plugin gives you
 
 | Control | Does |
 |---|---|
 | STYLE | 30 genre pools: each produces a distinctly different beat |
-| SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
+| SONG | 9 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
 | DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
-| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures the current sound (style, seed, meter, bars, fill, song). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up — Bitwig's computer-keyboard input works) trigger the same pads. Right-click clears. Pads persist with the project; patterns regenerate from their seeds |
+| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures what is playing (style, seed, meter, bars, fill, song). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up in Bitwig's note names) trigger the same pads. Right-click clears. STORE copies what is playing: the pad that is playing, or the knobs when no pad is. Pads persist with the project; patterns regenerate from their seeds |
 | HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
 | Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
@@ -103,7 +115,13 @@ Key options: `--style` / `--cell`, `-a/--arrangement`, `--tempo`, `--bars`,
 `--generative`, `--variations`, `--kit`, `--musicxml`, `-o`.
 
 A Streamlit GUI covers the same ground: `./run-drumgen` (or
-`streamlit run app.py`).
+`streamlit run app.py`). Its optional WAV preview needs FluidSynth
+(`sudo zypper install fluidsynth fluid-soundfont-gm` on openSUSE); it plays
+General MIDI sounds, so it will not match your real kit.
+
+Bad input is a message, not a traceback: tempo, bars, time signatures
+(`N/D`, D one of 2, 4, 8, 16), section names and the 0.0-1.0 options are
+checked up front.
 
 ---
 
@@ -146,17 +164,24 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 
 `kit_mappings/*.json` map instrument names to MIDI notes: `ugritone.json`
 (default, 25 instruments), `addictive_drums.json` (note 48 = snare),
-`general_midi.json`. Kits support an `aliases` field. MIDI channel 10, PPQ 480.
+`general_midi.json`. Kits support an `aliases` field. MIDI channel 10 (0-based 9 in the code), PPQ 480.
 
 ## Development
 
 ```bash
-python -m pytest test_drumgen.py -q     # 430 tests
-python validate_midi.py                  # pipeline sanity across configs
+python -m pytest test_drumgen.py -q     # 475 tests, incl. the data-drift checks
+python validate_midi.py                  # pipeline sanity across configs (--full: exhaustive)
 python export_cells.py                   # after ANY cell_library.py edit
+python export_cells.py --check           # is plugin/cells/builtin.json current?
+python export_golden.py --check          # is the cross-engine golden vector current?
 cd plugin && cargo test                  # 142 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
+
+CI (`.github/workflows/build-plugin.yml`) runs the Python suite and `cargo test`
+on every push and pull request, builds Linux, Windows and macOS bundles, and
+cuts a release from a `v*` tag, which must equal the version in
+`plugin/Cargo.toml`.
 
 The engine is hand-duplicated: Python (`assembler.py`, `cell_library.py`,
 `humanizer.py`, `midi_engine.py`) and Rust (`plugin/src/engine/*.rs`). Changes
@@ -164,9 +189,9 @@ to engine logic must land in both. Cells are data, edit `cell_library.py`,
 run `export_cells.py`. See [CLAUDE.md](CLAUDE.md) for conventions and
 [PROJECT.md](PROJECT.md) for the reasoning behind all of it.
 
-CI builds Linux, Windows and macOS bundles on push; a `v*` tag cuts a release.
-
 ## License
 
-Open source and self-hosted: no cloud, no accounts, no telemetry.
-Everything runs on your own machine.
+Self-hosted: no cloud, no accounts, no telemetry. Everything runs on your own
+machine. The repository is public but has no LICENSE file yet, so no licence is
+granted until the author adds one (the bundled font has its own, in
+`plugin/assets/OFL.txt`).
