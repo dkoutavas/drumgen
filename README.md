@@ -39,10 +39,12 @@ in memory.)
 | STYLE | 30 genre pools: each produces a distinctly different beat |
 | SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
 | DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
+| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures the current sound (style, seed, meter, bars, fill, song). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up — Bitwig's computer-keyboard input works) trigger the same pads. Right-click clears. Pads persist with the project; patterns regenerate from their seeds |
 | HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
 | Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
 | SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
+| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`. Attach it to a bug report, or watch it live with `tail -f` |
 
 ### Your own song forms
 
@@ -149,10 +151,10 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 ## Development
 
 ```bash
-python -m pytest test_drumgen.py -q     # 308 tests
+python -m pytest test_drumgen.py -q     # 309 tests
 python validate_midi.py                  # pipeline sanity across configs
 python export_cells.py                   # after ANY cell_library.py edit
-cd plugin && cargo test                  # 81 tests
+cd plugin && cargo test                  # 107 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 

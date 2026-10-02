@@ -78,6 +78,21 @@ mod tests {
     use crate::pattern::{MidiEvent, Pattern};
     use crate::engine::midi_math::TimeSigEntry;
 
+    #[test]
+    fn negative_p0_places_bar_one_at_its_exact_sample() {
+        // The buffer a bank switch lands in starts BEFORE the new pattern's
+        // origin, so p0 is negative. The downbeat must be emitted late inside
+        // this buffer, not dropped and not snapped to sample 0 — a slot switch
+        // that ate its own kick on 1 would be the whole feature failing.
+        let p = one_bar();
+        let mut out = Vec::new();
+        // 480 ticks of lead-in at 1 sample per tick.
+        scan(&p, -480.0, 512.0, 1.0, 512, &mut out);
+        assert_eq!(out.len(), 1, "only bar 1's downbeat is in this window");
+        assert_eq!(out[0].note, 36);
+        assert_eq!(out[0].timing, 480);
+    }
+
     /// One-bar 4/4 pattern (1920 ticks) with a note-on at each quarter.
     fn one_bar() -> Pattern {
         let events = vec![

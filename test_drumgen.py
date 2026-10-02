@@ -1006,6 +1006,35 @@ class TestMixedMeters:
                 starved.append(bar + 1)
         assert not starved, f"6/4 bars with nothing past beat 4: {starved}"
 
+    def test_meter_promise_every_style_every_meter(self):
+        """A requested meter is a promise, not a filter (loop mode).
+
+        The plugin's Auto meter resolves to the host's time signature and
+        calls assemble with it — a style with no cell in that meter must be
+        ADAPTED to it, never fall back to the cell's native meter. Pre-fix
+        the plugin played honest 4/4 against a 3/4 host grid (kidcrash was
+        the screenshot). Every style × every shipped meter: the stamped
+        meter equals the request, the pattern is non-empty, and no event
+        escapes the bar grid. Mirrors meter_promise_across_styles_and_meters
+        in plugin/src/generation.rs.
+        """
+        from midi_engine import DEFAULT_PPQ
+        from cell_library import STYLE_POOLS
+        meters = ["3/4", "4/4", "5/4", "6/4", "6/8", "7/8"]
+        for style in sorted(STYLE_POOLS):
+            for meter in meters:
+                r = assemble(style=style, bars=4, tempo=120, time_sig=meter,
+                             humanize=0.0, seed=1, generative=True)
+                num, den = (int(x) for x in meter.split("/"))
+                ts = r["time_signatures"]
+                assert len(ts) == 1, f"{style} {meter}: loop mode is one meter"
+                assert (ts[0]["numerator"], ts[0]["denominator"]) == (num, den), \
+                    f"{style} {meter}: requested meter must be stamped"
+                total = 4 * num * (DEFAULT_PPQ * 4 // den)
+                assert r["events"], f"{style} {meter}: adapted pattern went silent"
+                bad = [t for t, _, _ in r["events"] if t >= total]
+                assert not bad, f"{style} {meter}: events past the grid: {bad[:4]}"
+
     def test_parse_arrangement_default_time_sig(self):
         sections = parse_arrangement("4:verse 2:blast")
         assert len(sections) == 2

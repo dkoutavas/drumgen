@@ -1,6 +1,14 @@
 use crate::engine::assembler::{self, AssembleResult};
 use crate::engine::cell_library::CellLibrary;
 
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
+fn lcm(a: i32, b: i32) -> i32 {
+    a / gcd(a, b) * b
+}
+
 /// FNV-1a 64-bit — tiny deterministic hash for the style-name seed salt.
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
@@ -63,6 +71,17 @@ impl GenerationManager {
         // Adding keeps +1 on the seed as +1 on the rotation while still giving
         // every style its own offset into the stream.
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
+
+        // The looped pattern must CONTAIN the fill cycle. Fills fire at
+        // `bar % fill_every == 0`, so a 4-bar loop with FILL=Every 8 never
+        // reached bar 8: no fill ever played, and the telegraph counted
+        // 7..4 and wrapped with the loop. Extend the loop to the least
+        // common multiple: BARS is the figure length, FILL the cycle, the
+        // audible loop is both (4 bars @ Every 8 = the figure twice with a
+        // fill closing bar 8). Worst case (BARS 15, Every 8) is 120 bars —
+        // still millisecond generation. Plugin-boundary only: the CLI keeps
+        // bars as an exact file length.
+        let bars = if fill_every > 0 { lcm(bars, fill_every) } else { bars };
 
         // Vary floor is UNCONDITIONAL, matching Song Mode. Two reasons a press
         // can land on the same FIXED cell as the last one: a forced meter
@@ -404,11 +423,14 @@ mod tests {
     }
 
     #[test]
-    fn meter_truth_across_styles_and_meters() {
-        // The pattern's time signature must describe the cell that is actually
-        // playing. When a style has no cell in the forced meter the engine
-        // falls back to another cell — and must then report THAT cell's meter,
-        // or the recorded MIDI's bar grid lies to the DAW.
+    fn meter_promise_across_styles_and_meters() {
+        // A requested meter (forced, or Auto resolved from the host transport)
+        // is a PROMISE: the stamped meter must equal it for every style, even
+        // when the pool has no cell in that meter (the fallback cell is
+        // adapted). Anything else plays against the host's bar grid — the
+        // "Auto shows 4/4 under a 3/4 host" screenshot bug. Only (0,0)
+        // (Auto with no host info) may take the cell's native meter. Every
+        // pattern must also be non-empty and fit its own grid.
         let gen = GenerationManager::new();
         let meters = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
 
@@ -421,24 +443,55 @@ mod tests {
                     "loop mode is a single meter for the whole pattern"
                 );
                 let got = (res.time_signatures[0].numerator, res.time_signatures[0].denominator);
-                // Requesting a meter is a FILTER, not a promise: if it matched,
-                // the stamped meter must be it; if it fell back, the stamp must
-                // still be a real meter and every event must fit the bar grid.
+                if meter != (0, 0) {
+                    assert_eq!(
+                        got, meter,
+                        "style {}: requested meter must be stamped",
+                        gen.style_name(i as usize).unwrap_or("?")
+                    );
+                } else {
+                    assert!(
+                        got.0 > 0 && (got.1 == 4 || got.1 == 8),
+                        "style {}: nonsense native meter {:?}",
+                        gen.style_name(i as usize).unwrap_or("?"), got
+                    );
+                }
                 let total = crate::engine::midi_math::total_pattern_ticks(
                     4, &res.time_signatures, crate::engine::midi_math::PPQ,
+                );
+                assert!(
+                    !res.events.is_empty(),
+                    "style {} meter {:?}: adapted pattern went silent",
+                    gen.style_name(i as usize).unwrap_or("?"), meter
                 );
                 assert!(
                     res.events.iter().all(|e| e.tick < total),
                     "style {} meter {:?}: event past the {}-tick grid",
                     gen.style_name(i as usize).unwrap_or("?"), meter, total
                 );
-                assert!(
-                    got.0 > 0 && (got.1 == 4 || got.1 == 8),
-                    "style {} meter {:?}: nonsense stamped meter {:?}",
-                    gen.style_name(i as usize).unwrap_or("?"), meter, got
-                );
             }
         }
+    }
+
+    #[test]
+    fn fill_cycle_longer_than_bars_extends_the_loop() {
+        // FILL=Every 8 with BARS=4: fills fire at bar % 8 == 0, which a 4-bar
+        // loop never reaches — no fill ever played and the telegraph counted
+        // "FILL IN 7..4" and wrapped. The loop must extend to lcm(bars, fill)
+        // so the cycle completes (user bug report, 2026-07-31).
+        let gen = GenerationManager::new();
+        let res = gen.generate(0, 0.0, 4, 1, 0.0, true, 120.0, (4, 4), 8);
+        assert_eq!(res.total_bars, 8, "4-bar figure @ Every 8 = an 8-bar loop");
+        let bar8_start = crate::engine::midi_math::calculate_bar_start_ticks(
+            8, &res.time_signatures, crate::engine::midi_math::PPQ,
+        );
+        assert!(
+            res.events.iter().any(|e| e.tick >= bar8_start),
+            "the fill bar must not be silent"
+        );
+        // Divisor and off cases stay untouched.
+        assert_eq!(gen.generate(0, 0.0, 8, 1, 0.0, true, 120.0, (4, 4), 4).total_bars, 8);
+        assert_eq!(gen.generate(0, 0.0, 4, 1, 0.0, true, 120.0, (4, 4), 0).total_bars, 4);
     }
 
     #[test]
