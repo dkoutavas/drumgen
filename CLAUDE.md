@@ -330,5 +330,6 @@ Cells must respect real drummer limb constraints (documented in `styles/drumgen-
 - Mirror engine changes across `*.py` and `plugin/src/engine/*.rs`. Cross-engine RNG bit-parity is impossible (Mersenne Twister vs ChaCha8) and not a goal; structural parity is.
 - Determinism is a feature: same seed + same params = identical notes. Never introduce unseeded randomness or `HashMap` iteration into an RNG-consuming path (use `BTreeMap`).
 - The audio thread does no allocation, no blocking lock (`try_lock` only), no file IO, and no generation. It publishes state to the GUI with relaxed atomics (playhead tick, bank state). The one wait it can make, `await_pending`, is bounded by `OFFLINE_WAIT`: an unbounded wait hung the audio thread when a build panicked.
+- The repository is GPL-3.0-or-later (`LICENSE`), because nih-plug's VST3 bindings are GPLv3. A new dependency has to be GPLv3-compatible (MIT, ISC, Apache-2.0 and BSD are; a proprietary or GPLv2-only crate is not).
 - Deliberate shortcuts get a `ponytail:` comment naming the ceiling and the upgrade path.
 - Run `python -m pytest test_drumgen.py -q` and `cd plugin && cargo test` before committing anything that touches shared behavior.

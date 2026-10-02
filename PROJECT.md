@@ -279,11 +279,14 @@ current, but none of this has been heard:
   as pad triggers and forwards none. Check that finger-drumming through the
   chain behaves the way you want.
 
-Also open from the review, deliberately not touched: the project has no LICENSE
-file (the author's call); `vary_hits` still mutates fills at bar 2+ (changing it
-alters ear-verified fill variety); `CLAUDE.md` is long and carries narrative that
-belongs here; the Windows/WSL branches of the Python GUI remain, small and
-labelled legacy.
+Also open from the review, deliberately not touched: `vary_hits` still mutates
+fills at bar 2+ (changing it alters ear-verified fill variety); `CLAUDE.md` is
+long and carries narrative that belongs here; the Windows/WSL branches of the
+Python GUI remain, small and labelled legacy.
+
+Licence (decided 2026-10-02): GPL-3.0-or-later. nih-plug's VST3 bindings are
+GPLv3, so the shipped VST3 binaries must comply with it regardless of what the
+source says; one licence for the whole repo keeps the two consistent.
 
 The 2026-08-01 queue, in order:
 

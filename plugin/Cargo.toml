@@ -7,6 +7,7 @@ version = "0.3.0-dev"
 edition = "2021"
 authors = ["drumgen"]
 description = "Algorithmic drum pattern generator VST3 plugin"
+license = "GPL-3.0-or-later"
 
 [lib]
 crate-type = ["cdylib"]

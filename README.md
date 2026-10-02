@@ -191,7 +191,12 @@ run `export_cells.py`. See [CLAUDE.md](CLAUDE.md) for conventions and
 
 ## License
 
-Self-hosted: no cloud, no accounts, no telemetry. Everything runs on your own
-machine. The repository is public but has no LICENSE file yet, so no licence is
-granted until the author adds one (the bundled font has its own, in
-`plugin/assets/OFL.txt`).
+drumgen is free software, released under the
+[GNU General Public License v3.0 or later](LICENSE). Self-hosted: no cloud, no
+accounts, no telemetry. Everything runs on your own machine.
+
+Why GPL rather than something more permissive: the plugin exports VST3 through
+nih-plug's VST3 bindings, which are GPLv3, so any VST3 build has to comply with
+the GPLv3 anyway. One licence for the whole repository keeps the source and the
+binaries saying the same thing. The bundled Press Start 2P font keeps its own
+licence (SIL OFL 1.1, in `plugin/assets/OFL.txt`).
