@@ -35,9 +35,30 @@ jobs:
         working-directory: plugin
         run: cargo test --release
 
+  python:
+    # The Python engine is the reference the plugin is ported from, and it
+    # produces the two data files the plugin embeds. None of this ran in CI:
+    # a stale plugin/cells/builtin.json or golden vector shipped silently.
+    # test_drumgen.py includes the drift checks (TestDrift) and the CLI tests.
+    name: test (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # mido + pytest are all the engine and its tests need; streamlit (the
+      # GUI) is heavy and not imported by anything under test.
+      - name: Install
+        run: pip install mido pytest
+      - name: pytest
+        run: python -m pytest test_drumgen.py -q
+      - name: MIDI pipeline validation
+        run: python validate_midi.py
+
   build:
     name: build (${{ matrix.name }})
-    needs: test
+    needs: [test, python]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -98,6 +119,16 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The host and the session log report the Cargo version. A tag that
+      # disagrees ships a v0.2.0 release that calls itself 0.1.0 (it did).
+      - uses: actions/checkout@v4
+      - name: Tag matches the plugin version
+        run: |
+          v=$(grep -m1 '^version' plugin/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match plugin/Cargo.toml version v$v: bump it first"
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: dist
