@@ -25,7 +25,10 @@ _CYMBAL_PRIORITY = {"crash_1": 3, "crash_2": 3, "crash_1_choke": 3, "crash_2_cho
                     "china": 3, "china_2": 3, "splash": 2,
                     "ride": 1, "ride_bell": 1, "ride_crash": 2,
                     "fx_cymbal_1": 2, "fx_cymbal_2": 2,
-                    "hihat_closed": 0, "hihat_open": 0, "hihat_wide_open": 0, "hihat_pedal": 0}
+                    "hihat_closed": 0, "hihat_open": 0, "hihat_wide_open": 0}
+# hihat_pedal is deliberately absent: it is a FOOT (see the `feet` lists in the
+# two constraint resolvers below). Listing it here as well emitted it twice
+# whenever it was alone on a slot, and let it displace a hand-played hat.
 _STICK_PRIORITY = {"snare": 2, "snare_rim": 2, "snare_ghost": 1,
                    "tom_high": 0, "tom_mid_high": 0, "tom_mid": 0, "tom_low": 0, "tom_floor": 0}
 _VEL_RANK = {"accent": 3, "normal": 2, "soft": 1, "ghost": 0}
@@ -761,19 +764,22 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         cell_humanize = humanize if humanize is not None else cell["humanize"]
         humanizer.humanize_amount = cell_humanize
 
-        # Crash+kick on beat 1 of intense sections
+        # Crash+kick on beat 1 of intense sections, each only if the cell's own
+        # opening bar does not already play it. Unconditional injection stacked
+        # a second kick/crash 0-3 ticks from the cell's (humanize jitter made
+        # it a flam) at nearly every section change.
         section_start_bar = bar_cursor + 1
         if section_type in _INTENSE_SECTIONS:
-            crash_tick = position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq)
-            crash_tick_h = humanizer.humanize_timing(crash_tick, "crash_1", tempo, ppq)
-            crash_vel = humanizer.humanize_velocity("accent", "crash_1")
-            events.append((crash_tick_h, "crash_1", crash_vel))
-            kick_tick = humanizer.humanize_timing(
-                position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq),
-                "kick", tempo, ppq
-            )
-            kick_vel = humanizer.humanize_velocity("accent", "kick")
-            events.append((kick_tick, "kick", kick_vel))
+            opening = [h for h in cell_hits if h[0] == 1 and h[1] == 1 and h[2] == 0.0]
+            downbeat_tick = position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq)
+            if not any(h[3].startswith("crash") for h in opening):
+                crash_tick_h = humanizer.humanize_timing(downbeat_tick, "crash_1", tempo, ppq)
+                crash_vel = humanizer.humanize_velocity("accent", "crash_1")
+                events.append((crash_tick_h, "crash_1", crash_vel))
+            if not any(h[3] == "kick" for h in opening):
+                kick_tick = humanizer.humanize_timing(downbeat_tick, "kick", tempo, ppq)
+                kick_vel = humanizer.humanize_velocity("accent", "kick")
+                events.append((kick_tick, "kick", kick_vel))
 
         seen_cell_bars = set()
 
@@ -892,8 +898,24 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
 
     humanizer = Humanizer(humanize_amount, seed=seed)
 
-    # Build a dummy cell for _process_bar (it only reads humanize and humanize_per_bar)
-    dummy_cell = {"humanize": humanize_amount, "humanize_per_bar": None, "num_bars": 1}
+    # Build a dummy cell for _process_bar (it reads humanize, humanize_per_bar
+    # and time_sig). time_sig MUST be the output meter: left out, the meter
+    # adapter assumed 4/4 and vamped/clipped every layered bar in 3/4, 5/4,
+    # 6/4, 6/8 and 7/8, doubling hits.
+    dummy_cell = {"humanize": humanize_amount, "humanize_per_bar": None, "num_bars": 1,
+                  "time_sig": (num, den)}
+
+    # Realized cells (probability AND euclidean) are realized once across the
+    # whole output and keyed by OUTPUT bar, exactly as arrangement mode does
+    # (PROJECT.md lesson 5). Realizing one cell-bar and replaying it by modulo
+    # froze euclidean phasing and made trig conditions (`2:2` answers,
+    # `1st`/`last`) unreachable.
+    realized_layers = {}
+    for layer_name, cell in layer_cells.items():
+        if cell.get("type") == "probability":
+            realized_layers[layer_name] = realize_probability_grid(cell, bars, rng)
+        elif cell.get("type") == "euclidean":
+            realized_layers[layer_name] = realize_euclidean(cell, bars, seed)
 
     events = []
     section_type = "verse"
@@ -903,18 +925,10 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
         merged_hits = []
 
         for layer_name, cell in layer_cells.items():
-            is_prob = cell.get("type") == "probability"
-            is_euclid = cell.get("type") == "euclidean"
-            cell_bar = (bar_idx % cell["num_bars"]) + 1
-
-            if is_prob:
-                # Realize just this one bar
-                realized = realize_probability_grid(cell, cell["num_bars"], rng)
-                layer_hits = [h for h in realized if h[0] == cell_bar]
-            elif is_euclid:
-                realized = realize_euclidean(cell, cell["num_bars"], seed)
-                layer_hits = [h for h in realized if h[0] == cell_bar]
+            if layer_name in realized_layers:
+                layer_hits = [h for h in realized_layers[layer_name] if h[0] == bar_number]
             else:
+                cell_bar = (bar_idx % cell["num_bars"]) + 1
                 layer_hits = [h for h in _normalize_hits(cell) if h[0] == cell_bar]
 
             # Extract only this layer's instruments

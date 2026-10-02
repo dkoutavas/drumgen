@@ -2052,3 +2052,115 @@ class TestNotation:
                 v = n.find("voice").text
                 sums[v] = sums.get(v, 0) + int(n.find("duration").text)
             assert len(set(sums.values())) <= 1, f"measure {m.get('number')}: {sums}"
+
+
+# ── Doubled-note regressions (validate_midi --full caught these, pytest did not) ──
+
+def _dupes(events):
+    """(tick, instrument) pairs that appear more than once."""
+    from collections import Counter
+    return [k for k, n in Counter((e[0], e[1]) for e in events).items() if n > 1]
+
+
+class TestDoubledNotes:
+    """A hit must reach the sampler once. Each test names the bug it pins."""
+
+    def test_lone_hihat_pedal_survives_once(self):
+        # hihat_pedal was in the cymbal set AND the foot set, so a pedal alone
+        # on a slot came out twice (zona's comping cell, every pass).
+        out = _validate_physical_constraints([(1, 2, 0.0, "hihat_pedal", "soft")])
+        assert len(out) == 1
+
+    def test_pedal_coexists_with_hands_and_does_not_displace_the_hat(self):
+        hits = [(1, 1, 0.0, "hihat_pedal", "soft"), (1, 1, 0.0, "hihat_closed", "normal"),
+                (1, 1, 0.0, "kick", "normal")]
+        out = _validate_physical_constraints(hits)
+        assert sorted(h[3] for h in out) == ["hihat_closed", "hihat_pedal", "kick"]
+
+    def test_lone_hihat_pedal_survives_once_in_layer_conflicts(self):
+        out = _resolve_layer_conflicts([(1, 2, 0.0, "hihat_pedal", "soft")])
+        assert len(out) == 1
+
+    def test_zona_comping_has_no_doubled_pedal(self):
+        r = assemble(cell_name="prob_jazz_comp_4_4", bars=8, tempo=140, humanize=0.0, seed=3)
+        assert _dupes(r["events"]) == []
+
+    @pytest.mark.parametrize("section", ["chorus", "blast", "breakdown", "drive"])
+    def test_arrangement_section_start_is_not_stacked(self, section):
+        # assemble_arrangement injected a crash+kick on beat 1 of every intense
+        # section whether or not the cell already played them: 129 of 132
+        # section starts across the styles doubled a kick or crash.
+        bad = []
+        for style in STYLE_POOLS:
+            r = assemble_arrangement(style, f"2:verse 2:{section}", tempo=150,
+                                     humanize=0.0, seed=5)
+            bad += [(style, d) for d in _dupes(r["events"])]
+        assert bad == []
+
+    def test_arrangement_still_opens_an_intense_section_with_crash_and_kick(self):
+        # The guard must not turn the accent off: every style still gets a
+        # crash and a kick on the downbeat of its blast.
+        for style in STYLE_POOLS:
+            r = assemble_arrangement(style, "2:verse 2:blast", tempo=150, humanize=0.0, seed=5)
+            tick = calculate_bar_start_ticks(3, r["time_signatures"])
+            at = {e[1] for e in r["events"] if e[0] == tick}
+            assert any(i.startswith("crash") for i in at), style
+            assert "kick" in at, style
+
+    def test_write_midi_collapses_same_tick_same_pitch(self, tmp_path):
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        events = [(0, "kick", 90), (0, "kick", 120), (480, "snare", 100)]
+        out = str(tmp_path / "dup.mid")
+        write_midi(events, 120, ts, "ugritone", out)
+        ons = [(m.note, m.velocity) for m in mido.MidiFile(out).tracks[0]
+               if m.type == "note_on" and m.velocity > 0]
+        assert len(ons) == 2
+        assert (36, 120) in ons or any(v == 120 for _, v in ons)  # loudest kept
+
+
+class TestLayerModeRealization:
+    """Layer mode must key realized cells by OUTPUT bar (PROJECT.md lesson 5)."""
+
+    @pytest.mark.parametrize("meter", ["3/4", "5/4", "6/4", "6/8", "7/8"])
+    def test_layered_odd_meter_matches_the_bar(self, meter):
+        # The layered dummy cell had no time_sig, so the meter adapter treated
+        # it as 4/4 and vamped/clipped every bar in any other meter.
+        num, den = (int(x) for x in meter.split("/"))
+        pool = [n for n in BUILTIN_CELLS
+                if BUILTIN_CELLS[n].get("time_sig") == (num, den)
+                and BUILTIN_CELLS[n].get("role") == "groove"
+                and BUILTIN_CELLS[n].get("type") not in ("probability", "euclidean")]
+        if not pool:
+            pytest.skip(f"no fixed {meter} groove cell")
+        name = pool[0]
+        r = assemble_layered({"kick": name, "snare": name, "cymbal": name, "toms": name},
+                             bars=2, tempo=120, time_sig=meter, humanize=0.0, seed=1)
+        plain = assemble(cell_name=name, bars=2, tempo=120, time_sig=meter, humanize=0.0, seed=1)
+        assert _dupes(r["events"]) == []
+        # plain assemble() adds a bar-1 crash that layer mode does not; the
+        # adapter bug used to ADD ~9 vamped hits instead.
+        assert 0 <= len(plain["events"]) - len(r["events"]) <= 1
+        assert {(e[0], e[1]) for e in r["events"]} <= {(e[0], e[1]) for e in plain["events"]}
+
+    def test_euclidean_layer_phases_across_bars(self):
+        r = assemble_layered({"toms": "euclid_noise_polymeter_4_4"}, bars=4, tempo=120,
+                             humanize=0.0, seed=1)
+        bar = calculate_bar_start_ticks(2, r["time_signatures"])
+        per_bar = [sorted(e[0] - i * bar for e in r["events"] if i * bar <= e[0] < (i + 1) * bar)
+                   for i in range(4)]
+        assert len({tuple(b) for b in per_bar}) > 1, "every bar replayed bar 1: phasing lost"
+
+    @pytest.mark.parametrize("layer", ["kick", "snare", "cymbal"])
+    def test_prob_layer_matches_the_realized_grid(self, layer):
+        # A single probability layer must play exactly what the grid realizes
+        # over the whole pattern, bar for bar. Per-bar re-realization made trig
+        # conditions (`2:2` answers, `1st`/`last`) unreachable under --kick etc.
+        import random
+        name = "prob_jazz_comp_4_4"
+        r = assemble_layered({layer: name}, bars=4, tempo=120, humanize=0.0, seed=7)
+        realized = realize_probability_grid(get_cell(name), 4, random.Random(7))
+        want = _resolve_layer_conflicts(extract_layer(realized, layer))
+        ts = r["time_signatures"]
+        want_ticks = sorted((position_to_ticks(b, beat, sub, ts), inst)
+                            for b, beat, sub, inst, _ in want)
+        assert sorted((e[0], e[1]) for e in r["events"]) == want_ticks

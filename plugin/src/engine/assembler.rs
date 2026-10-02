@@ -896,18 +896,33 @@ pub fn assemble_arrangement(
         let cell_humanize = humanize.unwrap_or(cell.humanize);
         humanizer.humanize_amount = cell_humanize;
 
-        // Crash+kick on intense sections
+        // Crash+kick on beat 1 of intense sections, each only if the cell's own
+        // opening bar does not already play it (mirrors assembler.py).
+        // Unconditional injection stacked a second kick/crash 0-3 ticks from
+        // the cell's own at nearly every section change.
         let section_start_bar = bar_cursor + 1;
         if is_intense_section(&section.section_type) {
-            let crash_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
-            let crash_tick_h = humanizer.humanize_timing(crash_tick, Instrument::Crash1, tempo, ppq);
-            let crash_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Crash1);
-            events.push(Event { tick: crash_tick_h, instrument: Instrument::Crash1, velocity: crash_vel });
+            let opening = |pred: &dyn Fn(Instrument) -> bool| {
+                cell_hits
+                    .iter()
+                    .any(|h| h.bar == 1 && h.beat == 1 && h.sub == 0.0 && pred(h.instrument))
+            };
+            let has_crash = opening(&|i| {
+                matches!(i, Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke)
+            });
+            let has_kick = opening(&|i| i == Instrument::Kick);
+            let downbeat_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
 
-            let kick_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
-            let kick_tick_h = humanizer.humanize_timing(kick_tick, Instrument::Kick, tempo, ppq);
-            let kick_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Kick);
-            events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
+            if !has_crash {
+                let crash_tick_h = humanizer.humanize_timing(downbeat_tick, Instrument::Crash1, tempo, ppq);
+                let crash_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Crash1);
+                events.push(Event { tick: crash_tick_h, instrument: Instrument::Crash1, velocity: crash_vel });
+            }
+            if !has_kick {
+                let kick_tick_h = humanizer.humanize_timing(downbeat_tick, Instrument::Kick, tempo, ppq);
+                let kick_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Kick);
+                events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
+            }
         }
 
         let mut seen_cell_bars = std::collections::HashSet::new();
@@ -1015,7 +1030,12 @@ pub fn assemble_layered(
     // Load layer cells
     let mut layer_cells: Vec<(&str, &Cell)> = Vec::new();
     let mut humanize_values = Vec::new();
-    for (layer_name, cell_name) in layers {
+    // HashMap iteration order is not stable, and realization below consumes the
+    // shared RNG per layer. Sort by layer name so the same seed always gives
+    // the same notes (a HashMap in an RNG path breaks determinism).
+    let mut ordered: Vec<(&String, &String)> = layers.iter().collect();
+    ordered.sort();
+    for (layer_name, cell_name) in ordered {
         if let Some(cell) = library.get_cell(cell_name) {
             layer_cells.push((layer_name.as_str(), cell));
             humanize_values.push(cell.humanize);
@@ -1048,23 +1068,36 @@ pub fn assemble_layered(
         humanize_per_bar: None,
     };
 
+    // Realized cells (probability AND euclidean) are realized ONCE across the
+    // whole output and keyed by OUTPUT bar, as the arrangement path does
+    // (PROJECT.md lesson 5). Realizing one cell-bar and replaying it by modulo
+    // froze euclidean phasing and made trig conditions unreachable.
+    let realized_layers: Vec<Option<Vec<Hit>>> = layer_cells
+        .iter()
+        .map(|(_, cell)| {
+            if cell.is_probability() {
+                Some(realize_probability_grid(cell, bars, &mut rng, 1.0))
+            } else if cell.is_euclidean() {
+                Some(realize_euclidean(cell, bars, seed))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let mut events = Vec::new();
 
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
         let mut merged_hits = Vec::new();
 
-        for (layer_name, cell) in &layer_cells {
-            let cell_bar = (bar_idx % cell.num_bars) + 1;
-
-            let layer_hits: Vec<Hit> = if cell.is_probability() {
-                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng, 1.0);
-                realized.into_iter().filter(|h| h.bar == cell_bar).collect()
-            } else if cell.is_euclidean() {
-                let realized = realize_euclidean(cell, cell.num_bars, seed);
-                realized.into_iter().filter(|h| h.bar == cell_bar).collect()
-            } else {
-                cell.hits.iter().filter(|h| h.bar == cell_bar).cloned().collect()
+        for ((layer_name, cell), realized) in layer_cells.iter().zip(&realized_layers) {
+            let layer_hits: Vec<Hit> = match realized {
+                Some(hits) => hits.iter().filter(|h| h.bar == bar_number).cloned().collect(),
+                None => {
+                    let cell_bar = (bar_idx % cell.num_bars) + 1;
+                    cell.hits.iter().filter(|h| h.bar == cell_bar).cloned().collect()
+                }
             };
 
             // Filter to layer instruments
@@ -1115,6 +1148,93 @@ pub fn assemble_layered(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dupes(events: &[Event]) -> Vec<(i64, Instrument)> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for e in events {
+            if !seen.insert((e.tick, e.instrument)) {
+                out.push((e.tick, e.instrument));
+            }
+        }
+        out
+    }
+
+    fn pedal_hit() -> Hit {
+        Hit { bar: 1, beat: 2, sub: 0.0, instrument: Instrument::HihatPedal, velocity_level: VelocityLevel::Soft }
+    }
+
+    /// hihat_pedal was in the cymbal set AND the foot set, so a pedal alone on
+    /// a slot came out twice (zona's comping cell, every pass).
+    #[test]
+    fn lone_hihat_pedal_survives_once() {
+        assert_eq!(validate_physical_constraints(&[pedal_hit()]).len(), 1);
+        assert_eq!(resolve_layer_conflicts(&[pedal_hit()]).len(), 1);
+    }
+
+    #[test]
+    fn pedal_coexists_with_hands_and_does_not_displace_the_hat() {
+        let hat = Hit { instrument: Instrument::HihatClosed, velocity_level: VelocityLevel::Normal, ..pedal_hit() };
+        let kick = Hit { instrument: Instrument::Kick, velocity_level: VelocityLevel::Normal, ..pedal_hit() };
+        let out = validate_physical_constraints(&[pedal_hit(), hat, kick]);
+        let mut got: Vec<&str> = out.iter().map(|h| h.instrument.as_str()).collect();
+        got.sort();
+        assert_eq!(got, vec!["hihat_closed", "hihat_pedal", "kick"]);
+    }
+
+    /// An intense section used to get an unconditional crash+kick on beat 1 on
+    /// top of whatever the cell played there: a stacked kick/crash at nearly
+    /// every section change.
+    #[test]
+    fn arrangement_section_start_is_not_stacked() {
+        let lib = CellLibrary::new();
+        for style in lib.style_names().to_vec() {
+            for section in ["chorus", "blast", "breakdown", "drive"] {
+                let arr = format!("2:verse 2:{section}");
+                let res = assemble_arrangement(&lib, &style, &arr, 150.0, (4, 4), Some(0.0), 0.0, 5, 0.0, true);
+                assert!(dupes(&res.events).is_empty(), "{style} {section}: {:?}", dupes(&res.events));
+            }
+        }
+    }
+
+    /// The guard must not turn the accent off.
+    #[test]
+    fn arrangement_still_opens_an_intense_section_with_crash_and_kick() {
+        let lib = CellLibrary::new();
+        for style in lib.style_names().to_vec() {
+            let res = assemble_arrangement(&lib, &style, "2:verse 2:blast", 150.0, (4, 4), Some(0.0), 0.0, 5, 0.0, true);
+            let tick = midi_math::calculate_bar_start_ticks(3, &res.time_signatures, PPQ);
+            let at: Vec<Instrument> = res.events.iter().filter(|e| e.tick == tick).map(|e| e.instrument).collect();
+            assert!(
+                at.iter().any(|i| matches!(i, Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke)),
+                "{style}: no crash on the blast downbeat"
+            );
+            assert!(at.contains(&Instrument::Kick), "{style}: no kick on the blast downbeat");
+        }
+    }
+
+    /// Layer mode keys realized cells by OUTPUT bar: a Euclidean limb must
+    /// phase across bars instead of replaying bar 1.
+    #[test]
+    fn layered_euclidean_phases_across_bars() {
+        let lib = CellLibrary::new();
+        let mut layers = std::collections::HashMap::new();
+        layers.insert("toms".to_string(), "euclid_noise_polymeter_4_4".to_string());
+        let res = assemble_layered(&lib, &layers, 4, 120.0, (4, 4), Some(0.0), 0.0, 1, 0.0);
+        let bar = 1920;
+        let per_bar: Vec<Vec<i64>> = (0..4)
+            .map(|b| {
+                let mut v: Vec<i64> = res.events.iter()
+                    .filter(|e| e.tick >= b * bar && e.tick < (b + 1) * bar)
+                    .map(|e| e.tick - b * bar)
+                    .collect();
+                v.sort();
+                v
+            })
+            .collect();
+        let distinct: std::collections::BTreeSet<_> = per_bar.iter().collect();
+        assert!(distinct.len() > 1, "every bar replayed bar 1: phasing lost");
+    }
 
     #[test]
     fn test_assemble_basic() {
@@ -1527,7 +1647,7 @@ mod tests {
     /// cymbals, or a snare and a tom, on the same tick. Mirrors
     /// validate_midi.check_physical_constraints across every shipped style:
     /// conflict == two instruments of DIFFERENT priority in the same group,
-    /// hihat_pedal exempt (it is a foot), auto-crash tick excluded.
+    /// auto-crash tick excluded (hihat_pedal is a foot, not a cymbal).
     #[test]
     fn physical_constraints_hold_across_styles() {
         use std::collections::{BTreeMap, BTreeSet};
@@ -1554,7 +1674,7 @@ mod tests {
                     }
                     let cymbal_prios: BTreeSet<i32> = insts
                         .iter()
-                        .filter(|i| i.is_cymbal() && **i != Instrument::HihatPedal)
+                        .filter(|i| i.is_cymbal())
                         .map(|i| i.cymbal_priority())
                         .collect();
                     if cymbal_prios.len() > 1 {

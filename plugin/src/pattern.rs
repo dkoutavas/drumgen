@@ -67,17 +67,26 @@ impl Pattern {
             .unwrap_or(res.total_bars.max(1));
         let total_ticks = midi_math::total_pattern_ticks(total_bars, &res.time_signatures, PPQ);
 
-        let mut raw: Vec<MidiEvent> = Vec::with_capacity(res.events.len() * 2);
+        // Two hits of the same pitch on the same tick are one hit to a sampler
+        // (stacked note-ons just double the voice). Keep the loudest. A BTreeMap
+        // keeps the order deterministic. Mirrors midi_engine.write_midi.
+        let mut loudest: std::collections::BTreeMap<(i64, u8), u8> = std::collections::BTreeMap::new();
         for ev in &res.events {
-            let note = ev.instrument.midi_note();
-            let velocity = ev.velocity.clamp(1, 127) as u8;
-            raw.push(MidiEvent { tick: ev.tick, note, velocity, is_note_on: true });
+            let key = (ev.tick, ev.instrument.midi_note());
+            let vel = ev.velocity.clamp(1, 127) as u8;
+            let slot = loudest.entry(key).or_insert(vel);
+            *slot = (*slot).max(vel);
+        }
+
+        let mut raw: Vec<MidiEvent> = Vec::with_capacity(loudest.len() * 2);
+        for ((tick, note), velocity) in loudest {
+            raw.push(MidiEvent { tick, note, velocity, is_note_on: true });
             // Note-off clamped to *inside* the loop (total_ticks - 1) so it is never
             // dropped by the half-open scan; drum one-shots make the exact off tick
             // cosmetic anyway, and loop-wrap flushes any straggler.
             // ponytail: total_ticks-1 clamp instead of exact-boundary wrap; upgrade to
             // wrap-to-tick-0 only if a sustaining instrument ever needs a true gate.
-            let off_tick = (ev.tick + NOTE_DURATION).min((total_ticks - 1).max(0));
+            let off_tick = (tick + NOTE_DURATION).min((total_ticks - 1).max(0));
             raw.push(MidiEvent { tick: off_tick, note, velocity: 0, is_note_on: false });
         }
         // Scan order: note-ON before note-OFF at the same tick, so a re-trigger
@@ -171,6 +180,20 @@ mod tests {
 
     fn bake(res: &AssembleResult) -> Pattern {
         Pattern::from_assemble(res, 0, 0, "test".into(), String::new(), Vec::new())
+    }
+
+    /// Same-tick same-pitch hits collapse to one note-on (the loudest).
+    #[test]
+    fn same_tick_same_pitch_is_one_note_on() {
+        let res = result(
+            vec![hit(0, Instrument::Kick, 90), hit(0, Instrument::Kick, 120), hit(480, Instrument::Snare, 100)],
+            vec![ts(1, 1, 4, 4)],
+            1,
+        );
+        let pat = bake(&res);
+        let ons: Vec<_> = pat.events.iter().filter(|e| e.is_note_on).collect();
+        assert_eq!(ons.len(), 2);
+        assert_eq!(ons[0].velocity, 120);
     }
 
     #[test]
