@@ -2543,3 +2543,33 @@ class TestAutoTagFunction:
         write_midi(r["events"], 120, r["time_signatures"], "ugritone", mid)
         cell = auto_tag_cell(midi_to_cell(mid, kit_name="ugritone"))
         assert "build" in cell["tags"], cell["tags"]
+
+
+class TestTagToPools:
+    """TAG_TO_POOLS is how an imported cell joins style pools. Nine pools
+    (zona among them) had no route at all, so an imported cell could never
+    play in them however it was tagged."""
+
+    def test_every_style_pool_is_reachable_by_some_tag(self):
+        from cell_library import TAG_TO_POOLS
+        reachable = {p for pools in TAG_TO_POOLS.values() for p in pools}
+        assert sorted(set(STYLE_POOLS) - reachable) == []
+
+    def test_every_route_names_a_real_pool(self):
+        from cell_library import TAG_TO_POOLS
+        bad = {t: p for t, pools in TAG_TO_POOLS.items() for p in pools if p not in STYLE_POOLS}
+        assert bad == {}
+
+    def test_an_imported_zona_cell_joins_the_zona_pool(self, monkeypatch):
+        import copy
+        import cell_library
+        fake = {"name": "imported_zona_test", "tags": ["imported", "zona", "quiet"],
+                "time_sig": (4, 4), "num_bars": 1, "humanize": 0.4, "role": "groove",
+                "hits": [(1, 1, 0.0, "kick", "soft")], "source": "imported"}
+        cells = dict(cell_library.CELLS, imported_zona_test=fake)
+        pools = copy.deepcopy(cell_library.STYLE_POOLS)
+        monkeypatch.setattr(cell_library, "CELLS", cells)
+        monkeypatch.setattr(cell_library, "STYLE_POOLS", pools)
+        cell_library._integrate_user_cells_into_pools()
+        assert "imported_zona_test" in pools["zona"]
+        assert fake["_pools"] == ["zona"]

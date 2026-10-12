@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
-lines of Python engine/tools plus 4,000 of cells, 479 Python + 143 Rust tests green.
+lines of Python engine/tools plus 4,000 of cells, 499 Python + 143 Rust tests green.
 
 The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
 finding checked against the source before fixing) found and fixed, on both
@@ -185,7 +185,7 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 479 tests
+python -m pytest test_drumgen.py -q          # 499 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
@@ -367,12 +367,14 @@ Queued, gated on need:
   authoring more in a shape that gets rejected.
 - Tagging the 19 mute cells. Cheap, but measured as low-yield on its own;
   worth doing alongside authoring rather than in place of it.
-- Corpus stage is blocked rather than simply unstarted (verified): `export_cells.py`
-  excludes imported cells from the plugin entirely, so Song Mode never sees
-  them; `midi_reader.auto_tag_cell` emits only density/blast/halftime tags and
-  cannot detect `build`/`quiet`/intro function; and `TAG_TO_POOLS` has no route
-  to zona. Mass-importing today would add more unreachable
-  grooves to the pools that are already fine. Fix those three first.
+- Corpus stage: two of its three blockers are closed (2026-10-12).
+  `auto_tag_cell` now detects `quiet` and `build`/`crescendo` (thresholds pinned
+  to authored cells), so imported material can win intro, build, atmospheric
+  and outro sections in the CLI/GUI; and `TAG_TO_POOLS` reaches every pool
+  (style-name tags such as `zona`, `fugazi`, `raein`, applied by hand like the
+  mined cells' provenance tags). The third stays by design: `export_cells.py`
+  keeps imported cells out of the plugin, so Song Mode in the plugin only ever
+  plays authored cells. A figure that earns it gets re-authored.
 - Phrase-logic retrofit for older chatty grids (euro_screamo, posthardcore).
 - Corpus stage: mass-import the author's years of Ableton projects
   (`als_extractor.py` → `midi_reader.py`), then the missing piece — a

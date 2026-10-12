@@ -3778,6 +3778,21 @@ TAG_TO_POOLS = {
     "city_of_caterpillar": ["city_of_caterpillar", "screamo", "emoviolence"],
     "dynamic": ["slint", "unwound"],
     "climax": ["slint", "unwound"],
+    # Style-name tags for the pools nothing else reaches. These are the tags
+    # the pools' own authored cells already carry; an imported cell gets them
+    # by hand (provenance, like `kidcrash`/`lord_snow` on the mined cells),
+    # never from auto_tag_cell. A test keeps every pool reachable.
+    "zona": ["zona"],
+    "jazz": ["zona"],
+    "fugazi": ["fugazi"],
+    "raein": ["raein"],
+    "daitro": ["daitro"],
+    "dbeat": ["dbeat"],
+    "crust": ["dbeat"],
+    "liturgy": ["liturgy", "black_metal"],
+    "deafheaven": ["deafheaven", "black_metal"],
+    "oxbow": ["oxbow"],
+    "postrock": ["postrock"],
 }
 
 STYLE_POOLS = {
