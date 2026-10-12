@@ -140,20 +140,20 @@ class Dice:
     def __init__(self, seed, stream):
         self.state = (seed ^ ((stream * GOLDEN) & MASK)) & MASK
 
-    def next(self):
+    def draw(self):
         self.state = (self.state + GOLDEN) & MASK
         return _mix(self.state)
 
     def chance(self, per_mille):
         """Always draws, so a slot's chance never shifts the rest of the stream
         depending on its value."""
-        return self.next() % 1000 < per_mille
+        return self.draw() % 1000 < per_mille
 
     def pick(self, options):
-        return options[self.next() % len(options)]
+        return options[self.draw() % len(options)]
 
     def between(self, lo, hi):
-        return lo + self.next() % (hi - lo + 1)
+        return lo + self.draw() % (hi - lo + 1)
 
 
 def _place(slots, dice, out):
@@ -166,7 +166,9 @@ def _place(slots, dice, out):
             for _ in range(dice.between(lo, hi)):
                 _place(slot["body"], dice, out)
             continue
-        types = slot["types"]
+        types = slot.get("types", [])
+        if not types or not slot.get("bars"):
+            continue
         prev = out[-1][1] if out else None
         fresh = [t for t in types if t != prev] or types
         section = dice.pick(fresh)

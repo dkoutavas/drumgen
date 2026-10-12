@@ -2614,7 +2614,7 @@ class TestGeneratedForms:
         # Vigna's SplitMix64 seeded with 0: the Rust port must draw these too.
         from arrangement_gen import Dice
         d = Dice(0, 0)
-        assert [d.next() for _ in range(3)] == [
+        assert [d.draw() for _ in range(3)] == [
             0xE220A8397B1DCDAF, 0x6E789E6AA1B965F4, 0x06C45D188009454F]
 
     def test_every_form_is_playable_by_both_engines(self):

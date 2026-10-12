@@ -19298,5 +19298,469 @@
       "groovy",
       "melodic"
     ]
-  }
+  },
+  "forms": [
+    {
+      "key": "verse_chorus",
+      "label": "Verse/Chor",
+      "tag": "VC",
+      "turns": 0,
+      "turn_chance": 0,
+      "max_silences": 2,
+      "about": "intro, two verse/chorus rounds, sometimes a bridge and a last chorus, outro",
+      "slots": [
+        {
+          "types": [
+            "intro"
+          ],
+          "bars": [
+            1,
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "verse"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "types": [
+            "fill"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 350
+        },
+        {
+          "types": [
+            "chorus"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "verse"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "types": [
+            "fill"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 500
+        },
+        {
+          "types": [
+            "chorus"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "repeat": [
+            1,
+            1
+          ],
+          "chance": 400,
+          "body": [
+            {
+              "types": [
+                "breakdown",
+                "atmospheric"
+              ],
+              "bars": [
+                2,
+                4
+              ]
+            },
+            {
+              "types": [
+                "fill"
+              ],
+              "bars": [
+                1
+              ],
+              "chance": 500
+            },
+            {
+              "types": [
+                "chorus"
+              ],
+              "bars": [
+                2,
+                4
+              ]
+            }
+          ]
+        },
+        {
+          "types": [
+            "outro"
+          ],
+          "bars": [
+            1,
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "key": "arc",
+      "label": "Arc",
+      "tag": "ARC",
+      "turns": 1,
+      "turn_chance": 500,
+      "max_silences": 2,
+      "about": "one long rise: an 8-bar build erupting into the peak, then the landing",
+      "slots": [
+        {
+          "types": [
+            "intro",
+            "atmospheric"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "verse"
+          ],
+          "bars": [
+            4,
+            8
+          ],
+          "chance": 400
+        },
+        {
+          "types": [
+            "build"
+          ],
+          "bars": [
+            8
+          ]
+        },
+        {
+          "types": [
+            "fill"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 600
+        },
+        {
+          "types": [
+            "blast",
+            "drive"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "types": [
+            "breakdown",
+            "atmospheric",
+            "outro"
+          ],
+          "bars": [
+            1,
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "key": "stop_go",
+      "label": "Stop/Go",
+      "tag": "STOP",
+      "turns": 0,
+      "turn_chance": 0,
+      "max_silences": 3,
+      "about": "short bursts punched apart by dead air, then the weight lands",
+      "slots": [
+        {
+          "types": [
+            "blast",
+            "chorus"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "repeat": [
+            3,
+            4
+          ],
+          "body": [
+            {
+              "types": [
+                "silence"
+              ],
+              "bars": [
+                1
+              ],
+              "chance": 750
+            },
+            {
+              "types": [
+                "blast",
+                "chorus"
+              ],
+              "bars": [
+                1,
+                2,
+                3
+              ]
+            }
+          ]
+        },
+        {
+          "types": [
+            "breakdown"
+          ],
+          "bars": [
+            4
+          ]
+        },
+        {
+          "types": [
+            "chorus",
+            "blast"
+          ],
+          "bars": [
+            2,
+            3,
+            4
+          ],
+          "chance": 500
+        }
+      ]
+    },
+    {
+      "key": "quiet_loud",
+      "label": "Quiet/Loud",
+      "tag": "QL",
+      "turns": 0,
+      "turn_chance": 0,
+      "max_silences": 2,
+      "about": "fragile, erupts, holds its breath, fragile again, then the full wall",
+      "slots": [
+        {
+          "types": [
+            "atmospheric"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "drive",
+            "chorus"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "silence"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 700
+        },
+        {
+          "types": [
+            "atmospheric"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        },
+        {
+          "types": [
+            "fill"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 400
+        },
+        {
+          "types": [
+            "blast"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "types": [
+            "outro",
+            "atmospheric"
+          ],
+          "bars": [
+            2,
+            4
+          ]
+        }
+      ]
+    },
+    {
+      "key": "maze",
+      "label": "Maze",
+      "tag": "MAZE",
+      "turns": 2,
+      "turn_chance": 350,
+      "max_silences": 2,
+      "about": "a run of short, odd-length sections with fills between and meter turns",
+      "slots": [
+        {
+          "types": [
+            "intro",
+            "atmospheric"
+          ],
+          "bars": [
+            2
+          ]
+        },
+        {
+          "repeat": [
+            4,
+            7
+          ],
+          "body": [
+            {
+              "types": [
+                "fill"
+              ],
+              "bars": [
+                1
+              ],
+              "chance": 450
+            },
+            {
+              "types": [
+                "verse",
+                "blast",
+                "build",
+                "drive"
+              ],
+              "bars": [
+                2,
+                3,
+                4
+              ]
+            }
+          ]
+        },
+        {
+          "types": [
+            "breakdown",
+            "outro"
+          ],
+          "bars": [
+            2
+          ]
+        }
+      ]
+    },
+    {
+      "key": "slow_burn",
+      "label": "Slow Burn",
+      "tag": "BURN",
+      "turns": 0,
+      "turn_chance": 0,
+      "max_silences": 2,
+      "about": "a long rise to a peak that never comes: it holds its breath and fades",
+      "slots": [
+        {
+          "types": [
+            "atmospheric",
+            "intro"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        },
+        {
+          "types": [
+            "verse"
+          ],
+          "bars": [
+            4,
+            8
+          ],
+          "chance": 600
+        },
+        {
+          "types": [
+            "build"
+          ],
+          "bars": [
+            8
+          ]
+        },
+        {
+          "types": [
+            "drive"
+          ],
+          "bars": [
+            4
+          ],
+          "chance": 500
+        },
+        {
+          "types": [
+            "silence"
+          ],
+          "bars": [
+            1
+          ],
+          "chance": 750
+        },
+        {
+          "types": [
+            "outro",
+            "atmospheric"
+          ],
+          "bars": [
+            4,
+            8
+          ]
+        }
+      ]
+    }
+  ]
 }

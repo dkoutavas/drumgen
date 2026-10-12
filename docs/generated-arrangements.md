@@ -1,7 +1,8 @@
 # Generated arrangements — design note
 
-Status: decided 2026-10-12; step 1 (Python reference, `arrangement_gen.py`,
-CLI `--form`/`--form-seed`) is in, unheard. PROJECT.md §8 queue item 3 ("the
+Status: decided 2026-10-12; steps 1 and 2 are in (Python reference with CLI
+`--form`/`--form-seed`; Rust engine port with a cross-engine fixture), unheard.
+Step 3, the plugin params and UI, is next and needs the DAW. PROJECT.md §8 queue item 3 ("the
 reason the bank exists … needs a plan session before code"). The decisions
 are at the end; the brief for them was "the most creative option that stays
 easy to understand".
@@ -155,6 +156,7 @@ understand.
    forms with `scripts/audition_forms.py` so the shapes are judged by ear
    before any plugin work. **Done 2026-10-12, unheard.**
 2. Rust: the port, templates via `builtin.json`, the cross-engine fixture.
+   **Done 2026-10-12:** 216 fixture forms match exactly.
 3. Plugin: FORM and FORM SEED params, editor stepper and dice, status line,
    bank name encoding. Then the listen in Bitwig.
 4. ~~The keep-a-form gesture~~: not needed (decision 5).

@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from cell_library import CELLS, STYLE_POOLS, SECTION_PREFERENCES
+from arrangement_gen import FORMS
 
 
 DEFAULT_OUTPUT = os.path.join(
@@ -93,6 +94,9 @@ def build_export():
         "cells": builtin_cells,
         "style_pools": pruned_pools,
         "section_preferences": {sec: list(tags) for sec, tags in sorted(SECTION_PREFERENCES.items())},
+        # Song-form templates (arrangement_gen.py), as a list: the order is the
+        # plugin's FORM stepper order.
+        "forms": [{"key": key, **form} for key, form in FORMS.items()],
     }
     if dropped:
         notes.append(f"  pruned {dropped} dangling pool entries (user-imported cells not shipped)")

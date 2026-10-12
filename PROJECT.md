@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 121 cells (32 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
-lines of Python engine/tools plus 4,000 of cells, 499 Python + 143 Rust tests green.
+lines of Python engine/tools plus 4,000 of cells, 520 Python + 149 Rust tests green.
 
 The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
 finding checked against the source before fixing) found and fixed, on both
@@ -190,7 +190,7 @@ python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 143 tests
+cd plugin && cargo test                      # 149 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.
@@ -309,8 +309,9 @@ The 2026-08-01 queue, in order:
    happened (2026-10-12): `docs/generated-arrangements.md`, six shapes (the
    five in the shipped forms plus Slow Burn), a separate FORM SEED, decisions
    recorded. Step 1 is in: `arrangement_gen.py` and `--form`/`--form-seed` in
-   the CLI, rendered by `scripts/audition_forms.py`, unheard. Next: the Rust
-   port with a cross-engine fixture, then the FORM stepper (needs the DAW).
+   the CLI, rendered by `scripts/audition_forms.py`, unheard. Step 2 is in:
+   the Rust port (`engine/arrangement_gen.rs`) agrees with Python on all 216
+   fixture forms. Next: the FORM stepper and FORM SEED (needs the DAW).
 4. `await_pending` still blocks the audio thread on every live param change,
    because Bitwig mislabels its engine as offline (lesson 12). It is bounded,
    a live request no longer waits behind a whole 16-slot refresh, and a failed
