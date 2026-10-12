@@ -138,6 +138,15 @@ pub struct GenRequest {
     pub generation: u64,
 }
 
+/// What the worker publishes for a LIVE request: the pattern, or the news
+/// that the build for `generation` failed. Without the second, a waiter
+/// (`await_pending`, which Bitwig's Offline-labelled live engine hits) could
+/// only learn of a failure by timing out.
+pub enum Published {
+    Pattern(Arc<Pattern>),
+    Failed { generation: u64 },
+}
+
 enum Msg {
     Generate(GenRequest),
     /// Generate for bank slot N without making it the live pattern.
@@ -147,7 +156,7 @@ enum Msg {
 
 pub struct GenWorker {
     req_tx: Sender<Msg>,
-    pat_rx: Receiver<Arc<Pattern>>,
+    pat_rx: Receiver<Published>,
     slot_rx: Receiver<(u8, Arc<Pattern>)>,
     gc_tx: Sender<Arc<Pattern>>,
     log_tx: Sender<LogEvent>,
@@ -160,7 +169,7 @@ impl GenWorker {
         // Capacity 32: a bank refresh queues up to 16 slot requests in one
         // buffer and the live request must still fit behind them.
         let (req_tx, req_rx) = bounded::<Msg>(32);
-        let (pat_tx, pat_rx) = bounded::<Arc<Pattern>>(1);
+        let (pat_tx, pat_rx) = bounded::<Published>(1);
         let (slot_tx, slot_rx) = bounded::<(u8, Arc<Pattern>)>(BANK_SLOTS);
         // A 16-slot refresh hands the audio thread 16 deliveries, and it
         // retires the 16 stale patterns they replace. A bin of 8 overflowed and
@@ -221,25 +230,34 @@ impl GenWorker {
         self.slot_rx.try_recv().ok()
     }
 
-    /// Audio-thread safe: drains the publish slot to the newest pattern.
+    /// Audio-thread safe: drains the publish slot to the newest pattern. A
+    /// failure notice is skipped: the previous pattern simply keeps playing.
     pub fn try_recv_latest(&self) -> Option<Arc<Pattern>> {
         let mut latest = None;
-        while let Ok(p) = self.pat_rx.try_recv() {
-            latest = Some(p);
+        while let Ok(msg) = self.pat_rx.try_recv() {
+            if let Published::Pattern(p) = msg {
+                latest = Some(p);
+            }
         }
         latest
     }
 
     /// Wait for the next published pattern, at most `timeout`. `None` on a
-    /// timeout or a dead worker. Used by `initialize()` and the offline wait.
-    ///
-    /// Never unbounded: a generation that panics is caught in `build_pattern`
-    /// and publishes nothing, while the worker thread lives on holding the
-    /// channel open, so an untimed `recv()` would wait forever. In Bitwig the
-    /// live engine reports Offline, so that was the AUDIO thread hanging.
-    /// ponytail: a panicking build costs one `timeout` stall, not a hang; the
-    /// upgrade is a generation-tagged failure message so the wait ends at once.
+    /// timeout, a dead worker, or a failed build (nothing is coming, so there
+    /// is no point waiting longer). Used by `initialize()`.
     pub fn recv_timeout(&self, timeout: Duration) -> Option<Arc<Pattern>> {
+        match self.recv_published(timeout)? {
+            Published::Pattern(p) => Some(p),
+            Published::Failed { .. } => None,
+        }
+    }
+
+    /// Wait for the next thing the worker publishes, pattern or failure, at
+    /// most `timeout`. Never unbounded: an untimed `recv()` once hung the audio
+    /// thread when a build panicked. `await_pending` uses this so a failure for
+    /// the generation it waits on ends the wait at once instead of at the
+    /// deadline.
+    pub fn recv_published(&self, timeout: Duration) -> Option<Published> {
         self.pat_rx.recv_timeout(timeout).ok()
     }
 
@@ -312,8 +330,8 @@ fn build_pattern(gen: &GenerationManager, req: &GenRequest) -> Option<Pattern> {
 fn worker_loop(
     gen: GenerationManager,
     req_rx: Receiver<Msg>,
-    pat_tx: Sender<Arc<Pattern>>,
-    pat_rx_evict: Receiver<Arc<Pattern>>,
+    pat_tx: Sender<Published>,
+    pat_rx_evict: Receiver<Published>,
     slot_tx: Sender<(u8, Arc<Pattern>)>,
     gc_rx: Receiver<Arc<Pattern>>,
     log_rx: Receiver<LogEvent>,
@@ -423,16 +441,23 @@ fn serve_live(
     sink: &mut LogSink,
     gen: &GenerationManager,
     req: &GenRequest,
-    pat_tx: &Sender<Arc<Pattern>>,
-    pat_rx_evict: &Receiver<Arc<Pattern>>,
+    pat_tx: &Sender<Published>,
+    pat_rx_evict: &Receiver<Published>,
 ) -> bool {
     log_request(sink, gen, "live", req);
-    let Some(pattern) = build_pattern(gen, req) else {
-        sink.line("BUILD FAILED live (generation panicked — previous pattern kept)");
-        return true;
+    let mut to_send = match build_pattern(gen, req) {
+        Some(pattern) => {
+            log_built(sink, "live", &pattern);
+            Published::Pattern(Arc::new(pattern))
+        }
+        None => {
+            sink.line("BUILD FAILED live (generation panicked — previous pattern kept)");
+            // Say so, so a waiter stops now instead of at its deadline. Evicting
+            // an older unclaimed pattern is fine: it was already superseded by
+            // the request that just failed, and the current pattern keeps playing.
+            Published::Failed { generation: req.generation }
+        }
     };
-    log_built(sink, "live", &pattern);
-    let mut to_send = Arc::new(pattern);
     loop {
         match pat_tx.try_send(to_send) {
             Ok(()) => return true,
@@ -679,6 +704,34 @@ mod tests {
             }
         }
         assert!(got.iter().all(|g| *g), "a slot was lost: {got:?}");
+        worker.shutdown();
+    }
+
+    /// A failed live build must END the wait, not let it run to the deadline:
+    /// in Bitwig every live param change waits (lesson 12), so a 500 ms stall
+    /// per failed build is an audible glitch. The failure is tagged with the
+    /// request's generation so the waiter can tell it from an older one.
+    #[test]
+    fn a_failed_live_build_is_announced_at_once() {
+        let worker = GenWorker::spawn(GenerationManager::new());
+        let poisoned = GenRequest { generation: 41, ..poison(41) };
+        assert!(worker.request(poisoned));
+        let t0 = Instant::now();
+        match worker.recv_published(Duration::from_secs(5)) {
+            Some(Published::Failed { generation }) => assert_eq!(generation, 41),
+            Some(Published::Pattern(_)) => panic!("a poisoned request produced a pattern"),
+            None => panic!("no failure notice: the waiter would sit until its deadline"),
+        }
+        assert!(
+            t0.elapsed() < Duration::from_millis(400),
+            "the failure must arrive well inside OFFLINE_WAIT, took {:?}",
+            t0.elapsed()
+        );
+        // The non-blocking receiver skips the notice: nothing to swap in.
+        assert!(worker.try_recv_latest().is_none());
+        // And the worker still builds afterwards.
+        let p = serve_once(&worker, 42);
+        assert_eq!(p.generation, 42);
         worker.shutdown();
     }
 }

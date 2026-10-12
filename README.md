@@ -174,7 +174,7 @@ python validate_midi.py                  # pipeline sanity across configs (--ful
 python export_cells.py                   # after ANY cell_library.py edit
 python export_cells.py --check           # is plugin/cells/builtin.json current?
 python export_golden.py --check          # is the cross-engine golden vector current?
-cd plugin && cargo test                  # 142 tests
+cd plugin && cargo test                  # 143 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 

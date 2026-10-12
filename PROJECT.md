@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
-lines of Python engine/tools plus 4,000 of cells, 479 Python + 142 Rust tests green.
+lines of Python engine/tools plus 4,000 of cells, 479 Python + 143 Rust tests green.
 
 The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
 finding checked against the source before fixing) found and fixed, on both
@@ -190,7 +190,7 @@ python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 142 tests
+cd plugin && cargo test                      # 143 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.
@@ -308,11 +308,12 @@ The 2026-08-01 queue, in order:
    an arrangement string plus meter turns; store it on a pad. Needs a plan
    session before code.
 4. `await_pending` still blocks the audio thread on every live param change,
-   because Bitwig mislabels its engine as offline (lesson 12). It is bounded
-   now (a panicking build costs a 500 ms stall, not a hang) and a live request
-   no longer waits behind a whole 16-slot refresh, but it remains a real-time
-   violation. Upgrade path: a generation-tagged failure message so the wait
-   ends at once, and a reliable live/offline signal to skip it entirely.
+   because Bitwig mislabels its engine as offline (lesson 12). It is bounded,
+   a live request no longer waits behind a whole 16-slot refresh, and a failed
+   build announces itself (`Published::Failed`, 2026-10-12) so the wait ends at
+   once instead of stalling 500 ms. It remains a real-time violation by
+   design; removing it needs a reliable live/offline signal Bitwig does not
+   give.
 5. Editing a stored pad means trigger → tweak (exits bank) → re-store. If
    that grates mid-jam, add a "recall pad to knobs" gesture.
 6. Merge `plugin-hardening` → `main` after the author's ears sign off the

@@ -23,8 +23,9 @@ pub(crate) const MIDI_CHANNEL: u8 = 9; // channel 10 (1-indexed) — GM drums
 const SETTLE_SECS: f32 = 0.150; // param-change debounce before regenerating
 // Longest the audio thread may wait for a pattern it just requested (offline
 // render, or Bitwig's live engine which reports Offline). Generation takes
-// milliseconds; this only ever elapses when a build panicked and published
-// nothing. A stall of this length is a glitch, an unbounded wait was a hang.
+// milliseconds, and a failed build announces itself (`Published::Failed`), so
+// this only elapses if the worker answers nothing at all. A stall of this
+// length is a glitch; an unbounded wait was a hang.
 const OFFLINE_WAIT: Duration = Duration::from_millis(500);
 // First generation in `initialize()`, on the host's main thread.
 const INIT_WAIT: Duration = Duration::from_secs(5);
@@ -412,21 +413,30 @@ impl Drumgen {
     /// `OFFLINE_WAIT`. For offline rendering — and for Bitwig, whose live
     /// engine reports Offline (PROJECT.md lesson 12).
     ///
-    /// Bounded on purpose: a generation that panics publishes nothing, and an
-    /// unbounded wait then hung the audio thread. An older in-flight pattern
-    /// that arrives first is kept as a fallback but does not end the wait
-    /// (`Pattern.generation` tells it apart from the one we asked for).
+    /// Bounded on purpose: an unbounded wait once hung the audio thread when a
+    /// build panicked. A failed build now says so (`Published::Failed`), so the
+    /// wait ends at once for the generation we asked for; the deadline is the
+    /// backstop for a worker that answers nothing at all. An older in-flight
+    /// pattern that arrives first is kept as a fallback but does not end the
+    /// wait (`Pattern.generation` tells it apart from the one we asked for).
     fn await_pending(&mut self, target: u64) {
         let Some(w) = self.worker.as_ref() else { return };
         let deadline = Instant::now() + OFFLINE_WAIT;
         let mut got: Option<Arc<Pattern>> = None;
-        while let Some(p) = w.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            let fresh = p.generation >= target;
-            if let Some(older) = got.replace(p) {
-                w.retire(older);
-            }
-            if fresh {
-                break;
+        while let Some(msg) = w.recv_published(deadline.saturating_duration_since(Instant::now())) {
+            match msg {
+                worker::Published::Pattern(p) => {
+                    let fresh = p.generation >= target;
+                    if let Some(older) = got.replace(p) {
+                        w.retire(older);
+                    }
+                    if fresh {
+                        break;
+                    }
+                }
+                // Nothing newer is coming for this request: stop waiting.
+                worker::Published::Failed { generation } if generation >= target => break,
+                worker::Published::Failed { .. } => {}
             }
         }
         if let Some(p) = got {
