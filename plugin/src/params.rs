@@ -414,7 +414,7 @@ pub const SONGS: [(&str, &str); 10] = [
     // and blast bursts, a halftime weight in the middle.
     ("Eruption", "2:atmospheric 1:silence 3:blast 2:breakdown 4:blast 1:silence 3:blast"),
     // 32 bars — Envy post-rock scale-build: long build, 6/8 lift, blast wall,
-    // long comedown. Pair with styles that have 6/8 cells (shellac/fugazi).
+    // long comedown. Pair with styles that have 6/8 cells (fugazi, posthardcore).
     ("Post-Rock", "4:intro 8:build 4:drive@6/8 1:fill 7:blast 4:atmospheric 4:outro"),
     // 24 bars — black-metal blast-forward with a 7/8 tremolo passage.
     ("Blast Fwd", "2:intro 7:blast 1:fill 4:drive@7/8 8:blast 2:breakdown"),

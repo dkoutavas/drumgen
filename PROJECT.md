@@ -305,8 +305,11 @@ The 2026-08-01 queue, in order:
    plus one `?` overlay for the bank workflow and the pad color language.
    The two-phase bank workflow (build, then jam) confused its first user.
 3. Generated arrangements — the reason the bank exists. A generated form is
-   an arrangement string plus meter turns; store it on a pad. Needs a plan
-   session before code.
+   an arrangement string plus meter turns; store it on a pad. The plan session
+   happened (2026-10-12): `docs/generated-arrangements.md` proposes five shapes
+   from the shipped forms, a cross-engine-deterministic form seed, a separate
+   FORM param, and six open questions for the author. No code until those are
+   answered.
 4. `await_pending` still blocks the audio thread on every live param change,
    because Bitwig mislabels its engine as offline (lesson 12). It is bounded,
    a live request no longer waits behind a whole 16-slot refresh, and a failed
@@ -426,5 +429,5 @@ week and using the tool to write for a real band.
 
 *Documentation map: `README.md` (install + usage), `CLAUDE.md` (repo
 conventions, commands, architecture detail), `BITWIG.md` (wiring, recording,
-yabridge), `NOTATION.md` (drummer handoff), `styles/drumgen-style-dna.md`
+yabridge), `NOTATION.md` (drummer handoff), `docs/generated-arrangements.md` (design note, not built), `styles/drumgen-style-dna.md`
 (genre rhythmic vocabulary reference).*
