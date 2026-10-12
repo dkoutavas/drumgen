@@ -1762,6 +1762,10 @@ mod tests {
     #[test]
     fn golden_vector_matches_python_engine() {
         #[derive(serde::Deserialize)]
+        struct Fixture {
+            vectors: Vec<Golden>,
+        }
+        #[derive(serde::Deserialize)]
         struct Golden {
             params: GoldenParams,
             events: Vec<(i64, u8, i32, String)>,
@@ -1771,17 +1775,42 @@ mod tests {
             cell_name: String,
             bars: i32,
             tempo: f64,
+            time_sig: String,
             seed: u64,
         }
 
-        let golden: Golden =
+        let fixture: Fixture =
             serde_json::from_str(include_str!("../../fixtures/golden_vector.json"))
                 .expect("golden_vector.json parses");
+        assert!(fixture.vectors.len() >= 2, "expected the 4/4 fixed and the 7/8 Euclidean vectors");
 
         let lib = CellLibrary::new();
+        for golden in &fixture.vectors {
+            check_golden_vector(&lib, golden.params.cell_name.as_str(), golden.params.bars,
+                golden.params.tempo, &golden.params.time_sig, golden.params.seed, &golden.events);
+        }
+    }
+
+    fn check_golden_vector(
+        lib: &CellLibrary,
+        cell: &str,
+        bars: i32,
+        tempo: f64,
+        time_sig: &str,
+        seed: u64,
+        want_events: &[(i64, u8, i32, String)],
+    ) {
+        let (num, den) = time_sig
+            .split_once('/')
+            .and_then(|(n, d)| Some((n.parse::<i32>().ok()?, d.parse::<i32>().ok()?)))
+            .expect("time_sig is N/D");
         let res = assemble(
-            &lib, None, Some(&golden.params.cell_name), golden.params.bars,
-            golden.params.tempo, (4, 4), Some(0.0), 0.0, 0, golden.params.seed, 0.0, false,
+            lib, None, Some(cell), bars, tempo, (num, den), Some(0.0), 0.0, 0, seed, 0.0, false,
+        );
+        assert_eq!(
+            (res.time_signatures[0].numerator, res.time_signatures[0].denominator),
+            (num, den),
+            "{cell}: stamped meter differs from the vector's"
         );
 
         let ours: Vec<(i64, u8, i32, String)> = res
@@ -1792,19 +1821,19 @@ mod tests {
 
         assert_eq!(
             ours.len(),
-            golden.events.len(),
-            "event count diverged from the Python engine"
+            want_events.len(),
+            "{cell}: event count diverged from the Python engine"
         );
         // Rerun export_golden.py ONLY if the reference engine changed on purpose.
-        for (i, (got, want)) in ours.iter().zip(golden.events.iter()).enumerate() {
+        for (i, (got, want)) in ours.iter().zip(want_events.iter()).enumerate() {
             assert_eq!(
                 (got.0, got.1, &got.3),
                 (want.0, want.1, &want.3),
-                "event {i}: tick/note/instrument diverged from the Python engine"
+                "{cell} event {i}: tick/note/instrument diverged from the Python engine"
             );
             assert!(
                 (got.2 - want.2).abs() <= 6,
-                "event {i} ({}): velocity {} is outside the ±6 same-band window around Python's {}",
+                "{cell} event {i} ({}): velocity {} is outside the ±6 same-band window around Python's {}",
                 got.3, got.2, want.2
             );
         }
