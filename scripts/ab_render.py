@@ -134,7 +134,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     scratch = tempfile.mkdtemp(prefix="ab-worktrees-")
     head = run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO).strip()
-    sheet = [f"# Before / after listening sheet\n",
+    sheet = ["# Before / after listening sheet\n",
              f"After = `{head}` (this checkout). General MIDI sounds via FluidSynth, "
              f"so judge placement, flams and pulse, not the kit.\n"]
     try:
