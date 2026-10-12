@@ -9,10 +9,11 @@ from datetime import datetime
 
 from cell_library import CELLS, STYLE_POOLS, STYLE_MAP
 from assembler import assemble, assemble_arrangement, assemble_layered
-from midi_engine import write_midi, DEFAULT_PPQ, unique_filepath
+from midi_engine import write_midi, unique_filepath
 from preview import render_midi_to_wav, is_fluidsynth_available, find_soundfont
 from midi_reader import midi_to_cell, save_cell, auto_tag_cell, validate_cell
 from platform_paths import default_output_dir, open_folder
+from pattern_text import build_pattern_preview
 
 st.set_page_config(page_title="drumgen", page_icon="\U0001f941", layout="wide", initial_sidebar_state="expanded")
 
@@ -77,69 +78,6 @@ def auto_filename(style, tempo, bars, arrangement=False, cell_name="auto",
 
 
 # ── Pattern preview ───────────────────────────────────────────────────────────
-
-def build_pattern_preview(events, time_signatures, tempo, max_bars=4):
-    ppq = DEFAULT_PPQ
-    ts = time_signatures[0]
-    num, den = ts["numerator"], ts["denominator"]
-    beat_ticks = ppq * 4 // den
-    bar_ticks = num * beat_ticks
-    slots_per_beat = 4  # sixteenth note resolution
-    slot_ticks = beat_ticks // slots_per_beat
-    total_slots = num * slots_per_beat
-
-    # Group events by bar
-    bars_data = {}
-    for abs_tick, instrument, velocity in events:
-        bar_num = abs_tick // bar_ticks + 1
-        if bar_num > max_bars:
-            continue
-        tick_in_bar = abs_tick % bar_ticks
-        slot = round(tick_in_bar / slot_ticks)
-        slot = min(slot, total_slots - 1)
-        if bar_num not in bars_data:
-            bars_data[bar_num] = {}
-        if instrument not in bars_data[bar_num]:
-            bars_data[bar_num][instrument] = {}
-        # Keep highest velocity for this slot
-        if slot not in bars_data[bar_num][instrument] or velocity > bars_data[bar_num][instrument][slot]:
-            bars_data[bar_num][instrument][slot] = velocity
-
-    if not bars_data:
-        return "No events to display."
-
-    # Collect all instruments across displayed bars
-    all_instruments = sorted({inst for bar in bars_data.values() for inst in bar})
-
-    # Build header
-    beat_labels = []
-    for beat in range(1, num + 1):
-        beat_labels.extend([str(beat), "e", "+", "a"])
-    header_str = " ".join(f"{l:>2}" for l in beat_labels)
-
-    lines = []
-    for bar_num in sorted(bars_data.keys()):
-        lines.append(f"Bar {bar_num}:  {header_str}")
-        bar = bars_data[bar_num]
-        for inst in all_instruments:
-            row = []
-            for s in range(total_slots):
-                if inst in bar and s in bar[inst]:
-                    vel = bar[inst][s]
-                    if vel >= 100:
-                        row.append(" X")
-                    elif vel >= 60:
-                        row.append(" x")
-                    else:
-                        row.append(" o")
-                else:
-                    row.append(" .")
-            label = inst[:12].ljust(12)
-            lines.append(f"{label}{''.join(row)}")
-        lines.append("")
-
-    return "\n".join(lines)
-
 
 # ── Session state init ────────────────────────────────────────────────────────
 
@@ -659,7 +597,7 @@ if "last_result" in st.session_state:
     # Row 4: Pattern Preview (expanded by default)
     with st.expander("Pattern Preview", expanded=True):
         st.caption("**X** = accent (loud)  **x** = normal  **o** = ghost (quiet)  **.** = silent")
-        preview = build_pattern_preview(r["events"], r["time_signatures"], r["tempo"])
+        preview = build_pattern_preview(r["events"], r["time_signatures"])
         st.code(preview, language=None)
 
     # Row 5: Parameters & Stats (collapsed by default)

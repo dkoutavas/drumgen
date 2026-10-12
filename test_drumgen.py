@@ -2445,3 +2445,43 @@ class TestSectionDriftKeys:
         from humanizer import _SECTION_DRIFT, _SECTION_TYPE_TAGS
         reachable = set(SECTION_PREFERENCES) | {sec for sec, _ in _SECTION_TYPE_TAGS}
         assert sorted(set(_SECTION_DRIFT) - reachable) == []
+
+
+# ── GUI pattern preview (pattern_text.py) ────────────────────────────────────
+
+class TestPatternPreview:
+    """The Streamlit preview drew four columns per beat in every meter, so a
+    7/8 bar showed 28 '1 e + a' columns of 32nds, and it bucketed every bar by
+    the FIRST section's meter, so mixed-meter arrangements landed in the wrong
+    bars. One column per sixteenth now, bars from the real meter map."""
+
+    def test_four_four_layout(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        out = build_pattern_preview([(0, "kick", 110), (480, "snare", 80)], ts).splitlines()
+        assert out[0].split(":", 1)[1].split() == "1 e + a 2 e + a 3 e + a 4 e + a".split()
+        assert out[1].split()[1] == "X"           # kick on 1, accent
+        assert out[2].split()[5] == "x"           # snare on 2, normal
+
+    def test_seven_eight_has_one_column_per_sixteenth(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 7, "denominator": 8}]
+        out = build_pattern_preview([(0, "kick", 110), (120, "snare_ghost", 30)], ts).splitlines()
+        labels = out[0].split(":", 1)[1].split()
+        assert labels == "1 + 2 + 3 + 4 + 5 + 6 + 7 +".split()
+        ghost = out[2].split()[1:]
+        assert ghost[1] == "o", "tick 120 is the second sixteenth of beat 1"
+
+    def test_mixed_meter_bars_land_in_their_own_bar(self):
+        from pattern_text import build_pattern_preview
+        r = assemble_arrangement("faraquet", "1:verse@4/4 1:verse@7/8", tempo=140,
+                                 humanize=0.0, seed=1)
+        out = build_pattern_preview(r["events"], r["time_signatures"])
+        assert "Bar 1:" in out and "Bar 2 (7/8):" in out
+        bar2 = out.split("Bar 2 (7/8):", 1)[1].split("\n")[0].split()
+        assert len(bar2) == 14
+
+    def test_empty(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        assert build_pattern_preview([], ts) == "No events to display."

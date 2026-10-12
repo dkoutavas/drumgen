@@ -110,7 +110,7 @@ it as more Lord Snow material gets mined.
 Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
-lines of Python engine/tools plus 4,000 of cells, 475 Python + 142 Rust tests green.
+lines of Python engine/tools plus 4,000 of cells, 479 Python + 142 Rust tests green.
 
 The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
 finding checked against the source before fixing) found and fixed, on both
@@ -185,7 +185,7 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 475 tests
+python -m pytest test_drumgen.py -q          # 479 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
@@ -278,6 +278,13 @@ current, but none of this has been heard:
 - Open question, not a bug report: drumgen consumes the track's incoming notes
   as pad triggers and forwards none. Check that finger-drumming through the
   chain behaves the way you want.
+
+Verified without a DAW (2026-10-12): the Streamlit GUI, headless via
+`scripts/gui-smoke.py`. Loop mode, a forced 7/8 (reports the 7/8 cell that
+played), Open folder on a box with no file manager, a `2:blast 8:verse@7/8`
+arrangement and a Euclidean toms layer all generate with no error. The run
+found and fixed a preview bug: /8 bars drew four columns per eighth, and
+mixed-meter arrangements were bucketed by the first section's meter.
 
 Also open from the review, deliberately not touched: `vary_hits` still mutates
 fills at bar 2+ (changing it alters ear-verified fill variety); `CLAUDE.md` is
