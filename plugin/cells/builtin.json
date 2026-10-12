@@ -3727,6 +3727,141 @@
         ]
       ]
     },
+    "dc_pulse_intro_4_4": {
+      "name": "dc_pulse_intro_4_4",
+      "tags": [
+        "posthardcore",
+        "fugazi",
+        "intro",
+        "outro",
+        "sparse",
+        "atmospheric",
+        "quiet",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.5,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "hihat_pedal",
+          0.9,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.9,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "hihat_pedal",
+          0.9,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.9,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "snare_rim",
+          0.9,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "snare_rim",
+          0.9,
+          "soft"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "normal"
+        ],
+        [
+          2,
+          0.75,
+          "kick",
+          0.8,
+          "soft",
+          "2:2"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.6,
+          "soft",
+          "2:2"
+        ],
+        [
+          1,
+          0.5,
+          "hihat_closed",
+          0.85,
+          "soft",
+          "4:4"
+        ],
+        [
+          2,
+          0.5,
+          "hihat_closed",
+          0.85,
+          "soft",
+          "4:4"
+        ],
+        [
+          3,
+          0.5,
+          "hihat_closed",
+          0.85,
+          "soft",
+          "4:4"
+        ],
+        [
+          4,
+          0.5,
+          "hihat_closed",
+          0.85,
+          "normal",
+          "4:4"
+        ],
+        [
+          4,
+          0.75,
+          "kick",
+          0.85,
+          "normal",
+          "4:4"
+        ],
+        [
+          3,
+          0.75,
+          "snare_ghost",
+          0.3,
+          "ghost"
+        ]
+      ]
+    },
     "deafheaven_build_to_blast": {
       "name": "deafheaven_build_to_blast",
       "tags": [
@@ -6251,6 +6386,117 @@
         }
       ]
     },
+    "euro_bell_intro_4_4": {
+      "name": "euro_bell_intro_4_4",
+      "tags": [
+        "raein",
+        "euro_screamo",
+        "intro",
+        "outro",
+        "sparse",
+        "atmospheric",
+        "quiet",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.55,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "ride_bell",
+          0.95,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "ride_bell",
+          0.9,
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          4,
+          0.5,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "soft"
+        ],
+        [
+          3,
+          0.5,
+          "kick",
+          0.55,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          0.75,
+          "soft",
+          "1:2"
+        ],
+        [
+          3,
+          0.75,
+          "snare_ghost",
+          0.8,
+          "ghost",
+          "2:2"
+        ],
+        [
+          4,
+          0.0,
+          "snare",
+          0.85,
+          "soft",
+          "pre"
+        ],
+        [
+          4,
+          0.25,
+          "snare_ghost",
+          0.6,
+          "ghost",
+          "pre"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.7,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.7,
+          "soft"
+        ]
+      ]
+    },
     "faraquet_5_4": {
       "name": "faraquet_5_4",
       "tags": [
@@ -6958,6 +7204,100 @@
           0.5,
           "ride",
           "normal"
+        ]
+      ]
+    },
+    "feedback_wash_outro_4_4": {
+      "name": "feedback_wash_outro_4_4",
+      "tags": [
+        "outro",
+        "intro",
+        "sparse",
+        "atmospheric",
+        "wash",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.4,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "crash_1",
+          0.95,
+          "normal"
+        ],
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "accent"
+        ],
+        [
+          3,
+          0.0,
+          "snare",
+          0.85,
+          "normal"
+        ],
+        [
+          2,
+          0.5,
+          "kick",
+          0.45,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "ride",
+          0.5,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "ride",
+          0.6,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "tom_floor",
+          0.8,
+          "normal",
+          "4:4"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          0.8,
+          "accent",
+          "4:4"
+        ],
+        [
+          4,
+          0.75,
+          "kick",
+          0.7,
+          "normal",
+          "4:4"
         ]
       ]
     },
@@ -11010,6 +11350,122 @@
           0.5,
           "hihat_open",
           "normal"
+        ]
+      ]
+    },
+    "motorik_pulse_intro_4_4": {
+      "name": "motorik_pulse_intro_4_4",
+      "tags": [
+        "post_punk",
+        "motorik",
+        "intro",
+        "outro",
+        "sparse",
+        "atmospheric",
+        "quiet",
+        "generative"
+      ],
+      "time_sig": [
+        4,
+        4
+      ],
+      "num_bars": 1,
+      "humanize": 0.45,
+      "role": "groove",
+      "type": "probability",
+      "grid": [
+        [
+          1,
+          0.0,
+          "kick",
+          0.95,
+          "normal"
+        ],
+        [
+          3,
+          0.0,
+          "kick",
+          0.9,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "hihat_pedal",
+          0.8,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "hihat_pedal",
+          0.8,
+          "soft"
+        ],
+        [
+          1,
+          0.0,
+          "tom_floor",
+          0.9,
+          "normal"
+        ],
+        [
+          1,
+          0.5,
+          "tom_floor",
+          0.65,
+          "soft"
+        ],
+        [
+          2,
+          0.0,
+          "tom_floor",
+          0.9,
+          "soft"
+        ],
+        [
+          2,
+          0.5,
+          "tom_floor",
+          0.65,
+          "soft"
+        ],
+        [
+          3,
+          0.0,
+          "tom_floor",
+          0.9,
+          "normal"
+        ],
+        [
+          3,
+          0.5,
+          "tom_floor",
+          0.65,
+          "soft"
+        ],
+        [
+          4,
+          0.0,
+          "snare_rim",
+          0.85,
+          "normal",
+          "2:2"
+        ],
+        [
+          4,
+          0.0,
+          "tom_floor",
+          0.9,
+          "soft",
+          "!pre"
+        ],
+        [
+          4,
+          0.5,
+          "tom_floor",
+          0.65,
+          "soft"
         ]
       ]
     },

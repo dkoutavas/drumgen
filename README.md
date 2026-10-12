@@ -127,7 +127,7 @@ checked up front.
 
 ## Library
 
-117 cells across 30 plugin style pools — 28 probability grids, 5 Euclidean
+121 cells across 30 plugin style pools — 32 probability grids, 5 Euclidean
 polymeter cells, 26 fills, the rest fixed patterns. `python drumgen.py
 --list-cells` prints the current inventory; `styles/drumgen-style-dna.md`
 documents the rhythmic vocabulary per genre.

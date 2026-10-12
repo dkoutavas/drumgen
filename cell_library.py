@@ -3583,6 +3583,152 @@ def _zona_lift_6_8():
     }
 
 
+# ── Intro/outro sketches (2026-10-12): NOT in any pool until heard ───────────
+# The 2026-10-12 matrix: intro and outro were coin flips in 14-15 of 30 plugin
+# pools, and those pools are the DC/post-hardcore family, the post-punk
+# family, raein/faraquet, and blast/dbeat/liturgy/lord_snow. One sketch per
+# family. They live in the library (so --cell and the renders can play them)
+# but join no STYLE_POOLS entry until the author has heard them: adding a cell
+# to a pool also re-maps which cell every seed picks in plugin loop mode.
+# Tags score intro/outro/atmospheric (sparse, atmospheric, quiet) and avoid the
+# verse/chorus/blast/breakdown vocabulary so they never compete there.
+
+def _dc_pulse_intro_4_4():
+    """DC intro: left foot and cross-stick keep time while the band tunes up,
+    the kick answers on even passes and the hats open the door on the 4th.
+    Fugazi before the riff lands; a Q and Not U count-in that never counts."""
+    grid = [
+        # Spine: pedal quarters and cross-stick backbeat, dependable.
+        (1, 0.0, "hihat_pedal", 0.9, "soft"),
+        (2, 0.0, "hihat_pedal", 0.9, "soft"),
+        (3, 0.0, "hihat_pedal", 0.9, "soft"),
+        (4, 0.0, "hihat_pedal", 0.9, "soft"),
+        (2, 0.0, "snare_rim", 0.9, "soft"),
+        (4, 0.0, "snare_rim", 0.9, "soft"),
+        (1, 0.0, "kick", 0.95, "normal"),
+        # Answer (even passes): a kick pushing into beat 3.
+        (2, 0.75, "kick", 0.8, "soft", "2:2"),
+        (3, 0.0, "kick", 0.6, "soft", "2:2"),
+        # Lift (4th pass of 4): closed hats on the offbeats, a kick pickup.
+        (1, 0.5, "hihat_closed", 0.85, "soft", "4:4"),
+        (2, 0.5, "hihat_closed", 0.85, "soft", "4:4"),
+        (3, 0.5, "hihat_closed", 0.85, "soft", "4:4"),
+        (4, 0.5, "hihat_closed", 0.85, "normal", "4:4"),
+        (4, 0.75, "kick", 0.85, "normal", "4:4"),
+        # Spice, rare: a ghost before the backbeat.
+        (3, 0.75, "snare_ghost", 0.3, "ghost"),
+    ]
+    return {
+        "name": "dc_pulse_intro_4_4",
+        "tags": ["posthardcore", "fugazi", "intro", "outro", "sparse", "atmospheric", "quiet",
+                 "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.5,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _motorik_pulse_intro_4_4():
+    """Post-punk intro: floor-tom eighths as a motor, kick on 1 and 3, the
+    rim answering on even passes. The tom steps aside for the rim on 4
+    (`!pre`) so a hand is never asked for both. Wipers in the rehearsal room,
+    Preoccupations' first minute."""
+    grid = [
+        (1, 0.0, "kick", 0.95, "normal"),
+        (3, 0.0, "kick", 0.9, "soft"),
+        (2, 0.0, "hihat_pedal", 0.8, "soft"),
+        (4, 0.0, "hihat_pedal", 0.8, "soft"),
+        # The motor: floor tom eighths, strong on the beat, lighter between.
+        (1, 0.0, "tom_floor", 0.9, "normal"),
+        (1, 0.5, "tom_floor", 0.65, "soft"),
+        (2, 0.0, "tom_floor", 0.9, "soft"),
+        (2, 0.5, "tom_floor", 0.65, "soft"),
+        (3, 0.0, "tom_floor", 0.9, "normal"),
+        (3, 0.5, "tom_floor", 0.65, "soft"),
+        # Even passes: the rim answers on 4 and the tom steps aside for it.
+        (4, 0.0, "snare_rim", 0.85, "normal", "2:2"),
+        (4, 0.0, "tom_floor", 0.9, "soft", "!pre"),
+        (4, 0.5, "tom_floor", 0.65, "soft"),
+    ]
+    return {
+        "name": "motorik_pulse_intro_4_4",
+        "tags": ["post_punk", "motorik", "intro", "outro", "sparse", "atmospheric", "quiet",
+                 "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.45,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _euro_bell_intro_4_4():
+    """Euro screamo intro: ride-bell pings over a feathered kick, ghost runs
+    only on the answer. Raein before the guitars double up; also sits under a
+    Faraquet clean intro."""
+    grid = [
+        (1, 0.0, "ride_bell", 0.95, "normal"),
+        (3, 0.0, "ride_bell", 0.9, "soft"),
+        (2, 0.5, "ride", 0.6, "soft"),
+        (4, 0.5, "ride", 0.6, "soft"),
+        (1, 0.0, "kick", 0.95, "soft"),
+        (3, 0.5, "kick", 0.55, "soft"),
+        # Statement (odd passes): one quiet snare on 3, the breath in.
+        (3, 0.0, "snare", 0.75, "soft", "1:2"),
+        # Answer (even passes): a ghost run into a soft backbeat on 4.
+        (3, 0.75, "snare_ghost", 0.8, "ghost", "2:2"),
+        (4, 0.0, "snare", 0.85, "soft", "pre"),
+        (4, 0.25, "snare_ghost", 0.6, "ghost", "pre"),
+        (2, 0.0, "hihat_pedal", 0.7, "soft"),
+        (4, 0.0, "hihat_pedal", 0.7, "soft"),
+    ]
+    return {
+        "name": "euro_bell_intro_4_4",
+        "tags": ["raein", "euro_screamo", "intro", "outro", "sparse", "atmospheric", "quiet",
+                 "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.55,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
+def _feedback_wash_outro_4_4():
+    """Heavy outro: a crash on every downbeat left to ring, half-time kick and
+    snare thinning out, floor-tom swells on the last pass. The amp feedback
+    after a blast ends; also opens a blast song from silence."""
+    grid = [
+        (1, 0.0, "crash_1", 0.95, "normal"),
+        (1, 0.0, "kick", 0.95, "accent"),
+        (3, 0.0, "snare", 0.85, "normal"),
+        (2, 0.5, "kick", 0.45, "soft"),
+        # Ride rings out between crashes, sparse.
+        (2, 0.0, "ride", 0.6, "soft"),
+        (3, 0.0, "ride", 0.5, "soft"),
+        (4, 0.0, "ride", 0.6, "soft"),
+        # Last pass of 4: floor-tom swell into the next downbeat.
+        (4, 0.0, "tom_floor", 0.8, "normal", "4:4"),
+        (4, 0.5, "tom_floor", 0.8, "accent", "4:4"),
+        (4, 0.75, "kick", 0.7, "normal", "4:4"),
+    ]
+    return {
+        "name": "feedback_wash_outro_4_4",
+        "tags": ["outro", "intro", "sparse", "atmospheric", "wash", "generative"],
+        "type": "probability",
+        "time_sig": (4, 4),
+        "num_bars": 1,
+        "humanize": 0.4,
+        "role": "groove",
+        "grid": grid,
+    }
+
+
 CELLS = {cell["name"]: cell for cell in [
     # Phase 1
     _blast_traditional(),
@@ -3714,6 +3860,11 @@ CELLS = {cell["name"]: cell for cell in [
     _zona_atmos_4_4(),
     _zona_comp_6_8(),
     _zona_lift_6_8(),
+    # Intro/outro sketches (2026-10-12), not in any pool until heard
+    _dc_pulse_intro_4_4(),
+    _motorik_pulse_intro_4_4(),
+    _euro_bell_intro_4_4(),
+    _feedback_wash_outro_4_4(),
 ]}
 
 USER_CELLS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "user_cells")

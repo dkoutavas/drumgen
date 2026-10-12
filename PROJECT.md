@@ -107,7 +107,7 @@ PDF drum chart — the notation chain is proven end-to-end. lord_snow reads as
 "pretty confined": three cells don't span Erik Anderson's range yet; widen
 it as more Lord Snow material gets mined.
 
-Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
+Scale: 121 cells (32 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms, ~9,200 lines of Rust (plugin + engine), ~5,300
 lines of Python engine/tools plus 4,000 of cells, 499 Python + 143 Rust tests green.
@@ -329,16 +329,28 @@ does, `get_cell_for_section` picks at random from the pool. That is why an
 `unwound` BLAST section played `slint_explosion`, correct engine behaviour
 (it is the most intense cell Unwound owns), wrong-looking label.
 
-Coin-flip pairs: 128/288 (44%) → 96/288 (33%) after the breakdown work.
-Remaining, weighted by what the 9 shipped song forms actually demand:
+Coin-flip pairs: 128/288 (44%) → 96/288 (33%) after the breakdown work →
+80/270 (30%) re-measured 2026-10-12 over the 30 plugin pools (aliases are
+exported once, so 270 pairs). Weighted by what the 9 shipped song forms demand:
 
 | section | coin-flip pools | forms using it | priority |
 |---|---|---|---|
-| intro | 17 | 6 | 102 |
-| blast | 11 | 8 | 88 |
-| outro | 17 | 5 | 85 |
-| build | 18 | 3 | 54 |
-| atmospheric | 17 | 3 | 51 |
+| intro | 14 | 6 | 84 |
+| outro | 15 | 5 | 75 |
+| blast | 8 | 8 | 64 |
+| build | 15 | 3 | 45 |
+| atmospheric | 15 | 3 | 45 |
+
+The intro/outro gaps are four families: DC/post-hardcore (posthardcore,
+fugazi, q_and_not_u, drive_like_jehu, atdi), post-punk (post_punk,
+preoccupations, shame, wipers), raein and faraquet, and blast/dbeat/liturgy
+(+ lord_snow for outro). One sketch per family was authored 2026-10-12
+(`dc_pulse_intro_4_4`, `motorik_pulse_intro_4_4`, `euro_bell_intro_4_4`,
+`feedback_wash_outro_4_4`). They are in the library but in NO pool, awaiting
+the author's ears (`scripts/audition_cells.py` renders them; in a song each
+wins intro and outro and nothing else). Joining pools would close the intro
+and outro gaps for every pool listed, and also re-map which cell each seed
+picks in plugin loop mode for those styles.
 
 Blast is *partly correct by design* — a good share of its 11 are styles that
 shouldn't blast. Intro and outro are the honest next targets: sparse,
