@@ -2485,3 +2485,61 @@ class TestPatternPreview:
         from pattern_text import build_pattern_preview
         ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
         assert build_pattern_preview([], ts) == "No events to display."
+
+
+# ── Auto-tagging learns section function (the corpus-stage blocker) ─────────
+
+class TestAutoTagFunction:
+    """auto_tag_cell emitted only density/blast/halftime/fill tags, so no
+    imported cell could ever score for an intro, build, atmospheric or outro
+    section. The thresholds are pinned to the authored library: an authored
+    build reads as a build, an authored groove does not."""
+
+    @staticmethod
+    def _as_imported(name):
+        from assembler import _normalize_hits
+        c = CELLS[name]
+        return {"name": name, "hits": [list(h) for h in _normalize_hits(c)],
+                "time_sig": c["time_sig"], "num_bars": c["num_bars"], "role": "groove"}
+
+    @pytest.mark.parametrize("name", ["daitro_quiet_build", "deafheaven_build_to_blast",
+                                      "city_of_caterpillar_build", "transition_cymbal_swell",
+                                      "motorik_build"])
+    def test_authored_builds_read_as_builds(self, name):
+        from midi_reader import auto_tag_cell
+        tags = auto_tag_cell(self._as_imported(name))["tags"]
+        assert "build" in tags and "crescendo" in tags
+
+    @pytest.mark.parametrize("name", ["faraquet_7_8", "postpunk_busy", "atdi_relationship_groove",
+                                      "kidcrash_crash_wash", "raein_octopus_groove", "qanu_dancepunk",
+                                      "daitro_blast_release", "liturgy_pillar_stabs",
+                                      "deafheaven_shimmer_blast"])
+    def test_grooves_and_releases_are_not_builds(self, name):
+        from midi_reader import auto_tag_cell
+        assert "build" not in auto_tag_cell(self._as_imported(name))["tags"]
+
+    def test_authored_quiet_material_reads_as_quiet(self):
+        from midi_reader import auto_tag_cell
+        assert "quiet" in auto_tag_cell(self._as_imported("blackmetal_atmospheric"))["tags"]
+        for loud in ("raein_melodic_drive", "postpunk_busy", "blast_traditional"):
+            assert "quiet" not in auto_tag_cell(self._as_imported(loud))["tags"], loud
+
+    def test_one_bar_cells_and_fills_are_never_builds(self):
+        from midi_reader import auto_tag_cell
+        cell = {"hits": [[1, b, 0.0, "kick", "accent"] for b in (1, 2, 3, 4)],
+                "time_sig": (4, 4), "num_bars": 1}
+        assert "build" not in auto_tag_cell(cell)["tags"]
+        fill = {"hits": [[1, 1, 0.0, "tom_high", "soft"], [2, 1, 0.0, "tom_low", "accent"],
+                         [2, 2, 0.0, "tom_floor", "accent"], [2, 3, 0.0, "tom_floor", "accent"]],
+                "time_sig": (4, 4), "num_bars": 2, "role": "groove"}
+        tags = auto_tag_cell(fill)["tags"]
+        assert "fill" in tags and "build" not in tags
+
+    def test_a_rendered_build_survives_the_midi_round_trip(self, tmp_path):
+        # The real import path: .mid file -> midi_to_cell -> auto_tag_cell.
+        from midi_reader import midi_to_cell, auto_tag_cell
+        r = assemble(cell_name="daitro_quiet_build", bars=8, tempo=120, humanize=0.0, seed=1)
+        mid = str(tmp_path / "build.mid")
+        write_midi(r["events"], 120, r["time_signatures"], "ugritone", mid)
+        cell = auto_tag_cell(midi_to_cell(mid, kit_name="ugritone"))
+        assert "build" in cell["tags"], cell["tags"]

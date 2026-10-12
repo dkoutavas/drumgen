@@ -205,6 +205,60 @@ def validate_cell(cell, kit_name="ugritone"):
 
 # ── Auto-tagging ─────────────────────────────────────────────────────────────
 
+# Section-function thresholds, calibrated against the authored library
+# (test_drumgen.py TestAutoTagFunction pins them to real cells):
+# - QUIET_SHARE: share of hits at soft/ghost level for `quiet`. The authored
+#   quiet/atmospheric grooves sit at 0.75; ordinary grooves top out near 0.45.
+# - BUILD_DENSITY_RISE: second-half / first-half hits-per-bar for `build`. Every
+#   authored multi-bar density build clears 1.5 (daitro_quiet_build 2.1,
+#   deafheaven_build_to_blast 1.7, city_of_caterpillar_build 1.7).
+# - BUILD_LEVEL_DROP: ...unless the level FALLS by more than this (mean level
+#   rank, ghost=0..accent=3): denser-but-quieter is a release, not a build
+#   (daitro_blast_release, liturgy_pillar_stabs).
+# - BUILD_LEVEL_RISE: a level rise alone makes a build (motorik_build keeps its
+#   density flat and climbs ghost -> accent).
+QUIET_SHARE = 0.6
+BUILD_DENSITY_RISE = 1.5
+BUILD_LEVEL_DROP = 0.1
+BUILD_LEVEL_RISE = 0.75
+_LEVEL_RANK = {"ghost": 0, "soft": 1, "normal": 2, "accent": 3}
+
+
+def _halves(per_bar):
+    """Mean of the first and second half of a per-bar series (odd: middle bar
+    counts toward neither)."""
+    n = len(per_bar)
+    first, second = per_bar[: n // 2], per_bar[(n + 1) // 2:]
+    return sum(first) / len(first), sum(second) / len(second)
+
+
+def _section_function_tags(hits, num_bars, role):
+    """`quiet` and `build`/`crescendo`, which density alone cannot see. These
+    are the tags intro, build, atmospheric and outro sections score on, so
+    without them an imported cell could never be picked for those sections."""
+    tags = set()
+    levels = [h[4] if len(h) == 5 else h[3] for h in hits]
+    quiet = sum(1 for v in levels if v in ("ghost", "soft"))
+    if quiet / len(levels) >= QUIET_SHARE:
+        tags.add("quiet")
+
+    if num_bars >= 2 and role != "fill":
+        bars = [h[0] if len(h) == 5 else 1 for h in hits]
+        count = [0] * num_bars
+        rank_sum = [0] * num_bars
+        for b, v in zip(bars, levels):
+            if 1 <= b <= num_bars:
+                count[b - 1] += 1
+                rank_sum[b - 1] += _LEVEL_RANK.get(v, 2)
+        mean_rank = [rank_sum[i] / count[i] if count[i] else 0.0 for i in range(num_bars)]
+        d1, d2 = _halves(count)
+        r1, r2 = _halves(mean_rank)
+        denser = d1 > 0 and d2 / d1 >= BUILD_DENSITY_RISE and r2 >= r1 - BUILD_LEVEL_DROP
+        louder = r2 - r1 >= BUILD_LEVEL_RISE
+        if denser or louder:
+            tags.update(["build", "crescendo"])
+    return tags
+
 def auto_tag_cell(cell):
     """Analyze hit patterns and assign tags from SECTION_PREFERENCES vocabulary.
 
@@ -328,6 +382,9 @@ def auto_tag_cell(cell):
                    + inst_counts.get("crash_1_choke", 0) + inst_counts.get("crash_2_choke", 0))
     if crash_count > 0:
         tags.add("accent")
+
+    # ── Section function: quiet, build ──
+    tags |= _section_function_tags(hits, num_bars, cell.get("role"))
 
     cell["tags"] = sorted(tags)
     return cell
