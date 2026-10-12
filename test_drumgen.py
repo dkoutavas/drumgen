@@ -2573,3 +2573,199 @@ class TestTagToPools:
         cell_library._integrate_user_cells_into_pools()
         assert "imported_zona_test" in pools["zona"]
         assert fake["_pools"] == ["zona"]
+
+
+# ── Generated song forms ──────────────────────────────────────────────────────
+
+def _plugin_valid_arrangement(arr):
+    """params.rs valid_arrangement, transcribed: what the plugin will play."""
+    total, any_ = 0, False
+    for token in arr.split():
+        if ":" not in token:
+            return False
+        bars, rest = token.split(":", 1)
+        if not bars.isdigit() or not 1 <= int(bars) <= 32:
+            return False
+        if "@" in rest:
+            rest, ts = rest.split("@", 1)
+            n, _, d = ts.partition("/")
+            if not (n.isdigit() and 1 <= int(n) <= 15 and d in ("4", "8")):
+                return False
+        if rest.lower() not in SECTION_PREFERENCES:
+            return False
+        total += int(bars)
+        any_ = True
+    return any_ and total <= 64
+
+
+class TestGeneratedForms:
+    """arrangement_gen: shape + form seed -> an arrangement string. The rules
+    are the ones docs/generated-arrangements.md promises."""
+
+    SEEDS = range(2000)
+    STYLES = ["fugazi", "posthardcore", "zona", "kidcrash", "screamo", "blast"]
+
+    @staticmethod
+    def _sections(shape, seed, style="fugazi", meter_auto=True):
+        import arrangement_gen as ag
+        return ag.generate_sections(shape, seed, ag.style_meters(style), meter_auto=meter_auto)
+
+    def test_splitmix64_is_the_reference_stream(self):
+        # Vigna's SplitMix64 seeded with 0: the Rust port must draw these too.
+        from arrangement_gen import Dice
+        d = Dice(0, 0)
+        assert [d.next() for _ in range(3)] == [
+            0xE220A8397B1DCDAF, 0x6E789E6AA1B965F4, 0x06C45D188009454F]
+
+    def test_every_form_is_playable_by_both_engines(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for style in self.STYLES:
+                for seed in self.SEEDS:
+                    arr = ag.generate_form(shape, seed, style=style)
+                    assert _plugin_valid_arrangement(arr), (shape, style, seed, arr)
+                    parse_arrangement(arr)  # the Python engine accepts it too
+
+    def test_length_stays_in_range(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                total = sum(b for b, _, _ in self._sections(shape, seed))
+                assert ag.MIN_BARS <= total <= ag.MAX_BARS, (shape, seed, total)
+
+    def test_fills_only_lead_into_intense_sections(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                secs = [s for _, s, _ in self._sections(shape, seed)]
+                for i, s in enumerate(secs):
+                    if s == "fill":
+                        assert i + 1 < len(secs) and secs[i + 1] in ag.INTENSE, (shape, seed, secs)
+
+    def test_silence_is_a_spice(self):
+        import arrangement_gen as ag
+        for shape, form in ag.FORMS.items():
+            for seed in self.SEEDS:
+                secs = self._sections(shape, seed)
+                names = [s for _, s, _ in secs]
+                assert names[0] != "silence" and names[-1] != "silence", (shape, seed)
+                assert names.count("silence") <= form["max_silences"], (shape, seed)
+                assert all(b == 1 for b, s, _ in secs if s == "silence")
+                assert all(not (a == b == "silence") for a, b in zip(names, names[1:]))
+
+    def test_no_section_repeats_itself_back_to_back(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                secs = [(s, ts) for _, s, ts in self._sections(shape, seed)]
+                for a, b in zip(secs, secs[1:]):
+                    assert a != b or a[0] in ("fill", "silence"), (shape, seed, secs)
+
+    def test_odd_lengths_only_where_the_records_use_them(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            if shape in ("maze", "stop_go"):
+                continue
+            for seed in self.SEEDS:
+                odd = [(b, s) for b, s, _ in self._sections(shape, seed) if b % 2 and b != 1]
+                assert odd == [], (shape, seed, odd)
+
+    def test_meter_turns_honour_the_meter_promise(self):
+        import arrangement_gen as ag
+        for style in self.STYLES:
+            own = set(ag.style_meters(style))
+            for shape, form in ag.FORMS.items():
+                for seed in self.SEEDS:
+                    turned = [(s, ts) for _, s, ts in self._sections(shape, seed, style) if ts]
+                    assert len(turned) <= form["turns"], (shape, seed, turned)
+                    for sec, ts in turned:
+                        assert sec in ag.TURNABLE and ts in own and ts != (4, 4), (style, shape, seed)
+
+    def test_a_four_four_only_style_never_turns(self):
+        import arrangement_gen as ag
+        assert ag.style_meters("kidcrash") == [(4, 4)]
+        for seed in self.SEEDS:
+            assert "@" not in ag.generate_form("maze", seed, style="kidcrash")
+
+    def test_a_forced_meter_holds_the_whole_form(self):
+        import arrangement_gen as ag
+        for seed in self.SEEDS:
+            assert "@" not in ag.generate_form("maze", seed, style="fugazi", meter_auto=False)
+
+    def test_the_turns_happen_somewhere(self):
+        import arrangement_gen as ag
+        forms = [ag.generate_form(s, seed, style="fugazi") for s in ("arc", "maze") for seed in range(200)]
+        assert sum("@" in f for f in forms) > 100
+
+    def test_structure_does_not_depend_on_the_style(self):
+        """'ARC 42' is the same skeleton everywhere; only the turns differ."""
+        import arrangement_gen as ag
+        strip = lambda secs: [(b, s) for b, s, _ in secs]
+        for shape in ag.FORMS:
+            for seed in range(300):
+                shapes = {tuple(strip(self._sections(shape, seed, st))) for st in self.STYLES}
+                assert len(shapes) == 1, (shape, seed)
+
+    def test_same_seed_same_form_and_seeds_differ(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            forms = [ag.generate_form(shape, seed, style="fugazi") for seed in range(200)]
+            assert forms == [ag.generate_form(shape, seed, style="fugazi") for seed in range(200)]
+            assert len(set(forms)) >= 40, (shape, len(set(forms)))
+
+    def test_shapes_keep_their_character(self):
+        for seed in range(500):
+            names = lambda shape: [s for _, s, _ in self._sections(shape, seed)]
+            arc = names("arc")
+            assert "build" in arc and arc.index("build") < max(
+                i for i, s in enumerate(arc) if s in ("blast", "drive"))
+            assert "blast" not in names("slow_burn") and "chorus" not in names("slow_burn")
+            assert names("quiet_loud")[0] == "atmospheric" and "blast" in names("quiet_loud")
+            vc = names("verse_chorus")
+            assert vc.count("verse") == 2 and vc.count("chorus") >= 2
+            assert "breakdown" in names("stop_go")
+            assert len([s for s in names("maze") if s not in ("fill", "silence")]) >= 5
+
+    def test_unknown_shape_and_bad_seed_are_rejected(self):
+        import arrangement_gen as ag
+        with pytest.raises(ValueError, match="Unknown form"):
+            ag.generate_form("sonata", 1)
+        with pytest.raises(ValueError, match="Form seed"):
+            ag.generate_form("arc", -1)
+
+    def test_form_name_fits_a_songs_txt_name(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            assert len(ag.form_name(shape, ag.FORM_SEED_MAX)) <= 10
+            assert len(ag.FORMS[shape]["label"]) <= 10
+
+    def test_cli_plays_the_form_and_prints_it(self, tmp_path):
+        import subprocess, sys
+        import arrangement_gen as ag
+        out = tmp_path / "f.mid"
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "fugazi", "--form", "maze",
+             "--form-seed", "2", "--seed", "1", "-o", str(out)],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode == 0, run.stderr
+        form = ag.generate_form("maze", 2, style="fugazi")
+        assert f"MAZE 2 | {form}" in run.stdout
+        total = sum(int(t.split(":")[0]) for t in form.split())
+        assert f"Bars: {total}" in run.stdout
+        assert out.exists()
+
+    @pytest.mark.parametrize("args,needle", [
+        (["--form", "arc", "-a", "4:verse"], "--form and --arrangement"),
+        (["--form-seed", "3"], "--form-seed needs --form"),
+        (["--form", "arc", "--form-seed", "10000"], "--form-seed must be between"),
+        (["--form", "arc", "--toms", "blast_traditional"], "cannot be used with --arrangement or --form"),
+    ])
+    def test_cli_form_misuse(self, args, needle, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "fugazi", "-o", str(tmp_path / "x.mid"), *args],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode != 0
+        assert needle in run.stderr, run.stderr

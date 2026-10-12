@@ -306,10 +306,11 @@ The 2026-08-01 queue, in order:
    The two-phase bank workflow (build, then jam) confused its first user.
 3. Generated arrangements — the reason the bank exists. A generated form is
    an arrangement string plus meter turns; store it on a pad. The plan session
-   happened (2026-10-12): `docs/generated-arrangements.md` proposes five shapes
-   from the shipped forms, a cross-engine-deterministic form seed, a separate
-   FORM param, and six open questions for the author. No code until those are
-   answered.
+   happened (2026-10-12): `docs/generated-arrangements.md`, six shapes (the
+   five in the shipped forms plus Slow Burn), a separate FORM SEED, decisions
+   recorded. Step 1 is in: `arrangement_gen.py` and `--form`/`--form-seed` in
+   the CLI, rendered by `scripts/audition_forms.py`, unheard. Next: the Rust
+   port with a cross-engine fixture, then the FORM stepper (needs the DAW).
 4. `await_pending` still blocks the audio thread on every live param change,
    because Bitwig mislabels its engine as offline (lesson 12). It is bounded,
    a live request no longer waits behind a whole 16-slot refresh, and a failed

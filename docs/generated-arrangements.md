@@ -1,9 +1,10 @@
 # Generated arrangements — design note
 
-Status: proposal, 2026-10-12. No code yet. PROJECT.md §8 queue item 3 ("the
-reason the bank exists … needs a plan session before code"). This is that
-plan. The open questions at the end are the author's to answer before the
-first evening of code.
+Status: decided 2026-10-12; step 1 (Python reference, `arrangement_gen.py`,
+CLI `--form`/`--form-seed`) is in, unheard. PROJECT.md §8 queue item 3 ("the
+reason the bank exists … needs a plan session before code"). The decisions
+are at the end; the brief for them was "the most creative option that stays
+easy to understand".
 
 ## What it is
 
@@ -34,9 +35,11 @@ shaped randomness as probability grids.
 
 ## Templates: shapes abstracted from the shipped forms
 
-The 9 built-in forms reduce to five shapes. Each template is a list of slots;
-a slot names the section types it may become, a bar range, and whether it is
-optional. Proposed set, with the records the forms cite:
+The 9 built-in forms reduce to five shapes, plus one the shipped forms do not
+have (Slow Burn, decision 2). Each template is a list of slots; a slot names
+the section types it may become, the bar counts it may take, and a chance.
+`FORMS` in `arrangement_gen.py` is the source of truth; this table is the
+gist:
 
 | shape | from | slots (type: bars) |
 |---|---|---|
@@ -44,12 +47,17 @@ optional. Proposed set, with the records the forms cite:
 | **Arc** | Skramz Arc, Post-Rock (Daitro, City of Caterpillar, Envy) | intro 1–4 · build 4–8 · fill? 1 · blast/drive 3–8 · landing (breakdown/atmospheric/outro) 1–4 |
 | **Stop/Go** | Stop/Go, Eruption, Ampere (Orchid, pg.99, Ampere) | 3–5 × (burst: blast/chorus 1–3, then silence? 1) · landing breakdown 2–4 |
 | **Quiet/Loud** | Quiet/Loud (Saetia) | atmospheric 2–4 · drive/chorus 2–4 · silence? 1 · atmospheric 2–4 · blast 3–6 · outro 2–4 |
-| **Maze** | Labyrinth, Blast Fwd (Lord Snow) | intro 1–2 · 4–7 short sections (verse/blast/build/drive 1–4) with fills between · landing 2 |
+| **Maze** | Labyrinth, Blast Fwd (Lord Snow) | intro 2 · 4–7 short sections (verse/blast/build/drive 2–4) with fills between · landing 2 |
+| **Slow Burn** | slowcore, post-rock that withholds | intro/atmospheric 4–8 · verse? 4–8 · build 8 · drive? 4 · silence? 1 · comedown 4–8. No blast, no chorus: the peak never comes |
 
 Rules every shape obeys, taken from the hard-won lessons:
 
-- Silence is a spice (lesson 2): at most two silences per form, one bar each,
-  never first or last.
+- Silence is a spice (lesson 2): at most two silences per form (three in
+  Stop/Go, where the gaps are the point, as in the shipped Stop/Go), one bar
+  each, never first or last, never two in a row.
+- No section follows itself: a slot never picks the type just placed when it
+  offers another, and two of a kind left adjacent by a dropped fill or
+  silence merge into one section.
 - Fills only directly before an intense section (chorus, blast, drive,
   breakdown), so the `into_<next>` fill preference has something to aim at.
 - Bar counts favour 2, 4 and 8 (phrase-aligned, and 8 matches the 8-bar build
@@ -57,9 +65,12 @@ Rules every shape obeys, taken from the hard-won lessons:
   them.
 - Total length 12–40 bars, inside `valid_arrangement`'s 64-bar cap.
 - **Meter turns honour the meter promise.** A turn is drawn only from meters
-  the chosen style has cells in (fugazi can turn to 7/8 or 6/8; kidcrash, which
-  owns only 4/4 cells, never turns). At most two turns per form, and only in
-  Maze and Arc. This avoids leaning on the meter adapter for whole sections.
+  the chosen style's built-in cells are written in (fugazi can turn to 7/8 or
+  6/8; kidcrash, which owns only 4/4 cells, never turns). Only verses and
+  drives turn, as in the shipped forms: a turned blast or build would lose its
+  section's cells to whatever the style owns in that meter. At most one turn
+  in Arc, two in Maze, none elsewhere. Imported cells do not count, because the
+  plugin never sees them and both engines must agree on the form.
 
 ## Determinism: one form per (shape, form seed), in both engines
 
@@ -68,23 +79,29 @@ CLI and the plugin produce the **same form** for the same shape and seed, so a
 form found in one can be reproduced in the other and pasted into `songs.txt`.
 
 The engines cannot share an RNG (Mersenne Twister vs ChaCha8), so form choice
-should not use either. Proposal: a tiny integer hash (SplitMix64) of
-`(form_seed, slot_index, decision_index)` drives every choice. It is ten lines
-in each language, consumes no engine RNG, and a cross-engine fixture
-(like `golden_vector.json`: a list of `(shape, seed) → form string`) pins it.
+should not use either. SplitMix64 (Vigna's reference stream, pinned by a
+test) drives every choice: ten lines in each language, integer-only, no engine
+RNG. Two streams from the one seed: stream 0 rolls the structure, stream 1 the
+meter turns, so "ARC 42" has the same skeleton in every style and only the
+turns depend on the style. Every slot draws its chance even when it is 1000,
+and the tidy rules (fills, silences, merging, the 12–40 guard) use no dice, so
+the draw order is the template's order and nothing else. A cross-engine
+fixture (like `golden_vector.json`: `(shape, seed, style) → form string`)
+pins the port.
 
 ## Where it lives
 
 - **Python first (reference):** `arrangement_gen.py` with the templates as
   data and `generate_form(shape, form_seed, style) -> str`. CLI:
   `python drumgen.py --style fugazi --form arc --form-seed 42` prints the form
-  and renders it. Tested: every shape × 10,000 seeds passes
-  `valid_arrangement`, respects the rules above, and is deterministic.
+  and renders it. Tested (`TestGeneratedForms`): every shape × 2,000 seeds ×
+  six styles passes a transcription of the plugin's `valid_arrangement`,
+  respects the rules above, and is deterministic.
 - **Rust mirror:** `plugin/src/engine/arrangement_gen.rs`, the same templates
   exported through `builtin.json` (a `forms` key, written by
   `export_cells.py`) so the data has one source, plus the cross-engine fixture.
-- **Plugin params:** a new **FORM** stepper (Off, Verse/Chorus, Arc, Stop/Go,
-  Quiet/Loud, Maze) and a **FORM SEED** with its own dice. FORM other than Off
+- **Plugin params:** a new **FORM** stepper (Off, Verse/Chor, Arc, Stop/Go,
+  Quiet/Loud, Maze, Slow Burn) and a **FORM SEED** with its own dice. FORM other than Off
   overrides SONG. A separate param, rather than new SONG entries, because the
   SONG param is still an index: inserting entries would re-map saved projects.
   New params are appended, so saved projects keep their state.
@@ -103,27 +120,41 @@ in each language, consumes no engine RNG, and a cross-engine fixture
   rolls FORM SEED. The note DICE re-rolls notes inside the same form.
 - No meter the style cannot play (see above).
 
-## Open questions for the author
+## Decisions (2026-10-12)
 
-1. **Separate FORM SEED, or one seed for form and notes?** Proposed separate:
-   structure and performance are different decisions, and you will want to
-   keep a form while rolling its notes.
-2. **Which shapes?** Five proposed. Too many? Missing one (a slowcore
-   "long build, no payoff")?
-3. **Length:** let the template decide (12–40 bars), or add a LENGTH control
-   (short / medium / long)?
-4. **Meter turns:** drawn from the style's meters automatically, or only when
-   METER is not Auto, or never?
-5. **Keep a form:** is copying the realised string to the clipboard / a
-   `songs.txt` line worth a gesture, or is "write down shape and seed" enough?
-6. **Fills and silences:** rolled per slot as above, or fixed per shape?
+Brief from the author: the most creative option that stays easy to
+understand.
+
+1. **Separate FORM SEED, with its own dice.** Two dice, two questions: FORM
+   DICE asks "what song?", the note DICE asks "how is it played?". A form you
+   like survives any number of note rolls. Form seeds run 0–9999 so a form has
+   a name you can remember and say: `ARC 42`.
+2. **Six shapes:** the five above plus **Slow Burn**, the slowcore and
+   withholding post-rock form: a long rise, a held breath where the climax
+   should land, and a comedown instead of the payoff. Labels fit the stepper
+   (10 characters): Verse/Chor, Arc, Stop/Go, Quiet/Loud, Maze, Slow Burn.
+3. **No LENGTH control.** The shape decides (12–40 bars) and the length
+   varies with the seed; the status line shows the total. One knob fewer, and
+   a short Arc and a long Arc are both Arcs.
+4. **METER Auto lets the form wander; a forced METER holds it.** On Auto, Arc
+   and Maze may turn verses and drives into the style's other meters. Any
+   forced meter is the whole form's meter, no turns. In the CLI, leaving out
+   `--time-sig` is Auto.
+5. **No keep gesture: the name is the form.** Shape plus seed regenerates it
+   exactly, in both engines, forever. The CLI prints a ready `songs.txt` line
+   (`ARC 42 | 2:intro 8:build …`) for when you want to edit a form by hand,
+   the plugin's session log records the string with every generation, and a
+   bank pad stores `gen:<shape>:<seed>`.
+6. **Fills and silences rolled per slot**, inside the rules above, so two
+   seeds of one shape can breathe differently. Stop/Go is the one shape whose
+   silences are allowed a third gap.
 
 ## Proposed order (evening-sized)
 
 1. Python: `arrangement_gen.py`, templates, CLI flags, tests; render a batch of
-   forms with `scripts/audition_cells.py`-style tooling so the shapes are judged
-   by ear before any plugin work.
+   forms with `scripts/audition_forms.py` so the shapes are judged by ear
+   before any plugin work. **Done 2026-10-12, unheard.**
 2. Rust: the port, templates via `builtin.json`, the cross-engine fixture.
 3. Plugin: FORM and FORM SEED params, editor stepper and dice, status line,
    bank name encoding. Then the listen in Bitwig.
-4. Only if question 5 says so: the keep-a-form gesture.
+4. ~~The keep-a-form gesture~~: not needed (decision 5).

@@ -93,6 +93,11 @@ python drumgen.py --style kidcrash --tempo 165 --bars 8 -o verse.mid
 # A song form
 python drumgen.py --style euro_screamo -a "2:intro 8:build 1:fill 4:blast" --tempo 140
 
+# A generated song form: a shape and a form seed (0-9999). Same pair, same
+# form, every time; --seed still rolls the notes. Shapes: verse_chorus, arc,
+# stop_go, quiet_loud, maze, slow_burn. It prints a songs.txt line for the plugin.
+python drumgen.py --style fugazi --form maze --form-seed 2 --tempo 140
+
 # Mixed meters per section
 python drumgen.py --style faraquet -a "4:verse@7/8 1:fill 4:drive@6/8" --tempo 150
 
@@ -110,7 +115,8 @@ python drumgen.py --list-cells                           # all cells + style poo
 python drumgen.py --test-mapping ugritone                # one hit per instrument
 ```
 
-Key options: `--style` / `--cell`, `-a/--arrangement`, `--tempo`, `--bars`,
+Key options: `--style` / `--cell`, `-a/--arrangement`, `--form` /
+`--form-seed`, `--tempo`, `--bars`,
 `--time-sig`, `--humanize`, `--swing`, `--seed`, `--vary`, `--fill-every`,
 `--generative`, `--variations`, `--kit`, `--musicxml`, `-o`.
 
@@ -169,7 +175,7 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 ## Development
 
 ```bash
-python -m pytest test_drumgen.py -q     # 499 tests, incl. the data-drift checks
+python -m pytest test_drumgen.py -q     # 520 tests, incl. the data-drift checks
 python validate_midi.py                  # pipeline sanity across configs (--full: exhaustive)
 python export_cells.py                   # after ANY cell_library.py edit
 python export_cells.py --check           # is plugin/cells/builtin.json current?
