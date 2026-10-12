@@ -185,8 +185,19 @@ cd plugin && cargo test                  # 157 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 
+No DAW to hand? These check work by eye and ear on any Linux box (each
+script's header lists what to apt-install):
+
+```bash
+python scripts/gui-smoke.py --url http://localhost:8765   # the Streamlit GUI, headless
+python scripts/ab_render.py --out /tmp/ab        # before/after MP3s of an engine change
+python scripts/audition_cells.py --out /tmp/c    # candidate cells, loop and in a song
+python scripts/audition_forms.py --out /tmp/f    # one generated form per shape
+scripts/editor-shots.sh /tmp/shots               # the plugin editor, screenshotted
+```
+
 CI (`.github/workflows/build-plugin.yml`) runs the Python suite and `cargo test`
-on every push and pull request, builds Linux, Windows and macOS bundles, and
+on pushes to `main` and on every pull request, builds Linux, Windows and macOS bundles, and
 cuts a release from a `v*` tag, which must equal the version in
 `plugin/Cargo.toml`.
 

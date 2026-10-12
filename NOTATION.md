@@ -10,8 +10,8 @@ parentheses, cymbals as x noteheads, accents marked, meter changes explicit.
 plugin SAVE .MID  (or  python drumgen.py ... --musicxml)
         │
         ▼
-python notation.py ~/drumgen_output/zona_0003_4bars.mid
-        │                       (writes zona_0003_4bars.musicxml next to it)
+python notation.py ~/drumgen_output/zona_140bpm_0003_4bars.mid
+        │                       (writes zona_140bpm_0003_4bars.musicxml next to it)
         ▼
 MuseScore 4  →  File → Export → PDF     (or headless, see below)
 ```
@@ -58,7 +58,7 @@ Run once:
 ```
 
 From then on, every SAVE .MID in the plugin also renders the `.musicxml`
-score next to it automatically (the save message shows `▸ score`). The hook
+score next to it automatically (the save message shows `▶ score`). The hook
 is just `~/.config/drumgen/on_save` — an executable that receives the saved
 path; edit or delete it freely.
 
@@ -69,5 +69,5 @@ path; edit or delete it freely.
 python drumgen.py --style zona --tempo 140 --bars 8 --seed 3 --musicxml
 
 # Convert an existing SAVE .MID:
-python notation.py ~/drumgen_output/skramz_arc_take.mid
+python notation.py ~/drumgen_output/screamo_skramzarc_170bpm_0042_16bars.mid
 ```
