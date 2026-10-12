@@ -104,7 +104,9 @@ as a `songs.txt` line, ready to paste and edit.
 
 ## 3b. The pattern bank: switching grooves while it plays
 
-Sixteen pads sit in the bank row under the knobs. A pad is a snapshot of the
+Sixteen pads sit in the bank row under the knobs. The `?` button next to the
+logo opens a short version of this section, with the pad colours; hovering a
+pad says what it holds and what a click will do. A pad is a snapshot of the
 sound: style, humanize, bars, seed, swing, meter, fill, song and form. Tempo is not
 stored, a pad regenerates at whatever the transport says.
 

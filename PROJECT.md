@@ -115,7 +115,7 @@ Scale: 121 cells (32 probability grids, 5 Euclidean, 26 fills) across 30
 plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
 forms plus unlimited user forms plus 6 generated-form shapes, ~10,000 lines of
 Rust (plugin + engine), ~6,300 lines of Python engine/tools plus 4,200 of
-cells, 520 Python + 157 Rust tests green.
+cells, 520 Python + 160 Rust tests green.
 
 The 2026-10-12 session had no DAW, so it turned "unverified" into "verified
 without ears" where a Linux box could, and built what needs no host:
@@ -223,7 +223,7 @@ python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 157 tests
+cd plugin && cargo test                      # 160 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.
@@ -326,6 +326,8 @@ with the scripts in §6):
   Bitwig's scale.
 - SAVE .MID in song or form mode now puts the name in the file
   (`fugazi_arc42_…`); check the hook and the score still run.
+- The help pass: hover texts at Bitwig's scale and tooltip delay, and the
+  `?` overlay. Does it explain the bank to someone who has not used it?
 
 From 2026-10-02:
 
@@ -372,9 +374,11 @@ The 2026-08-01 queue, in order:
    time-signature change. Drag a song-mode take into the arranger and look
    at the ruler. If Bitwig applies it, "slide the jam into the grid" is
    already solved with zero code.
-2. GUI help pass: hover texts that name each control's state and action,
-   plus one `?` overlay for the bank workflow and the pad color language.
-   The two-phase bank workflow (build, then jam) confused its first user.
+2. ~~GUI help pass~~ built 2026-10-12: every control's hover names its state
+   and what a click does (greyed-out ones say why), pad hovers name what the
+   pad holds, and a `?` overlay explains build-then-jam with the pad colour
+   legend. Seen via `scripts/editor-shots.sh`; the test is whether the next
+   person to meet the bank gets it without being told.
 3. ~~Generated arrangements~~ built 2026-10-12 (CLI, engine port, plugin
    controls, bank), see `docs/generated-arrangements.md`. What is left is the
    listen above, then tuning the shapes by ear: they are data (`FORMS` in

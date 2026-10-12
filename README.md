@@ -57,6 +57,7 @@ On openSUSE install the `-devel` packages of the same libraries. Without them
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
 | Telegraph + horizon | A countdown line (`CHORUS ▶ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
 | SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
+| `?` and hover texts | Hover any control to see what it is set to and what a click does (a greyed-out one says why). `?` explains the bank and the pad colours |
 | Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`, including every song or generated form as a ready `songs.txt` line. Attach it to a bug report, or watch it live with `tail -f` |
 
 ### Your own song forms
@@ -181,7 +182,7 @@ python validate_midi.py                  # pipeline sanity across configs (--ful
 python export_cells.py                   # after ANY cell_library.py edit
 python export_cells.py --check           # is plugin/cells/builtin.json current?
 python export_golden.py --check          # is the cross-engine golden vector current?
-cd plugin && cargo test                  # 157 tests
+cd plugin && cargo test                  # 160 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 

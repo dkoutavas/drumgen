@@ -370,7 +370,7 @@ pub fn effective_meter(index: i32, host_meter: (i32, i32)) -> (i32, i32) {
     if index == 0 { host_meter } else { meter_of(index) }
 }
 
-fn meter_label(index: i32) -> String {
+pub fn meter_label(index: i32) -> String {
     match meter_of(index) {
         (0, 0) => "Auto".to_string(),
         (n, d) => format!("{}/{}", n, d),
@@ -420,26 +420,31 @@ pub fn fill_of(index: i32) -> i32 {
     *FILLS.get(index as usize).unwrap_or(&0)
 }
 
-fn fill_label(index: i32) -> String {
+pub fn fill_label(index: i32) -> String {
     match fill_of(index) {
         0 => "Off".to_string(),
         n => format!("Every {}", n),
     }
 }
 
-/// Generated-form shapes: (stepper label, shape key in builtin.json `forms`).
-/// Index 0 = Off. Pinned to the library's `forms` list (the Python
-/// `arrangement_gen.FORMS` order) by a test, so the stepper and the
-/// templates can never disagree.
-pub const FORM_SHAPES: [(&str, &str); 7] = [
-    ("Off", ""),
-    ("Verse/Chor", "verse_chorus"),
-    ("Arc", "arc"),
-    ("Stop/Go", "stop_go"),
-    ("Quiet/Loud", "quiet_loud"),
-    ("Maze", "maze"),
-    ("Slow Burn", "slow_burn"),
+/// Generated-form shapes: (stepper label, shape key in builtin.json `forms`,
+/// what it does, for the FORM hover text). Index 0 = Off. Pinned to the
+/// library's `forms` list (the Python `arrangement_gen.FORMS`) by a test, so
+/// the stepper and the templates can never disagree.
+pub const FORM_SHAPES: [(&str, &str, &str); 7] = [
+    ("Off", "", ""),
+    ("Verse/Chor", "verse_chorus", "intro, two verse/chorus rounds, sometimes a bridge and a last chorus, outro"),
+    ("Arc", "arc", "one long rise: an 8-bar build erupting into the peak, then the landing"),
+    ("Stop/Go", "stop_go", "short bursts punched apart by dead air, then the weight lands"),
+    ("Quiet/Loud", "quiet_loud", "fragile, erupts, holds its breath, fragile again, then the full wall"),
+    ("Maze", "maze", "a run of short, odd-length sections with fills between and meter turns"),
+    ("Slow Burn", "slow_burn", "a long rise to a peak that never comes: it holds its breath and fades"),
 ];
+
+/// What a FORM index does, in words ("" for Off or out of range).
+pub fn form_about(index: i32) -> &'static str {
+    FORM_SHAPES.get(index as usize).map(|f| f.2).unwrap_or("")
+}
 
 /// Shape key for a FORM index ("" = Off or out of range).
 pub fn form_key(index: i32) -> &'static str {
@@ -1043,8 +1048,11 @@ mod tests {
     #[test]
     fn form_shapes_match_the_library() {
         let lib = crate::engine::cell_library::CellLibrary::new();
-        let shipped: Vec<(&str, &str)> =
-            lib.forms().iter().map(|f| (f.label.as_str(), f.key.as_str())).collect();
+        let shipped: Vec<(&str, &str, &str)> = lib
+            .forms()
+            .iter()
+            .map(|f| (f.label.as_str(), f.key.as_str(), f.about.as_str()))
+            .collect();
         assert_eq!(&FORM_SHAPES[1..], shipped.as_slice());
         assert_eq!((form_index("maze"), form_key(5)), (5, "maze"));
         assert_eq!((form_index(""), form_index("sonata"), form_key(99)), (0, 0, ""));

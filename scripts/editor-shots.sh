@@ -14,8 +14,9 @@
 #   sudo apt install xvfb libgl1-mesa-dri xdotool ffmpeg
 #   scripts/editor-shots.sh OUT_DIR
 #
-# Steps are mouse clicks at window coordinates (the editor opens at 0,0 at
-# 720x440). They follow the current layout; when the layout moves, update
+# Steps are mouse actions at window coordinates (the editor opens at 0,0 at
+# 720x440): "x,y" clicks, "h:x,y" only moves the pointer there (to catch a
+# hover text). They follow the current layout; when the layout moves, update
 # them from a fresh 00-start.png.
 set -euo pipefail
 
@@ -24,11 +25,14 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=${DRUMGEN_SHOTS_WORK:-${TMPDIR:-/tmp}/drumgen-editor-shots}
 DISPLAY_NUM=:97
 
-# name | clicks ("x,y" separated by spaces) | seconds to wait before the grab
+# name | actions ("x,y" click, "h:x,y" hover, space separated) | seconds before the grab
 STEPS=(
-  "01-form-maze|276,157 276,157 276,157 276,157 276,157|1.5"
-  "02-form-rolled|327,157|1.5"
-  "03-pad-playing|28,193 78,193 78,193|4"
+  "01-help-overlay|132,12|1"
+  "02-hover-humanize|132,12 h:20,85|1.5"
+  "03-form-maze|276,157 276,157 276,157 276,157 276,157 h:220,157|1.5"
+  "04-hover-bars-under-form|h:172,73|1.5"
+  "05-form-rolled|327,157|1.5"
+  "06-pad-playing|28,193 78,193 78,193 h:600,120 h:78,193|4"
 )
 
 for tool in Xvfb xdotool ffmpeg cargo git; do
@@ -81,7 +85,12 @@ grab 00-start
 for step in "${STEPS[@]}"; do
   IFS='|' read -r name clicks wait <<<"$step"
   for xy in $clicks; do
-    DISPLAY="$DISPLAY_NUM" xdotool mousemove "${xy%,*}" "${xy#*,}" click 1
+    if [[ $xy == h:* ]]; then
+      xy=${xy#h:}
+      DISPLAY="$DISPLAY_NUM" xdotool mousemove "${xy%,*}" "${xy#*,}"
+    else
+      DISPLAY="$DISPLAY_NUM" xdotool mousemove "${xy%,*}" "${xy#*,}" click 1
+    fi
     sleep 0.6
   done
   sleep "$wait"
