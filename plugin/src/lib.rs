@@ -59,6 +59,8 @@ struct ParamSnapshot {
     meter_index: i32,
     fill: i32,
     song: i32,
+    form: i32,
+    form_seed: i32,
     tempo: f32,
 }
 
@@ -70,7 +72,8 @@ enum ChangeKind {
     None,
     /// Humanize/swing/tempo — debounced by the settle timer.
     Continuous,
-    /// The user touched a discrete param (style/bars/seed/fill/song/METER).
+    /// The user touched a discrete param (style/bars/seed/fill/song/form/
+    /// form seed/METER).
     /// Regenerates immediately and exits bank mode.
     UserDiscrete,
     /// The HOST's time signature moved under an Auto meter. Regenerates
@@ -152,7 +155,9 @@ fn classify_change(desired: &ParamSnapshot, requested: &ParamSnapshot) -> Change
         || desired.seed != requested.seed
         || desired.meter_index != requested.meter_index
         || desired.fill != requested.fill
-        || desired.song != requested.song;
+        || desired.song != requested.song
+        || desired.form != requested.form
+        || desired.form_seed != requested.form_seed;
     if user_discrete {
         return ChangeKind::UserDiscrete;
     }
@@ -187,6 +192,9 @@ impl ParamSnapshot {
             meter: self.meter,
             fill_every: params::fill_of(self.fill),
             song: self.song,
+            form: self.form,
+            form_seed: self.form_seed as u64,
+            meter_auto: self.meter_index == 0,
             generation,
         }
     }
@@ -289,6 +297,8 @@ impl Default for Drumgen {
             meter_index: params.meter.value(),
             fill: params.fill.value(),
             song: params.song.value(),
+            form: params.form.value(),
+            form_seed: params.form_seed.value(),
             tempo: 120.0,
         };
 
@@ -400,6 +410,8 @@ impl Drumgen {
             meter_index,
             fill: self.params.fill.value(),
             song: self.params.song.value(),
+            form: self.params.form.value(),
+            form_seed: self.params.form_seed.value(),
             tempo,
         }
     }
@@ -1213,6 +1225,8 @@ mod tests {
             meter_index: 0, // Auto, resolved against a 4/4 host
             fill: 2,
             song: 1,
+            form: 0,
+            form_seed: 0,
             tempo: 168.0,
         }
     }
@@ -1245,6 +1259,22 @@ mod tests {
         assert_eq!(classify_change(&requested, &requested), ChangeKind::None);
     }
 
+    /// FORM and FORM SEED are the user choosing a song: regenerate at once.
+    #[test]
+    fn form_and_form_seed_are_user_tweaks() {
+        let requested = snap_444();
+        for desired in [
+            ParamSnapshot { form: 2, ..requested },
+            ParamSnapshot { form_seed: 42, ..requested },
+        ] {
+            assert_eq!(classify_change(&desired, &requested), ChangeKind::UserDiscrete);
+        }
+        let r = ParamSnapshot { form: 2, form_seed: 42, ..requested }.to_request(1);
+        assert_eq!((r.form, r.form_seed, r.meter_auto), (2, 42, true));
+        let forced = ParamSnapshot { meter_index: 2, ..requested }.to_request(1);
+        assert!(!forced.meter_auto);
+    }
+
     #[test]
     fn plan_pump_reports_which_dirty_slots_are_auto_meter() {
         // A host meter flip regenerates ONLY Auto pads: forced pads' patterns
@@ -1261,6 +1291,9 @@ mod tests {
             fill: 0,
             song: 0,
             song_name: String::new(),
+            form: 0,
+            form_name: String::new(),
+            form_seed: 0,
         };
         bank.slots[0] = Some(auto_pad.clone());
         bank.slots[1] = Some(params::SlotSnapshot { meter: 2, ..auto_pad }); // forced 4/4
@@ -1296,6 +1329,9 @@ mod tests {
             fill: 1,
             song: 1, // Verse/Chor — the difference from the loop-mode test
             song_name: params::song_label(1),
+            form: 0,
+            form_name: String::new(),
+            form_seed: 0,
         });
         bank.bump();
 
@@ -1315,6 +1351,64 @@ mod tests {
         let (i, p) = got.expect("song-mode slot pattern must be delivered — a silent panic here is the R0000 bug");
         assert_eq!(i, 1);
         assert!(!p.events.is_empty());
+        worker.shutdown();
+    }
+
+    /// A pad holding a generated form builds the form the CLI would print for
+    /// the same shape and seed, overriding the SONG it was stored with, and
+    /// the pattern carries the name and the string for the header and log.
+    #[test]
+    fn a_form_slot_builds_the_form_and_overrides_the_song() {
+        use crate::generation::GenerationManager;
+        use crate::worker::GenWorker;
+
+        let gen = GenerationManager::new();
+        let styles = gen.style_names();
+        let fugazi = styles.iter().position(|s| s == "fugazi").unwrap() as i32;
+        let expected = gen.form_arrangement(fugazi, "maze", 2, (4, 4), true).unwrap();
+        assert_eq!(expected.0, "MAZE 2");
+        assert!(expected.1.contains('@'), "maze 2 turns meters in fugazi: {}", expected.1);
+
+        let pad = params::SlotSnapshot {
+            style_name: "fugazi".into(),
+            style_index: fugazi,
+            humanize: 0.4,
+            bars: 4,
+            seed: 11,
+            swing: 0.0,
+            meter: 0,
+            fill: 0,
+            song: 1, // Verse/Chor stored too: the form must win
+            song_name: params::song_label(1),
+            form: params::form_index("maze"),
+            form_name: "maze".into(),
+            form_seed: 2,
+        };
+        let forced = params::SlotSnapshot { meter: 2, ..pad.clone() }; // forced 4/4
+        let worker = GenWorker::spawn(gen);
+        assert!(worker.request_slot(0, pad.gen_part().to_request(140.0, (4, 4), 1)));
+        assert!(worker.request_slot(1, forced.gen_part().to_request(140.0, (4, 4), 2)));
+
+        let mut got = std::collections::BTreeMap::new();
+        for _ in 0..2000 {
+            if let Some((i, p)) = worker.try_recv_slot() {
+                got.insert(i, p);
+            }
+            if got.len() == 2 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let auto_p = got.get(&0).expect("form slot delivered");
+        assert_eq!((auto_p.song_name.as_str(), auto_p.arrangement.as_str()), ("MAZE 2", expected.1.as_str()));
+        let total: i32 = expected.1.split_whitespace()
+            .map(|t| t.split(':').next().unwrap().parse::<i32>().unwrap()).sum();
+        assert_eq!(auto_p.bar_starts.len() as i32 - 1, total);
+        assert!(auto_p.time_signatures.iter().any(|t| (t.numerator, t.denominator) != (4, 4)));
+
+        let forced_p = got.get(&1).expect("forced-meter form slot delivered");
+        assert!(!forced_p.arrangement.contains('@'), "a forced meter holds the form");
+        assert!(forced_p.time_signatures.iter().all(|t| (t.numerator, t.denominator) == (4, 4)));
         worker.shutdown();
     }
 
@@ -1342,6 +1436,9 @@ mod tests {
             fill: 2,
             song: 0,
             song_name: String::new(),
+            form: 0,
+            form_name: String::new(),
+            form_seed: 0,
         });
         bank.bump();
 

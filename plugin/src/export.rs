@@ -32,7 +32,11 @@ fn encode_smf(pattern: &Pattern) -> Vec<u8> {
     // them ahead of notes at the same tick.
     let mut msgs: Vec<(i64, Vec<u8>)> = Vec::with_capacity(pattern.events.len() + 8);
 
-    let name = format!("drumgen {} seed {:04}", pattern.style_name, pattern.seed);
+    let name = if pattern.song_name.is_empty() {
+        format!("drumgen {} seed {:04}", pattern.style_name, pattern.seed)
+    } else {
+        format!("drumgen {} {} seed {:04}", pattern.style_name, pattern.song_name, pattern.seed)
+    };
     let mut m = vec![0xFF, 0x03, name.len().min(127) as u8];
     m.extend_from_slice(&name.as_bytes()[..name.len().min(127)]);
     msgs.push((0, m));
@@ -108,8 +112,17 @@ fn save_pattern_in(dir: &std::path::Path, pattern: &Pattern) -> std::io::Result<
         .map(|ts| (ts.numerator, ts.denominator))
         .unwrap_or((4, 4));
     let meter_suffix = if meter == (4, 4) { String::new() } else { format!("_{}_{}", meter.0, meter.1) };
+    // A song or form rides in the name ("arc42", "versechor"), so a folder
+    // of takes says which skeleton each one is.
+    let song: String = pattern
+        .song_name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    let song = if song.is_empty() { song } else { format!("_{song}") };
     let base = format!(
-        "{}_{}bpm_{:04}{}_{}bars",
+        "{}{song}_{}bpm_{:04}{}_{}bars",
         pattern.style_name, pattern.tempo.round() as i64, pattern.seed, meter_suffix, bars
     );
 
@@ -215,7 +228,8 @@ mod tests {
             seed: 12345,
             tempo: 160.0,
             style_name: "screamo".into(),
-            cell_name: String::new(),
+            song_name: String::new(),
+            arrangement: String::new(),
             sections: Vec::new(),
         };
         let bytes = encode_smf(&pattern);
@@ -258,7 +272,8 @@ mod tests {
             seed: 7,
             tempo: 120.0,
             style_name: "screamo".into(),
-            cell_name: String::new(),
+            song_name: String::new(),
+            arrangement: String::new(),
             sections: Vec::new(),
         }
     }
@@ -287,6 +302,18 @@ mod tests {
         for f in [&a, &b, &c] {
             assert_eq!(std::fs::read(f).unwrap(), encode_smf(&p), "file must hold the full SMF");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_song_or_form_rides_in_the_file_name() {
+        let dir = std::env::temp_dir().join(format!("drumgen-form-name-test-{}", std::process::id()));
+        let p = Pattern { song_name: "ARC 42".into(), ..sample_pattern() };
+        let path = save_pattern_in(&dir, &p).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.starts_with(&format!("{}_arc42_", p.style_name)), "{name}");
+        let loop_take = save_pattern_in(&dir, &sample_pattern()).unwrap();
+        assert!(!loop_take.to_string_lossy().contains("__"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

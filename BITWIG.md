@@ -88,14 +88,24 @@ and N. BARS 4 with Every 8 loops 8 bars (the figure twice, a fill closing bar
 8); BARS 15 with Every 8 is 120 bars. The Python CLI keeps BARS as the exact
 file length instead.
 
-**SONG** (anything but Off) plays a whole arrangement and ignores BARS, METER
-and FILL. Your own forms live in `~/.config/drumgen/songs.txt` (see the README);
-restart the DAW after editing it.
+**SONG** (anything but Off) plays a whole arrangement and ignores BARS and
+FILL; METER becomes the song's home meter. Your own forms live in
+`~/.config/drumgen/songs.txt` (see the README); restart the DAW after editing
+it.
+
+**FORM** (anything but Off) generates the arrangement instead, from a shape
+and the FORM SEED box next to it: click the box to roll a new form, drag it to
+scrub. It overrides SONG (which greys out). With METER on Auto, Arc and Maze
+may turn a verse or a drive into another meter the style has cells for; a
+forced METER holds the whole form. DICE still rolls only the notes, so a form
+you like survives any number of rolls. The form is named by shape and seed
+(`MAZE 7919` on a playing pad's header), and the session log writes each one
+as a `songs.txt` line, ready to paste and edit.
 
 ## 3b. The pattern bank: switching grooves while it plays
 
 Sixteen pads sit in the bank row under the knobs. A pad is a snapshot of the
-sound: style, humanize, bars, seed, swing, meter, fill and song. Tempo is not
+sound: style, humanize, bars, seed, swing, meter, fill, song and form. Tempo is not
 stored, a pad regenerates at whatever the transport says.
 
 - **Store:** click STORE (it lights up), then click a pad. STORE copies what is
@@ -104,7 +114,7 @@ stored, a pad regenerates at whatever the transport says.
 - **Play:** click a pad, or send the track MIDI note 36 to 51 (C1 to D#2 in
   Bitwig's note names, where middle C is C3). The switch lands on the next
   barline of what is playing: the pad blinks while it waits, and the telegraph
-  line reads `▸ SLOT n NEXT BAR`. A pad that is still generating waits, the press
+  line reads `▶ SLOT n NEXT BAR`. A pad that is still generating waits, the press
   is not lost.
 - **Clear:** right-click a pad.
 - **Leaving the bank:** touching a knob or a stepper hands playback back to the

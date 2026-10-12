@@ -50,13 +50,14 @@ On openSUSE install the `-devel` packages of the same libraries. Without them
 |---|---|
 | STYLE | 30 genre pools: each produces a distinctly different beat |
 | SONG | 9 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
-| DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
-| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures what is playing (style, seed, meter, bars, fill, song). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up in Bitwig's note names) trigger the same pads. Right-click clears. STORE copies what is playing: the pad that is playing, or the knobs when no pad is. Pads persist with the project; patterns regenerate from their seeds |
+| FORM / FORM SEED | Generate a song form instead of picking one: a shape (Verse/Chor, Arc, Stop/Go, Quiet/Loud, Maze, Slow Burn) plus a form seed. Click FORM SEED to roll a new form, drag it to scrub. Same shape + same form seed = the same form, here and in the CLI (`--form arc --form-seed 42`). Overrides SONG |
+| DICE / SEED | Re-roll the notes (of the loop, the song or the form). Same seed = same notes, forever |
+| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures what is playing (style, seed, meter, bars, fill, song, form). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up in Bitwig's note names) trigger the same pads. Right-click clears. STORE copies what is playing: the pad that is playing, or the knobs when no pad is. Pads persist with the project; patterns regenerate from their seeds |
 | HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
-| Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
+| Telegraph + horizon | A countdown line (`CHORUS ▶ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
 | SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
-| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`. Attach it to a bug report, or watch it live with `tail -f` |
+| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`, including every song or generated form as a ready `songs.txt` line. Attach it to a bug report, or watch it live with `tail -f` |
 
 ### Your own song forms
 
@@ -180,7 +181,7 @@ python validate_midi.py                  # pipeline sanity across configs (--ful
 python export_cells.py                   # after ANY cell_library.py edit
 python export_cells.py --check           # is plugin/cells/builtin.json current?
 python export_golden.py --check          # is the cross-engine golden vector current?
-cd plugin && cargo test                  # 149 tests
+cd plugin && cargo test                  # 157 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
 

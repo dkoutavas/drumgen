@@ -135,6 +135,13 @@ pub struct GenRequest {
     pub fill_every: i32,
     /// SONGS index; 0 = Off (loop mode), >0 = arranged song skeleton.
     pub song: i32,
+    /// FORM_SHAPES index; 0 = Off, >0 = a generated form (overrides `song`).
+    pub form: i32,
+    pub form_seed: u64,
+    /// METER is on Auto: a generated form may turn meters (a forced meter
+    /// holds the whole form). `meter` alone cannot say so: under Auto it
+    /// carries the host's meter.
+    pub meter_auto: bool,
     pub generation: u64,
 }
 
@@ -278,10 +285,21 @@ impl GenWorker {
 /// cell should cost a dice roll, not the session.
 fn build_pattern(gen: &GenerationManager, req: &GenRequest) -> Option<Pattern> {
     let built = catch_unwind(AssertUnwindSafe(|| {
-        let res = if req.song > 0 {
+        // The song skeleton, if any: a generated FORM wins over SONG.
+        let song: Option<(String, String)> = if req.form > 0 {
+            gen.form_arrangement(
+                req.style, crate::params::form_key(req.form), req.form_seed, req.meter,
+                req.meter_auto,
+            )
+        } else if req.song > 0 {
+            Some((crate::params::song_label(req.song), crate::params::song_str(req.song).to_string()))
+        } else {
+            None
+        };
+        let res = if let Some((_, arr)) = &song {
             gen.generate_arrangement(
-                req.style, crate::params::song_str(req.song), req.humanize, req.seed,
-                req.swing, req.generative, req.tempo, req.meter,
+                req.style, arr, req.humanize, req.seed, req.swing, req.generative, req.tempo,
+                req.meter,
             )
         } else {
             gen.generate(
@@ -290,37 +308,37 @@ fn build_pattern(gen: &GenerationManager, req: &GenRequest) -> Option<Pattern> {
             )
         };
         let style_name = gen.style_name(req.style as usize).unwrap_or("").to_string();
-        // Song label rides in cell_name; the section map lets the GUI name
-        // the viewed bar. Both stay empty in loop mode.
-        let (song_name, sections) = if req.song > 0 {
-            let name = crate::params::song_label(req.song);
+        // The song's name and the section map that lets the GUI name the
+        // viewed bar. Both stay empty in loop mode.
+        let (song_name, arrangement, sections) = if let Some((name, arr)) = song {
             let home = if req.meter == (0, 0) { (4, 4) } else { req.meter };
             // Pair each section with the cell that actually won it, so the
             // GUI reports what is PLAYING rather than what the form asked
             // for (a style with no blast cell must not be labelled BLAST).
-            let secs = crate::engine::assembler::parse_arrangement(
-                crate::params::song_str(req.song), home,
-            )
-            .into_iter()
-            .enumerate()
-            .map(|(i, sec)| {
-                let cell = res.section_cells.get(i).cloned().unwrap_or_default();
-                (sec.section_type, sec.bars, cell)
-            })
-            .collect();
-            (name, secs)
+            let secs = crate::engine::assembler::parse_arrangement(&arr, home)
+                .into_iter()
+                .enumerate()
+                .map(|(i, sec)| {
+                    let cell = res.section_cells.get(i).cloned().unwrap_or_default();
+                    (sec.section_type, sec.bars, cell)
+                })
+                .collect();
+            (name, arr, secs)
         } else {
-            (String::new(), Vec::new())
+            (String::new(), String::new(), Vec::new())
         };
-        Pattern::from_assemble(&res, req.generation, req.seed, style_name, song_name, sections)
+        let mut p =
+            Pattern::from_assemble(&res, req.generation, req.seed, style_name, song_name, sections);
+        p.arrangement = arrangement;
+        p
     }));
 
     match built {
         Ok(p) => Some(p),
         Err(_) => {
             nih_plug::nih_log!(
-                "drumgen: generation panicked (style {}, song {}, seed {}) — keeping the previous pattern",
-                req.style, req.song, req.seed
+                "drumgen: generation panicked (style {}, song {}, form {}:{}, seed {}) — keeping the previous pattern",
+                req.style, req.song, req.form, req.form_seed, req.seed
             );
             None
         }
@@ -478,8 +496,8 @@ fn log_request(sink: &mut LogSink, gen: &GenerationManager, label: &str, req: &G
         (n, d) => format!("{n}/{d}"),
     };
     sink.line(&format!(
-        "GEN {label}: {style} seed={} meter={meter} bars={} fill={} song={} tempo={:.0}",
-        req.seed, req.bars, req.fill_every, req.song, req.tempo
+        "GEN {label}: {style} seed={} meter={meter} bars={} fill={} song={} form={}:{} tempo={:.0}",
+        req.seed, req.bars, req.fill_every, req.song, req.form, req.form_seed, req.tempo
     ));
 }
 
@@ -496,6 +514,11 @@ fn log_built(sink: &mut LogSink, label: &str, p: &Pattern) {
         meters.join(" "),
         p.events.len()
     ));
+    // The song or generated form, as a ready songs.txt line (decision 5 of
+    // docs/generated-arrangements.md: the name is the form, the log keeps it).
+    if !p.arrangement.is_empty() {
+        sink.line(&format!("SONG {label}: {} | {}", p.song_name, p.arrangement));
+    }
 }
 
 #[cfg(test)]
@@ -514,6 +537,9 @@ mod tests {
             meter: (0, 0),
             fill_every: 0,
             song: 0,
+            form: 0,
+            form_seed: 0,
+            meter_auto: true,
             generation: seed,
         }
     }

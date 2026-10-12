@@ -46,6 +46,17 @@ pub struct SlotSnapshot {
     /// empty name keeps the stored index, the old behaviour).
     #[serde(default)]
     pub song_name: String,
+    /// FORM param INDEX at store time (0 = Off). Resolved from `form_name` on
+    /// restore, like `song`.
+    #[serde(default)]
+    pub form: i32,
+    /// The form shape's KEY ("" = Off): what the slot means. Shapes are built
+    /// in, but a key survives a reordered stepper where an index would not.
+    #[serde(default)]
+    pub form_name: String,
+    /// FORM SEED. With the shape, it regenerates the identical form.
+    #[serde(default)]
+    pub form_seed: i32,
 }
 
 impl SlotSnapshot {
@@ -60,6 +71,8 @@ impl SlotSnapshot {
             meter: self.meter,
             fill: self.fill,
             song: self.song,
+            form: self.form,
+            form_seed: self.form_seed,
         }
     }
 }
@@ -76,6 +89,8 @@ pub struct SlotGen {
     pub meter: i32,
     pub fill: i32,
     pub song: i32,
+    pub form: i32,
+    pub form_seed: i32,
 }
 
 impl SlotGen {
@@ -96,6 +111,9 @@ impl SlotGen {
             meter: effective_meter(self.meter, host_meter),
             fill_every: fill_of(self.fill),
             song: self.song,
+            form: self.form,
+            form_seed: self.form_seed as u64,
+            meter_auto: self.meter == 0,
             generation,
         }
     }
@@ -156,6 +174,7 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
         };
         let Some((style_index, style_name)) = resolved else { continue };
         let song = resolve_song(&s.song_name, s.song, &labels);
+        let form = form_index(&s.form_name);
 
         *dst = Some(SlotSnapshot {
             style_name,
@@ -168,6 +187,9 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
             fill: if (0..FILLS.len() as i32).contains(&s.fill) { s.fill } else { 0 },
             song,
             song_name: song_name_for(song),
+            form,
+            form_name: form_key(form).to_string(),
+            form_seed: s.form_seed.rem_euclid(10000),
         });
     }
 
@@ -303,6 +325,18 @@ pub struct DrumgenParams {
     #[id = "song"]
     pub song: IntParam,
 
+    /// Generated song form — index into FORM_SHAPES. 0 = Off; otherwise the
+    /// pattern is a form generated from the shape and FORM SEED, and it
+    /// overrides SONG. Appended after SONG so saved projects keep their state.
+    #[id = "form"]
+    pub form: IntParam,
+
+    /// The form's own dice: same shape + same form seed = the same form, in
+    /// the plugin and the CLI (`--form-seed`). The note SEED stays separate,
+    /// so a form you like survives any number of note rolls.
+    #[id = "form_seed"]
+    pub form_seed: IntParam,
+
     /// Editor window state (size / open) — persisted with the plugin state.
     /// Key is versioned: old projects saved 480x320 under "editor-state" and
     /// would silently stomp the new default; unknown keys are ignored, so v2
@@ -391,6 +425,37 @@ fn fill_label(index: i32) -> String {
         0 => "Off".to_string(),
         n => format!("Every {}", n),
     }
+}
+
+/// Generated-form shapes: (stepper label, shape key in builtin.json `forms`).
+/// Index 0 = Off. Pinned to the library's `forms` list (the Python
+/// `arrangement_gen.FORMS` order) by a test, so the stepper and the
+/// templates can never disagree.
+pub const FORM_SHAPES: [(&str, &str); 7] = [
+    ("Off", ""),
+    ("Verse/Chor", "verse_chorus"),
+    ("Arc", "arc"),
+    ("Stop/Go", "stop_go"),
+    ("Quiet/Loud", "quiet_loud"),
+    ("Maze", "maze"),
+    ("Slow Burn", "slow_burn"),
+];
+
+/// Shape key for a FORM index ("" = Off or out of range).
+pub fn form_key(index: i32) -> &'static str {
+    FORM_SHAPES.get(index as usize).map(|f| f.1).unwrap_or("")
+}
+
+/// FORM index for a stored shape key; unknown or empty = Off.
+pub fn form_index(key: &str) -> i32 {
+    if key.is_empty() {
+        return 0;
+    }
+    FORM_SHAPES.iter().position(|f| f.1 == key).map(|i| i as i32).unwrap_or(0)
+}
+
+fn form_label(index: i32) -> String {
+    FORM_SHAPES.get(index as usize).map(|f| f.0).unwrap_or("Off").to_string()
 }
 
 /// Song structure presets: (stepper label, arrangement string). Index 0 = Off
@@ -665,6 +730,11 @@ impl DrumgenParams {
             song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: (n_songs() - 1) as i32 })
                 .with_value_to_string(Arc::new(song_label)),
 
+            form: IntParam::new("Form", 0, IntRange::Linear { min: 0, max: (FORM_SHAPES.len() - 1) as i32 })
+                .with_value_to_string(Arc::new(form_label)),
+
+            form_seed: IntParam::new("Form Seed", 0, IntRange::Linear { min: 0, max: 9999 }),
+
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
 
             bank,
@@ -704,6 +774,9 @@ mod tests {
             fill: 2,
             song: 0,
             song_name: String::new(),
+            form: 0,
+            form_name: String::new(),
+            form_seed: 0,
         }
     }
 
@@ -963,5 +1036,52 @@ mod tests {
         // not lose the store either.
         assert_eq!(store_source(5, &slots, || snap("knobs", 1)).style_name, "knobs");
         assert_eq!(store_source(99, &slots, || snap("knobs", 1)).style_name, "knobs");
+    }
+
+    /// The FORM stepper and the templates in builtin.json are two lists that
+    /// must name the same shapes in the same order.
+    #[test]
+    fn form_shapes_match_the_library() {
+        let lib = crate::engine::cell_library::CellLibrary::new();
+        let shipped: Vec<(&str, &str)> =
+            lib.forms().iter().map(|f| (f.label.as_str(), f.key.as_str())).collect();
+        assert_eq!(&FORM_SHAPES[1..], shipped.as_slice());
+        assert_eq!((form_index("maze"), form_key(5)), (5, "maze"));
+        assert_eq!((form_index(""), form_index("sonata"), form_key(99)), (0, 0, ""));
+    }
+
+    #[test]
+    fn a_form_pad_restores_by_name_and_an_unknown_shape_is_off() {
+        let pad = SlotSnapshot {
+            form: 1, // a stale index: the name must win
+            form_name: "arc".into(),
+            form_seed: 10042,
+            ..snap("zona", 3)
+        };
+        let gone = SlotSnapshot { form: 3, form_name: "sonata".into(), ..snap("zona", 3) };
+        let out = sanitize_bank(bank_with(vec![(0, pad), (1, gone)]), &styles());
+        let a = out.slot(0).unwrap();
+        assert_eq!((a.form, a.form_name.as_str(), a.form_seed), (2, "arc", 42));
+        let b = out.slot(1).unwrap();
+        assert_eq!((b.form, b.form_name.as_str()), (0, ""));
+    }
+
+    /// Banks saved before forms existed have no form fields; they still load.
+    #[test]
+    fn a_bank_saved_before_forms_still_loads() {
+        let old = r#"{"slots":[{"style_name":"zona","style_index":3,"humanize":0.4,
+            "bars":4,"seed":7,"swing":0.0,"meter":0,"fill":0,"song":0}]}"#;
+        let bank: BankState = serde_json::from_str(old).expect("old bank parses");
+        let s = bank.slot(0).unwrap();
+        assert_eq!((s.form, s.form_name.as_str(), s.form_seed), (0, "", 0));
+    }
+
+    #[test]
+    fn a_slot_request_carries_the_form_and_whether_the_meter_is_auto() {
+        let auto = SlotSnapshot { form: 5, form_name: "maze".into(), form_seed: 2, ..snap("zona", 3) };
+        let r = auto.gen_part().to_request(140.0, (4, 4), 1);
+        assert_eq!((r.form, r.form_seed, r.meter_auto), (5, 2, true));
+        let forced = SlotSnapshot { meter: 6, ..auto };
+        assert!(!forced.gen_part().to_request(140.0, (4, 4), 1).meter_auto);
     }
 }

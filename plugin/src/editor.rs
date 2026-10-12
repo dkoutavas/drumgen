@@ -175,6 +175,49 @@ fn pixel_knob(ui: &mut egui::Ui, setter: &ParamSetter, label: &str, p: &FloatPar
     });
 }
 
+/// The FORM SEED box: click rolls a new form (the same prime-stride dice as
+/// DICE), drag scrubs. One widget for both, so the form's dice sits next to
+/// the shape it rolls and the row keeps its width.
+fn form_seed_box(ui: &mut egui::Ui, setter: &ParamSetter, p: &IntParam, acc: &mut f32) {
+    ui.vertical(|ui| {
+        ui.label(egui::RichText::new("FORM SEED").color(DIM));
+        let (rect, resp) = ui.allocate_exact_size(egui::vec2(64.0, 24.0), egui::Sense::click_and_drag());
+        let painter = ui.painter_at(rect);
+        let live = ui.is_enabled();
+        painter.rect_filled(rect, 0.0, if live { ACCENT_B } else { PANEL });
+        painter.rect_stroke(rect, 0.0, egui::Stroke::new(2.0f32, TEXT), egui::StrokeKind::Inside);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{:04}", p.value()),
+            egui::FontId::proportional(8.0),
+            if live { BG } else { DIM },
+        );
+        if resp.clicked() {
+            setter.begin_set_parameter(p);
+            setter.set_parameter(p, params::dice_roll(p.value()));
+            setter.end_set_parameter(p);
+        }
+        if resp.drag_started() {
+            setter.begin_set_parameter(p);
+        }
+        if resp.dragged() {
+            *acc += resp.drag_delta().x - resp.drag_delta().y;
+            let steps = *acc as i32;
+            if steps != 0 {
+                *acc -= steps as f32;
+                setter.set_parameter(p, (p.value() + steps).rem_euclid(10000));
+            }
+        } else {
+            *acc = 0.0;
+        }
+        if resp.drag_stopped() {
+            setter.end_set_parameter(p);
+        }
+        resp.on_hover_text("click: roll a new form · drag: scrub. Same shape + seed = same form, every time");
+    });
+}
+
 /// Draggable seed readout: horizontal/vertical drag scrubs the SEED param.
 /// `acc` carries sub-pixel drag remainder across frames (slow drags register).
 fn seed_drag(ui: &mut egui::Ui, setter: &ParamSetter, p: &IntParam, acc: &mut f32) {
@@ -304,9 +347,9 @@ fn telegraph(
                 let left = cum - bar + 1; // bars remaining incl. current
                 let hot = bar == start; // just landed on this section
                 let line = if hot {
-                    format!("▸ {} NOW", name.to_uppercase())
+                    format!("▶ {} NOW", name.to_uppercase())
                 } else {
-                    format!("{} ▸ {} IN {}", name.to_uppercase(), next_name.to_uppercase(), left)
+                    format!("{} ▶ {} IN {}", name.to_uppercase(), next_name.to_uppercase(), left)
                 };
                 return Some((line, hot || left == 1));
             }
@@ -317,7 +360,7 @@ fn telegraph(
     if fill_every > 0 {
         // Loop mode: count down to the next fill bar (bar % fill_every == 0).
         if bar % fill_every == 0 {
-            return Some(("▸ FILL NOW".to_string(), true));
+            return Some(("▶ FILL NOW".to_string(), true));
         }
         let left = fill_every - (bar % fill_every);
         return Some((format!("FILL IN {}", left), left == 1));
@@ -328,7 +371,7 @@ fn telegraph(
 /// The bank's line: a queued slot outranks the section/fill countdown, because
 /// it is the thing the player just asked for. Pure — unit tested.
 fn telegraph_bank(queued: i32) -> Option<(String, bool)> {
-    (queued >= 0).then(|| (format!("▸ SLOT {} NEXT BAR", queued + 1), true))
+    (queued >= 0).then(|| (format!("▶ SLOT {} NEXT BAR", queued + 1), true))
 }
 
 /// The 16-slot pattern bank: store the current sound, trigger it later.
@@ -454,6 +497,9 @@ fn bank_row(
                 fill: params.fill.value(),
                 song: params.song.value(),
                 song_name: params::song_name_for(params.song.value()),
+                form: params.form.value(),
+                form_name: params::form_key(params.form.value()).to_string(),
+                form_seed: params.form_seed.value(),
             };
             // The pad that is playing if one is, else the knobs.
             let snapshot = {
@@ -669,6 +715,40 @@ mod tests {
     use crate::engine::midi_math::TimeSigEntry;
     use crate::pattern::MidiEvent;
 
+    /// Every non-ASCII character this editor shows must exist in a loaded
+    /// font. A missing one renders as an empty box, and nothing else catches
+    /// it: the DICE button's die (U+2684) and the telegraph's arrow (U+25B8)
+    /// were boxes in Bitwig for months. Scans the string literals of this
+    /// file, so a new glyph is checked the day it is typed.
+    #[test]
+    fn every_glyph_the_editor_shows_is_in_a_font() {
+        let ctx = egui::Context::default();
+        install_theme(&ctx);
+        let mut missing = Vec::new();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let font = egui::FontId::new(8.0, egui::FontFamily::Proportional);
+            for line in include_str!("editor.rs").lines() {
+                let code = line.trim_start();
+                if code.starts_with("//") {
+                    continue;
+                }
+                // Characters inside "..." on this line.
+                for (i, lit) in code.split('"').enumerate() {
+                    if i % 2 == 1 {
+                        for c in lit.chars().filter(|c| !c.is_ascii()) {
+                            if !ctx.fonts(|f| f.has_glyph(&font, c)) {
+                                missing.push(c);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "glyphs with no font: {missing:?}");
+    }
+
     #[test]
     fn bank_telegraph_outranks_the_section_line() {
         // Nothing queued: the bank stays out of the way entirely.
@@ -676,7 +756,7 @@ mod tests {
         // Queued: 1-based pad number, always hot.
         assert_eq!(
             telegraph_bank(6),
-            Some(("▸ SLOT 7 NEXT BAR".to_string(), true))
+            Some(("▶ SLOT 7 NEXT BAR".to_string(), true))
         );
         // It must win over a live section countdown — the pad press is the
         // thing the player just did, and the swap is what happens next.
@@ -684,7 +764,7 @@ mod tests {
         let section_line = telegraph(&sections, 4, 1, 0);
         assert!(section_line.is_some(), "the section line exists to be beaten");
         let shown = telegraph_bank(0).or(section_line);
-        assert_eq!(shown.unwrap().0, "▸ SLOT 1 NEXT BAR");
+        assert_eq!(shown.unwrap().0, "▶ SLOT 1 NEXT BAR");
     }
 
     fn test_pattern(events: Vec<MidiEvent>) -> Pattern {
@@ -698,7 +778,8 @@ mod tests {
             seed: 0,
             tempo: 120.0,
             style_name: "test".into(),
-            cell_name: String::new(),
+            song_name: String::new(),
+            arrangement: String::new(),
             sections: Vec::new(),
         }
     }
@@ -752,7 +833,7 @@ mod tests {
             Some(("FILL IN 3".to_string(), false))
         );
         assert_eq!(telegraph(none, 4, 2, 4), Some(("FILL IN 1".to_string(), true)));
-        assert_eq!(telegraph(none, 4, 3, 4), Some(("▸ FILL NOW".to_string(), true)));
+        assert_eq!(telegraph(none, 4, 3, 4), Some(("▶ FILL NOW".to_string(), true)));
         // FILL off, no sections: nothing to telegraph.
         assert_eq!(telegraph(none, 4, 1, 0), None);
     }
@@ -766,20 +847,20 @@ mod tests {
         ];
         assert_eq!(
             telegraph(&sections, 8, 0, 0),
-            Some(("▸ INTRO NOW".to_string(), true))
+            Some(("▶ INTRO NOW".to_string(), true))
         );
         assert_eq!(
             telegraph(&sections, 8, 1, 0),
-            Some(("INTRO ▸ BUILD IN 1".to_string(), true))
+            Some(("INTRO ▶ BUILD IN 1".to_string(), true))
         );
         assert_eq!(
             telegraph(&sections, 8, 4, 0),
-            Some(("▸ BLAST NOW".to_string(), true))
+            Some(("▶ BLAST NOW".to_string(), true))
         );
         // Mid-blast: next wraps to the top of the form.
         assert_eq!(
             telegraph(&sections, 8, 5, 0),
-            Some(("BLAST ▸ INTRO IN 3".to_string(), false))
+            Some(("BLAST ▶ INTRO IN 3".to_string(), false))
         );
     }
 
@@ -899,6 +980,8 @@ struct UiState {
     save_msg: String,
     /// Sub-pixel remainder for the SEED drag widget.
     seed_acc: f32,
+    /// Same, for the FORM SEED box.
+    form_seed_acc: f32,
     /// Which bar the step grid shows (0-based; clamped to the pattern).
     view_bar: usize,
     /// Grid follow mode while the transport runs: 0 = MANUAL (pager), 1 = NOW
@@ -954,8 +1037,13 @@ pub fn create(
                             // as if it described the audio.
                             let bank_active = params.bank.active.load(Ordering::Relaxed);
                             let (label, colour) = if bank_active >= 0 {
+                                let song = if pattern.song_name.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" · {}", pattern.song_name)
+                                };
                                 (
-                                    format!("PAD {} · {}", bank_active + 1, pattern.style_name),
+                                    format!("PAD {} · {}{song}", bank_active + 1, pattern.style_name),
                                     ACCENT_A,
                                 )
                             } else {
@@ -978,10 +1066,12 @@ pub fn create(
                         pixel_knob(ui, setter, "SWING", &params.swing);
                         ui.add_space(4.0);
 
-                        // In song mode the arrangement string owns length and
-                        // fills; BARS and FILL go dead. METER stays live as
-                        // the song's home meter.
-                        let song_off = params::song_str(params.song.value()).is_empty();
+                        // In song mode (a SONG or a generated FORM) the
+                        // arrangement string owns length and fills; BARS and
+                        // FILL go dead. METER stays live as the home meter
+                        // (and on Auto, a form may turn meters).
+                        let form_on = params.form.value() > 0;
+                        let song_off = !form_on && params::song_str(params.song.value()).is_empty();
                         ui.add_enabled_ui(song_off, |ui| {
                             let db = stepper(ui, "BARS", &params.bars.value().to_string(), 32.0, "");
                             if db != 0 {
@@ -1007,21 +1097,37 @@ pub fn create(
 
                     ui.add_space(4.0);
 
-                    // SONG structure + DICE hero + SAVE + last save result.
+                    // SONG, FORM + its dice, DICE hero, SAVE, last save result.
                     ui.horizontal(|ui| {
-                        let ds = stepper(
-                            ui, "SONG", &params.song.to_string(), 80.0,
-                            "song skeletons; add your own in ~/.config/drumgen/songs.txt (restart DAW to reload)",
+                        // A generated FORM overrides SONG: grey SONG out
+                        // rather than let it look like it is playing.
+                        let form_on = params.form.value() > 0;
+                        ui.add_enabled_ui(!form_on, |ui| {
+                            let ds = stepper(
+                                ui, "SONG", &params.song.to_string(), 80.0,
+                                "song skeletons; add your own in ~/.config/drumgen/songs.txt (restart DAW to reload)",
+                            );
+                            if ds != 0 {
+                                step_int(setter, &params.song, params.song.value(), ds, params::n_songs() as i32);
+                            }
+                        });
+                        ui.add_space(8.0);
+                        let dform = stepper(
+                            ui, "FORM", &params.form.to_string(), 72.0,
+                            "generate a song form of this shape (overrides SONG); click FORM SEED to roll the form",
                         );
-                        if ds != 0 {
-                            step_int(setter, &params.song, params.song.value(), ds, params::n_songs() as i32);
+                        if dform != 0 {
+                            step_int(setter, &params.form, params.form.value(), dform, params::FORM_SHAPES.len() as i32);
                         }
+                        ui.add_enabled_ui(form_on, |ui| {
+                            form_seed_box(ui, setter, &params.form_seed, &mut ui_state.form_seed_acc);
+                        });
                         let dice = ui
                             .add_sized(
-                                [96.0, 40.0],
-                                egui::Button::new(egui::RichText::new("⚄ DICE").color(BG)).fill(ACCENT_A),
+                                [80.0, 40.0],
+                                egui::Button::new(egui::RichText::new("DICE").color(BG)).fill(ACCENT_A),
                             )
-                            .on_hover_text("roll a new groove (deterministic — the seed names the take)");
+                            .on_hover_text("roll new notes (deterministic — the seed names the take); FORM SEED rolls the form");
                         if dice.clicked() {
                             let next = params::dice_roll(params.seed.value());
                             setter.begin_set_parameter(&params.seed);
@@ -1037,7 +1143,7 @@ pub fn create(
                                 Ok(path) => {
                                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
                                     if export::save_hook_installed() {
-                                        format!("SAVED {name} ▸ score")
+                                        format!("SAVED {name} ▶ score")
                                     } else {
                                         format!("SAVED {name}")
                                     }

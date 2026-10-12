@@ -44,11 +44,14 @@ pub struct Pattern {
     pub seed: u64,
     pub tempo: f64,
     pub style_name: String,
-    /// Carries the song label in Song Mode. Nothing reads it (the GUI walks
-    /// `sections` instead). ponytail: delete with the next `from_assemble`
-    /// signature change rather than churn every caller for one field now.
-    #[allow(dead_code)]
-    pub cell_name: String,
+    /// The song's name in Song Mode ("Verse/Chor"), or the generated form's
+    /// ("ARC 42"); empty in loop mode. Shown on the PAD header and written
+    /// into SAVE .MID's file and track names.
+    pub song_name: String,
+    /// The arrangement string that built this pattern; empty in loop mode.
+    /// The session log records it, so a generated form can be read back and
+    /// pasted into songs.txt.
+    pub arrangement: String,
     /// Song-mode section map: (section_type, bars, cell_name) in order, empty
     /// in loop mode. The GUI walks this to label the viewed bar. `cell_name`
     /// is what actually PLAYS; `section_type` is only what the song form asked
@@ -84,7 +87,7 @@ impl Pattern {
         generation: u64,
         display_seed: u64,
         style_name: String,
-        cell_name: String,
+        song_name: String,
         sections: Vec<(String, i32, String)>,
     ) -> Self {
         let total_bars = res
@@ -175,7 +178,8 @@ impl Pattern {
             seed: display_seed,
             tempo: res.tempo,
             style_name,
-            cell_name,
+            song_name,
+            arrangement: String::new(),
             sections,
         }
     }

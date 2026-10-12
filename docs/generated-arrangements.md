@@ -1,8 +1,9 @@
 # Generated arrangements — design note
 
-Status: decided 2026-10-12; steps 1 and 2 are in (Python reference with CLI
-`--form`/`--form-seed`; Rust engine port with a cross-engine fixture), unheard.
-Step 3, the plugin params and UI, is next and needs the DAW. PROJECT.md §8 queue item 3 ("the
+Status: decided 2026-10-12; steps 1–3 are in (Python reference with CLI
+`--form`/`--form-seed`; Rust engine port with a cross-engine fixture; plugin
+FORM and FORM SEED params, editor controls, bank). Seen working in a headless
+standalone build; not yet heard in Bitwig. PROJECT.md §8 queue item 3 ("the
 reason the bank exists … needs a plan session before code"). The decisions
 are at the end; the brief for them was "the most creative option that stays
 easy to understand".
@@ -108,10 +109,12 @@ pins the port.
   New params are appended, so saved projects keep their state.
 - **Telegraph and horizon:** unchanged; they already read `Pattern.sections`.
   The status line names the form, e.g. `ARC 42`.
-- **Bank:** a pad already stores the song by name (`SlotSnapshot.song_name`).
-  A generated form is stored as the name `gen:<shape>:<seed>`, and
-  `resolve_song` gains one branch: a `gen:` name is always resolvable, because
-  it is regenerated, not looked up. No schema change, old banks unaffected.
+- **Bank:** a pad stores the form as its own fields: `form_name` (the shape
+  KEY), `form_seed`, and the index `form` (re-resolved from the key on
+  restore; an unknown key is Off). As built this replaced the `gen:<shape>:<seed>`
+  song-name encoding first proposed here: FORM and SONG are separate params,
+  so one field holding either would have hidden which one a pad meant. All
+  three are `serde(default)`, so banks saved before forms still load.
 
 ## What it must not do
 
@@ -145,7 +148,7 @@ understand.
    exactly, in both engines, forever. The CLI prints a ready `songs.txt` line
    (`ARC 42 | 2:intro 8:build …`) for when you want to edit a form by hand,
    the plugin's session log records the string with every generation, and a
-   bank pad stores `gen:<shape>:<seed>`.
+   bank pad stores the shape and seed.
 6. **Fills and silences rolled per slot**, inside the rules above, so two
    seeds of one shape can breathe differently. Stop/Go is the one shape whose
    silences are allowed a third gap.
@@ -158,5 +161,6 @@ understand.
 2. Rust: the port, templates via `builtin.json`, the cross-engine fixture.
    **Done 2026-10-12:** 216 fixture forms match exactly.
 3. Plugin: FORM and FORM SEED params, editor stepper and dice, status line,
-   bank name encoding. Then the listen in Bitwig.
+   bank fields. **Done 2026-10-12**, seen in a headless standalone build.
+   Then the listen in Bitwig.
 4. ~~The keep-a-form gesture~~: not needed (decision 5).

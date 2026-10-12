@@ -145,7 +145,8 @@ mod tests {
             seed: 0,
             tempo: 120.0,
             style_name: String::new(),
-            cell_name: String::new(),
+            song_name: String::new(),
+            arrangement: String::new(),
             sections: Vec::new(),
         }
     }
