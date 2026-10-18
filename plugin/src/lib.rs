@@ -303,6 +303,25 @@ fn next_bar_boundary(bar_starts: &[i64], origin: f64, abs: f64) -> f64 {
     abs - rel + next
 }
 
+/// Pull a stale pattern anchor back by whole pattern lengths when the
+/// transport sits behind it. `origin` is only ever advanced at a pad switch;
+/// a host loop wrapping around the switch point, or stop → relocate earlier →
+/// play, leaves it in the future, where `abs - origin` stays negative for
+/// bars and the scan window matches nothing — bars of dead air. Rewinding by
+/// whole patterns keeps the bar grid's phase. Two cases are deliberately left
+/// alone: origin 0 (params patterns — pre-roll's negative positions stay
+/// silent before the timeline start, as before), and a deficit within one
+/// buffer (the switch buffer's designed negative: bar 1's downbeat is placed
+/// at its exact sample by the negative branch in the window math).
+fn rewind_origin(origin: f64, abs: f64, total_ticks: i64, buffer_ticks: f64) -> f64 {
+    let behind = origin - abs;
+    if origin <= 0.0 || behind <= buffer_ticks {
+        return origin;
+    }
+    let total = total_ticks.max(1) as f64;
+    origin - (behind / total).ceil() * total
+}
+
 impl Drumgen {
     fn inputs(&self, tempo: f32, host_meter: (i32, i32)) -> ParamSnapshot {
         let meter_index = self.params.meter.value();
@@ -920,6 +939,20 @@ impl Plugin for Drumgen {
             _ => false,
         };
 
+        // 6b. A backward jump behind the anchor (loop wrap around the pad
+        // switch point, or stop → relocate → play with an active pad) would
+        // leave step 8's window negative for bars — silence that reads as
+        // "the plugin died". Re-anchor, preserving the bar grid's phase.
+        let rewound =
+            rewind_origin(self.origin, abs_tick_start, self.current.total_ticks, buffer_ticks);
+        if rewound != self.origin {
+            self.log(worker::LogEvent::Rewind {
+                from: self.origin as i64,
+                to: rewound as i64,
+            });
+            self.origin = rewound;
+        }
+
         // 7. Swap in a pending pattern immediately (with a note flush) so style/
         // dice/meter changes are heard right away. A mid-bar swap is fine — the
         // new pattern is anchored to the same absolute transport position.
@@ -1103,6 +1136,31 @@ mod tests {
             song: 1,
             tempo: 168.0,
         }
+    }
+
+    #[test]
+    fn stale_origin_rewinds_behind_a_backward_jump() {
+        // THE audit bug: pad switched at tick 7680, host loop wraps back to
+        // 1920. The anchor must come back by whole patterns (phase preserved),
+        // not sit in the future muting playback for bars.
+        let o = rewind_origin(7680.0, 1920.0, 3840, 40.0);
+        assert!(o <= 1920.0, "anchor still ahead of the playhead: {o}");
+        assert_eq!((7680.0 - o) % 3840.0, 0.0, "bar grid phase lost");
+        // Relocate to exactly a former boundary: bar 1 lands on it.
+        assert_eq!(rewind_origin(3840.0, 0.0, 3840, 40.0), 0.0);
+    }
+
+    #[test]
+    fn origin_rewind_leaves_legit_cases_alone() {
+        // Playhead at or past the anchor: normal playback, untouched.
+        assert_eq!(rewind_origin(1920.0, 1920.0, 3840, 40.0), 1920.0);
+        assert_eq!(rewind_origin(0.0, 500.0, 3840, 40.0), 0.0);
+        // Pre-roll before the timeline start (params pattern, origin 0):
+        // stays silent until tick 0, as before.
+        assert_eq!(rewind_origin(0.0, -960.0, 3840, 40.0), 0.0);
+        // The switch buffer's designed sub-buffer negative: bar 1's downbeat
+        // is placed at its exact sample by the window math — don't steal it.
+        assert_eq!(rewind_origin(1930.0, 1920.0, 3840, 40.0), 1930.0);
     }
 
     #[test]

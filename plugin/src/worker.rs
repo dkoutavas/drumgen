@@ -44,6 +44,10 @@ pub enum LogEvent {
     /// playing). Without this an export that silently fell back to a full
     /// pattern pass could not be told apart from one that ran correctly.
     JamEnd { marker: u8, tick: i64, pushed: bool },
+    /// The transport jumped behind the active pad's anchor (loop wrap or
+    /// relocate); the anchor was pulled back by whole patterns so playback
+    /// resumes instead of muting until the playhead reaches it again.
+    Rewind { from: i64, to: i64 },
 }
 
 /// Append-only session log at `~/drumgen_output/drumgen.log`. Worker-thread
@@ -111,6 +115,9 @@ impl LogSink {
                 if marker == crate::params::JAM_END_STOP { "stop" } else { "bank exit" },
                 if pushed { "recorded" } else { "SKIPPED: no pad was playing" }
             ),
+            LogEvent::Rewind { from, to } => {
+                format!("ORIGIN REWIND {from} -> {to} (backward jump behind the anchor)")
+            }
             LogEvent::Dirty { mask, cause } => format!(
                 "DIRTY {:04X} ({})",
                 mask,
