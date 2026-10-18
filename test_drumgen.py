@@ -11,7 +11,7 @@ from assembler import (
     parse_arrangement, realize_probability_grid, extract_layer,
     realize_euclidean, _euclid_pattern, _trig_allows,
     _normalize_grid, _validate_physical_constraints, _resolve_layer_conflicts,
-    _consolidate_time_signatures, LAYER_GROUPS,
+    _consolidate_time_signatures, _adapt_to_bar, LAYER_GROUPS,
 )
 from cell_library import (
     CELLS, STYLE_POOLS, SECTION_PREFERENCES,
@@ -2081,3 +2081,691 @@ class TestNotation:
                 v = n.find("voice").text
                 sums[v] = sums.get(v, 0) + int(n.find("duration").text)
             assert len(set(sums.values())) <= 1, f"measure {m.get('number')}: {sums}"
+
+
+# ── Doubled-note regressions (validate_midi --full caught these, pytest did not) ──
+
+def _dupes(events):
+    """(tick, instrument) pairs that appear more than once."""
+    from collections import Counter
+    return [k for k, n in Counter((e[0], e[1]) for e in events).items() if n > 1]
+
+
+class TestDoubledNotes:
+    """A hit must reach the sampler once. Each test names the bug it pins."""
+
+    def test_lone_hihat_pedal_survives_once(self):
+        # hihat_pedal was in the cymbal set AND the foot set, so a pedal alone
+        # on a slot came out twice (zona's comping cell, every pass).
+        out = _validate_physical_constraints([(1, 2, 0.0, "hihat_pedal", "soft")])
+        assert len(out) == 1
+
+    def test_pedal_coexists_with_hands_and_does_not_displace_the_hat(self):
+        hits = [(1, 1, 0.0, "hihat_pedal", "soft"), (1, 1, 0.0, "hihat_closed", "normal"),
+                (1, 1, 0.0, "kick", "normal")]
+        out = _validate_physical_constraints(hits)
+        assert sorted(h[3] for h in out) == ["hihat_closed", "hihat_pedal", "kick"]
+
+    def test_lone_hihat_pedal_survives_once_in_layer_conflicts(self):
+        out = _resolve_layer_conflicts([(1, 2, 0.0, "hihat_pedal", "soft")])
+        assert len(out) == 1
+
+    def test_zona_comping_has_no_doubled_pedal(self):
+        r = assemble(cell_name="prob_jazz_comp_4_4", bars=8, tempo=140, humanize=0.0, seed=3)
+        assert _dupes(r["events"]) == []
+
+    @pytest.mark.parametrize("section", ["chorus", "blast", "breakdown", "drive"])
+    def test_arrangement_section_start_is_not_stacked(self, section):
+        # assemble_arrangement injected a crash+kick on beat 1 of every intense
+        # section whether or not the cell already played them: 129 of 132
+        # section starts across the styles doubled a kick or crash.
+        bad = []
+        for style in STYLE_POOLS:
+            r = assemble_arrangement(style, f"2:verse 2:{section}", tempo=150,
+                                     humanize=0.0, seed=5)
+            bad += [(style, d) for d in _dupes(r["events"])]
+        assert bad == []
+
+    def test_arrangement_still_opens_an_intense_section_with_crash_and_kick(self):
+        # The guard must not turn the accent off: every style still gets a
+        # crash and a kick on the downbeat of its blast.
+        for style in STYLE_POOLS:
+            r = assemble_arrangement(style, "2:verse 2:blast", tempo=150, humanize=0.0, seed=5)
+            tick = calculate_bar_start_ticks(3, r["time_signatures"])
+            at = {e[1] for e in r["events"] if e[0] == tick}
+            assert any(i.startswith("crash") for i in at), style
+            assert "kick" in at, style
+
+    def test_write_midi_collapses_same_tick_same_pitch(self, tmp_path):
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        events = [(0, "kick", 90), (0, "kick", 120), (480, "snare", 100)]
+        out = str(tmp_path / "dup.mid")
+        write_midi(events, 120, ts, "ugritone", out)
+        ons = [(m.note, m.velocity) for m in mido.MidiFile(out).tracks[0]
+               if m.type == "note_on" and m.velocity > 0]
+        assert len(ons) == 2
+        assert (36, 120) in ons or any(v == 120 for _, v in ons)  # loudest kept
+
+
+class TestLayerModeRealization:
+    """Layer mode must key realized cells by OUTPUT bar (PROJECT.md lesson 5)."""
+
+    @pytest.mark.parametrize("meter", ["3/4", "5/4", "6/4", "6/8", "7/8"])
+    def test_layered_odd_meter_matches_the_bar(self, meter):
+        # The layered dummy cell had no time_sig, so the meter adapter treated
+        # it as 4/4 and vamped/clipped every bar in any other meter.
+        num, den = (int(x) for x in meter.split("/"))
+        pool = [n for n in BUILTIN_CELLS
+                if BUILTIN_CELLS[n].get("time_sig") == (num, den)
+                and BUILTIN_CELLS[n].get("role") == "groove"
+                and BUILTIN_CELLS[n].get("type") not in ("probability", "euclidean")]
+        if not pool:
+            pytest.skip(f"no fixed {meter} groove cell")
+        name = pool[0]
+        r = assemble_layered({"kick": name, "snare": name, "cymbal": name, "toms": name},
+                             bars=2, tempo=120, time_sig=meter, humanize=0.0, seed=1)
+        plain = assemble(cell_name=name, bars=2, tempo=120, time_sig=meter, humanize=0.0, seed=1)
+        assert _dupes(r["events"]) == []
+        # plain assemble() adds a bar-1 crash that layer mode does not; the
+        # adapter bug used to ADD ~9 vamped hits instead.
+        assert 0 <= len(plain["events"]) - len(r["events"]) <= 1
+        assert {(e[0], e[1]) for e in r["events"]} <= {(e[0], e[1]) for e in plain["events"]}
+
+    def test_euclidean_layer_phases_across_bars(self):
+        r = assemble_layered({"toms": "euclid_noise_polymeter_4_4"}, bars=4, tempo=120,
+                             humanize=0.0, seed=1)
+        bar = calculate_bar_start_ticks(2, r["time_signatures"])
+        per_bar = [sorted(e[0] - i * bar for e in r["events"] if i * bar <= e[0] < (i + 1) * bar)
+                   for i in range(4)]
+        assert len({tuple(b) for b in per_bar}) > 1, "every bar replayed bar 1: phasing lost"
+
+    @pytest.mark.parametrize("layer", ["kick", "snare", "cymbal"])
+    def test_prob_layer_matches_the_realized_grid(self, layer):
+        # A single probability layer must play exactly what the grid realizes
+        # over the whole pattern, bar for bar. Per-bar re-realization made trig
+        # conditions (`2:2` answers, `1st`/`last`) unreachable under --kick etc.
+        import random
+        name = "prob_jazz_comp_4_4"
+        r = assemble_layered({layer: name}, bars=4, tempo=120, humanize=0.0, seed=7)
+        realized = realize_probability_grid(get_cell(name), 4, random.Random(7))
+        want = _resolve_layer_conflicts(extract_layer(realized, layer))
+        ts = r["time_signatures"]
+        want_ticks = sorted((position_to_ticks(b, beat, sub, ts), inst)
+                            for b, beat, sub, inst, _ in want)
+        assert sorted((e[0], e[1]) for e in r["events"]) == want_ticks
+
+
+# ── Meter adapter ─────────────────────────────────────────────────────────────
+
+_ADAPT_METERS = [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (9, 8), (12, 8), (2, 4), (15, 4)]
+
+
+def _bar_ticks(sig):
+    return sig[0] * (DEFAULT_PPQ * 4 // sig[1])
+
+
+def _tick_in_bar(hit, sig):
+    _, beat, sub, _, _ = hit
+    return (beat - 1 + sub) * (DEFAULT_PPQ * 4 // sig[1])
+
+
+def _old_adapter(bar_hits, cell_beats, bar_beats):
+    """The adapter as it was before denominators were considered (reference)."""
+    if cell_beats == bar_beats:
+        return bar_hits
+    adapted = [h for h in bar_hits if h[1] <= bar_beats]
+    shift = cell_beats
+    while shift < bar_beats:
+        adapted += [(b, beat + shift, s, i, v)
+                    for b, beat, s, i, v in bar_hits if beat + shift <= bar_beats]
+        shift += cell_beats
+    return adapted
+
+
+class TestMeterAdapter:
+    HITS = [(1, 1, 0.0, "kick", "accent"), (1, 2, 0.0, "snare", "normal"),
+            (1, 2, 0.5, "hihat_closed", "soft"), (1, 3, 0.25, "kick", "normal"),
+            (1, 4, 0.0, "snare", "accent"), (1, 4, 0.75, "snare_ghost", "ghost")]
+
+    @pytest.mark.parametrize("cn,bn", [(4, 6), (4, 3), (4, 5), (7, 4), (6, 9), (3, 3)])
+    @pytest.mark.parametrize("den", [4, 8])
+    def test_same_denominator_is_unchanged(self, cn, bn, den):
+        # The equal-denominator path decides RNG order for every adapted bar
+        # already heard in Bitwig: it must stay byte-identical.
+        got = _adapt_to_bar(self.HITS, (cn, den), (bn, den))
+        assert got == _old_adapter(self.HITS, cn, bn)
+
+    def test_quarter_note_stays_a_quarter_in_a_six_eight_bar(self):
+        # 4/4 beat 2 is tick 480. In 6/8 (240-tick beats) that is beat 3. It used
+        # to land on beat 2 (tick 240): the whole cell at double speed.
+        got = _adapt_to_bar(self.HITS, (4, 4), (6, 8))
+        snare = [h for h in got if h[3] == "snare"]
+        assert (1, 3, 0.0) == snare[0][:3]
+        assert _tick_in_bar(snare[0], (6, 8)) == 480
+
+    def test_a_wider_cell_is_clipped_not_compressed(self):
+        # 4/4 in 7/8: the figure keeps its pulse and loses what passes the bar.
+        got = _adapt_to_bar(self.HITS, (4, 4), (7, 8))
+        assert all(_tick_in_bar(h, (7, 8)) < _bar_ticks((7, 8)) for h in got)
+        # beat 4 of the cell is at tick 1440; the 7/8 bar is 1680 long, so it stays.
+        assert any(h[3] == "snare" and _tick_in_bar(h, (7, 8)) == 1440 for h in got)
+
+    def test_a_six_eight_cell_vamps_twice_into_six_four(self):
+        cell = [(1, 1, 0.0, "kick", "accent"), (1, 4, 0.0, "snare", "accent")]
+        got = _adapt_to_bar(cell, (6, 8), (6, 4))
+        assert [_tick_in_bar(h, (6, 4)) for h in got] == [0, 720, 1440, 2160]
+
+    @pytest.mark.parametrize("cell_sig", _ADAPT_METERS)
+    @pytest.mark.parametrize("bar_sig", _ADAPT_METERS)
+    def test_every_adapted_hit_lands_inside_the_bar(self, cell_sig, bar_sig):
+        hits = [h for h in self.HITS if h[1] <= cell_sig[0]]
+        got = _adapt_to_bar(hits, cell_sig, bar_sig)
+        assert got, "an adapted bar must never be silent"
+        for h in got:
+            assert 0 <= _tick_in_bar(h, bar_sig) < _bar_ticks(bar_sig), (cell_sig, bar_sig, h)
+
+    def test_degenerate_signatures_do_not_loop_forever(self):
+        assert _adapt_to_bar(self.HITS, (4, 0), (4, 4)) == self.HITS
+        assert _adapt_to_bar(self.HITS, (0, 4), (4, 4)) == self.HITS
+
+    @pytest.mark.parametrize("meter", ["6/8", "7/8", "9/8", "12/8", "2/4"])
+    def test_a_forced_meter_plays_inside_its_bars_for_every_style(self, meter):
+        num, den = (int(x) for x in meter.split("/"))
+        for style in STYLE_POOLS:
+            r = assemble(style=style, bars=4, tempo=140, time_sig=meter, humanize=0.0, seed=3)
+            end = calculate_bar_start_ticks(5, r["time_signatures"])
+            assert r["events"], style
+            assert all(0 <= e[0] < end for e in r["events"]), (style, meter)
+
+
+# ── Drift checks: the plugin's data files must match their sources ────────────
+
+class TestDrift:
+    """These run in CI. The plugin embeds builtin.json and checks a golden
+    vector, and either can go stale silently when the Python side changes."""
+
+    def test_builtin_json_matches_cell_library(self):
+        import export_cells
+        assert export_cells.is_current(), (
+            "plugin/cells/builtin.json is stale: run `python export_cells.py` and commit it")
+
+    def test_golden_vector_matches_the_reference_engine(self):
+        import export_golden
+        assert export_golden.is_current(), (
+            "plugin/fixtures/golden_vector.json is stale: if the engine change was intended, "
+            "run `python export_golden.py`, re-verify BOTH suites, and commit it")
+
+    def test_a_missing_or_corrupt_export_reads_as_stale(self, tmp_path):
+        import export_cells
+        bad = tmp_path / "builtin.json"
+        assert not export_cells.is_current(str(bad))
+        bad.write_text("{not json")
+        assert not export_cells.is_current(str(bad))
+
+
+# ── Input validation: bad input is a message, not a traceback ─────────────────
+
+class TestInputValidation:
+    @pytest.mark.parametrize("text,want", [("4/4", (4, 4)), ("7/8", (7, 8)), ("15/4", (15, 4)),
+                                           ("2/2", (2, 2)), ("5/16", (5, 16))])
+    def test_good_time_signatures(self, text, want):
+        from assembler import parse_time_sig
+        assert parse_time_sig(text) == want
+
+    @pytest.mark.parametrize("text", ["4/0", "0/4", "4", "x/y", "", "4/3", "33/4", "-1/4", "4/4/4", "7/32"])
+    def test_bad_time_signatures_are_value_errors(self, text):
+        from assembler import parse_time_sig
+        with pytest.raises(ValueError):
+            parse_time_sig(text)
+
+    @pytest.mark.parametrize("kwargs", [{"tempo": 0}, {"tempo": -5}, {"bars": 0}, {"bars": -2}])
+    def test_engine_rejects_a_run_it_cannot_do(self, kwargs):
+        # tempo 0 divided by zero in the humanizer; bars <= 0 wrote an empty file.
+        with pytest.raises(ValueError):
+            assemble(style="screamo", **kwargs)
+
+    def test_degenerate_meters_are_rejected_everywhere(self):
+        with pytest.raises(ValueError):
+            assemble(style="screamo", time_sig="4/0")
+        with pytest.raises(ValueError):
+            assemble_arrangement("screamo", "4:verse", time_sig="0/4")
+        with pytest.raises(ValueError):
+            assemble_layered({"kick": "blast_traditional"}, time_sig="4/0")
+        with pytest.raises(ValueError):
+            parse_arrangement("4:verse@7/0")
+
+    def test_an_unknown_section_is_an_error_not_the_first_cell(self):
+        with pytest.raises(ValueError, match="Unknown section type 'blasst'"):
+            parse_arrangement("4:verse 2:blasst")
+        # Every real section still parses.
+        for sec in SECTION_PREFERENCES:
+            assert parse_arrangement(f"2:{sec}")[0][1] == sec
+
+    @pytest.mark.parametrize("args,needle", [
+        (["--tempo", "0"], "Tempo must be above 0"),
+        (["--time-sig", "4/0"], "Unsupported time signature"),
+        (["--bars", "0"], "Bars must be at least 1"),
+        (["--humanize", "5"], "--humanize must be between"),
+        (["--swing", "2"], "--swing must be between"),
+        (["--vary", "3"], "--vary must be between"),
+        (["--variations", "0"], "--variations must be at least 1"),
+        (["--fill-every", "-1"], "--fill-every must be"),
+        (["-a", "4:foo"], "Unknown section type"),
+        (["--kit", "nope"], "Kit mapping not found"),
+    ])
+    def test_cli_reports_bad_input_without_a_traceback(self, args, needle, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "screamo", "--bars", "2",
+             "-o", str(tmp_path / "x.mid"), *args],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode != 0
+        assert "Traceback" not in run.stderr, run.stderr
+        assert needle in run.stderr, run.stderr
+
+    def test_cli_unknown_cell_message_is_not_a_repr(self, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--cell", "nope", "-o", str(tmp_path / "x.mid")],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode == 1
+        assert "\\n" not in run.stderr, "KeyError repr leaked a literal backslash-n"
+        assert "Traceback" not in run.stderr
+
+
+# ── Platform paths ────────────────────────────────────────────────────────────
+
+class TestPlatformPaths:
+    def test_native_linux_is_not_wsl_just_because_mnt_c_exists(self, monkeypatch):
+        import platform_paths
+        calls = []
+        monkeypatch.setattr(platform_paths.subprocess, "run", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: False)
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        assert platform_paths.default_output_dir() == str(platform_paths.REPO_OUTPUT)
+        assert calls == [], "must not spawn cmd.exe off WSL"
+
+    def test_wsl_is_detected_from_the_kernel_not_a_directory(self, monkeypatch, tmp_path):
+        import platform_paths
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        fake = tmp_path / "version"
+        monkeypatch.setattr(platform_paths, "Path", lambda p: fake)
+        fake.write_text("Linux version 5.15.0-microsoft-standard-WSL2")
+        assert platform_paths.is_wsl()
+        fake.write_text("Linux version 6.1.0-generic")
+        assert not platform_paths.is_wsl()
+
+    @pytest.mark.parametrize("platform,wsl,want", [
+        ("linux", False, "xdg-open"), ("darwin", False, "open"), ("linux", True, "explorer.exe"),
+    ])
+    def test_open_folder_uses_the_platforms_launcher(self, monkeypatch, platform, wsl, want):
+        import platform_paths
+        launched = []
+        monkeypatch.setattr(platform_paths.sys, "platform", platform)
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: wsl)
+        monkeypatch.setattr(platform_paths.subprocess, "Popen", lambda cmd, **k: launched.append(cmd))
+        monkeypatch.setattr(platform_paths.subprocess, "run",
+                            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})())
+        cmd = platform_paths.open_folder("/home/x/out")
+        assert cmd[0] == want
+        assert launched == [cmd]
+
+    def test_open_folder_without_a_launcher_does_not_crash(self, monkeypatch):
+        import platform_paths
+        monkeypatch.setattr(platform_paths.sys, "platform", "linux")
+        monkeypatch.setattr(platform_paths, "is_wsl", lambda: False)
+        def boom(*a, **k):
+            raise FileNotFoundError("xdg-open")
+        monkeypatch.setattr(platform_paths.subprocess, "Popen", boom)
+        assert platform_paths.open_folder("/tmp") is None
+
+
+class TestReportedCell:
+    def test_assemble_reports_the_cell_that_played(self):
+        r = assemble(style="faraquet", bars=2, tempo=140, time_sig="7/8", humanize=0.0, seed=1)
+        assert r["cell_name"] in CELLS
+        assert tuple(CELLS[r["cell_name"]]["time_sig"]) == (7, 8), \
+            "a 7/8 request must report a 7/8 cell, not the style's first pool cell"
+
+    def test_an_explicit_cell_is_reported_as_itself(self):
+        r = assemble(cell_name="blast_traditional", bars=2, tempo=180, humanize=0.0, seed=1)
+        assert r["cell_name"] == "blast_traditional"
+
+    def test_every_fill_is_one_bar(self):
+        # assemble() indexes a fill as (bar_idx % num_bars) + 1, which is only
+        # right for one-bar fills. This keeps the ceiling honest.
+        multi = [n for n, c in BUILTIN_CELLS.items() if c.get("role") == "fill" and c["num_bars"] != 1]
+        assert multi == []
+
+
+class TestSectionDriftKeys:
+    def test_every_drift_key_is_a_reachable_section(self):
+        from humanizer import _SECTION_DRIFT, _SECTION_TYPE_TAGS
+        reachable = set(SECTION_PREFERENCES) | {sec for sec, _ in _SECTION_TYPE_TAGS}
+        assert sorted(set(_SECTION_DRIFT) - reachable) == []
+
+
+# ── GUI pattern preview (pattern_text.py) ────────────────────────────────────
+
+class TestPatternPreview:
+    """The Streamlit preview drew four columns per beat in every meter, so a
+    7/8 bar showed 28 '1 e + a' columns of 32nds, and it bucketed every bar by
+    the FIRST section's meter, so mixed-meter arrangements landed in the wrong
+    bars. One column per sixteenth now, bars from the real meter map."""
+
+    def test_four_four_layout(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        out = build_pattern_preview([(0, "kick", 110), (480, "snare", 80)], ts).splitlines()
+        assert out[0].split(":", 1)[1].split() == "1 e + a 2 e + a 3 e + a 4 e + a".split()
+        assert out[1].split()[1] == "X"           # kick on 1, accent
+        assert out[2].split()[5] == "x"           # snare on 2, normal
+
+    def test_seven_eight_has_one_column_per_sixteenth(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 7, "denominator": 8}]
+        out = build_pattern_preview([(0, "kick", 110), (120, "snare_ghost", 30)], ts).splitlines()
+        labels = out[0].split(":", 1)[1].split()
+        assert labels == "1 + 2 + 3 + 4 + 5 + 6 + 7 +".split()
+        ghost = out[2].split()[1:]
+        assert ghost[1] == "o", "tick 120 is the second sixteenth of beat 1"
+
+    def test_mixed_meter_bars_land_in_their_own_bar(self):
+        from pattern_text import build_pattern_preview
+        r = assemble_arrangement("faraquet", "1:verse@4/4 1:verse@7/8", tempo=140,
+                                 humanize=0.0, seed=1)
+        out = build_pattern_preview(r["events"], r["time_signatures"])
+        assert "Bar 1:" in out and "Bar 2 (7/8):" in out
+        bar2 = out.split("Bar 2 (7/8):", 1)[1].split("\n")[0].split()
+        assert len(bar2) == 14
+
+    def test_empty(self):
+        from pattern_text import build_pattern_preview
+        ts = [{"bar_start": 1, "bar_end": 1, "numerator": 4, "denominator": 4}]
+        assert build_pattern_preview([], ts) == "No events to display."
+
+
+# ── Auto-tagging learns section function (the corpus-stage blocker) ─────────
+
+class TestAutoTagFunction:
+    """auto_tag_cell emitted only density/blast/halftime/fill tags, so no
+    imported cell could ever score for an intro, build, atmospheric or outro
+    section. The thresholds are pinned to the authored library: an authored
+    build reads as a build, an authored groove does not."""
+
+    @staticmethod
+    def _as_imported(name):
+        from assembler import _normalize_hits
+        c = CELLS[name]
+        return {"name": name, "hits": [list(h) for h in _normalize_hits(c)],
+                "time_sig": c["time_sig"], "num_bars": c["num_bars"], "role": "groove"}
+
+    @pytest.mark.parametrize("name", ["daitro_quiet_build", "deafheaven_build_to_blast",
+                                      "city_of_caterpillar_build", "transition_cymbal_swell",
+                                      "motorik_build"])
+    def test_authored_builds_read_as_builds(self, name):
+        from midi_reader import auto_tag_cell
+        tags = auto_tag_cell(self._as_imported(name))["tags"]
+        assert "build" in tags and "crescendo" in tags
+
+    @pytest.mark.parametrize("name", ["faraquet_7_8", "postpunk_busy", "atdi_relationship_groove",
+                                      "kidcrash_crash_wash", "raein_octopus_groove", "qanu_dancepunk",
+                                      "daitro_blast_release", "liturgy_pillar_stabs",
+                                      "deafheaven_shimmer_blast"])
+    def test_grooves_and_releases_are_not_builds(self, name):
+        from midi_reader import auto_tag_cell
+        assert "build" not in auto_tag_cell(self._as_imported(name))["tags"]
+
+    def test_authored_quiet_material_reads_as_quiet(self):
+        from midi_reader import auto_tag_cell
+        assert "quiet" in auto_tag_cell(self._as_imported("blackmetal_atmospheric"))["tags"]
+        for loud in ("raein_melodic_drive", "postpunk_busy", "blast_traditional"):
+            assert "quiet" not in auto_tag_cell(self._as_imported(loud))["tags"], loud
+
+    def test_one_bar_cells_and_fills_are_never_builds(self):
+        from midi_reader import auto_tag_cell
+        cell = {"hits": [[1, b, 0.0, "kick", "accent"] for b in (1, 2, 3, 4)],
+                "time_sig": (4, 4), "num_bars": 1}
+        assert "build" not in auto_tag_cell(cell)["tags"]
+        fill = {"hits": [[1, 1, 0.0, "tom_high", "soft"], [2, 1, 0.0, "tom_low", "accent"],
+                         [2, 2, 0.0, "tom_floor", "accent"], [2, 3, 0.0, "tom_floor", "accent"]],
+                "time_sig": (4, 4), "num_bars": 2, "role": "groove"}
+        tags = auto_tag_cell(fill)["tags"]
+        assert "fill" in tags and "build" not in tags
+
+    def test_a_rendered_build_survives_the_midi_round_trip(self, tmp_path):
+        # The real import path: .mid file -> midi_to_cell -> auto_tag_cell.
+        from midi_reader import midi_to_cell, auto_tag_cell
+        r = assemble(cell_name="daitro_quiet_build", bars=8, tempo=120, humanize=0.0, seed=1)
+        mid = str(tmp_path / "build.mid")
+        write_midi(r["events"], 120, r["time_signatures"], "ugritone", mid)
+        cell = auto_tag_cell(midi_to_cell(mid, kit_name="ugritone"))
+        assert "build" in cell["tags"], cell["tags"]
+
+
+class TestTagToPools:
+    """TAG_TO_POOLS is how an imported cell joins style pools. Nine pools
+    (zona among them) had no route at all, so an imported cell could never
+    play in them however it was tagged."""
+
+    def test_every_style_pool_is_reachable_by_some_tag(self):
+        from cell_library import TAG_TO_POOLS
+        reachable = {p for pools in TAG_TO_POOLS.values() for p in pools}
+        assert sorted(set(STYLE_POOLS) - reachable) == []
+
+    def test_every_route_names_a_real_pool(self):
+        from cell_library import TAG_TO_POOLS
+        bad = {t: p for t, pools in TAG_TO_POOLS.items() for p in pools if p not in STYLE_POOLS}
+        assert bad == {}
+
+    def test_an_imported_zona_cell_joins_the_zona_pool(self, monkeypatch):
+        import copy
+        import cell_library
+        fake = {"name": "imported_zona_test", "tags": ["imported", "zona", "quiet"],
+                "time_sig": (4, 4), "num_bars": 1, "humanize": 0.4, "role": "groove",
+                "hits": [(1, 1, 0.0, "kick", "soft")], "source": "imported"}
+        cells = dict(cell_library.CELLS, imported_zona_test=fake)
+        pools = copy.deepcopy(cell_library.STYLE_POOLS)
+        monkeypatch.setattr(cell_library, "CELLS", cells)
+        monkeypatch.setattr(cell_library, "STYLE_POOLS", pools)
+        cell_library._integrate_user_cells_into_pools()
+        assert "imported_zona_test" in pools["zona"]
+        assert fake["_pools"] == ["zona"]
+
+
+# ── Generated song forms ──────────────────────────────────────────────────────
+
+def _plugin_valid_arrangement(arr):
+    """params.rs valid_arrangement, transcribed: what the plugin will play."""
+    total, any_ = 0, False
+    for token in arr.split():
+        if ":" not in token:
+            return False
+        bars, rest = token.split(":", 1)
+        if not bars.isdigit() or not 1 <= int(bars) <= 32:
+            return False
+        if "@" in rest:
+            rest, ts = rest.split("@", 1)
+            n, _, d = ts.partition("/")
+            if not (n.isdigit() and 1 <= int(n) <= 15 and d in ("4", "8")):
+                return False
+        if rest.lower() not in SECTION_PREFERENCES:
+            return False
+        total += int(bars)
+        any_ = True
+    return any_ and total <= 64
+
+
+class TestGeneratedForms:
+    """arrangement_gen: shape + form seed -> an arrangement string. The rules
+    are the ones docs/generated-arrangements.md promises."""
+
+    SEEDS = range(2000)
+    STYLES = ["fugazi", "posthardcore", "zona", "kidcrash", "screamo", "blast"]
+
+    @staticmethod
+    def _sections(shape, seed, style="fugazi", meter_auto=True):
+        import arrangement_gen as ag
+        return ag.generate_sections(shape, seed, ag.style_meters(style), meter_auto=meter_auto)
+
+    def test_splitmix64_is_the_reference_stream(self):
+        # Vigna's SplitMix64 seeded with 0: the Rust port must draw these too.
+        from arrangement_gen import Dice
+        d = Dice(0, 0)
+        assert [d.draw() for _ in range(3)] == [
+            0xE220A8397B1DCDAF, 0x6E789E6AA1B965F4, 0x06C45D188009454F]
+
+    def test_every_form_is_playable_by_both_engines(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for style in self.STYLES:
+                for seed in self.SEEDS:
+                    arr = ag.generate_form(shape, seed, style=style)
+                    assert _plugin_valid_arrangement(arr), (shape, style, seed, arr)
+                    parse_arrangement(arr)  # the Python engine accepts it too
+
+    def test_length_stays_in_range(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                total = sum(b for b, _, _ in self._sections(shape, seed))
+                assert ag.MIN_BARS <= total <= ag.MAX_BARS, (shape, seed, total)
+
+    def test_fills_only_lead_into_intense_sections(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                secs = [s for _, s, _ in self._sections(shape, seed)]
+                for i, s in enumerate(secs):
+                    if s == "fill":
+                        assert i + 1 < len(secs) and secs[i + 1] in ag.INTENSE, (shape, seed, secs)
+
+    def test_silence_is_a_spice(self):
+        import arrangement_gen as ag
+        for shape, form in ag.FORMS.items():
+            for seed in self.SEEDS:
+                secs = self._sections(shape, seed)
+                names = [s for _, s, _ in secs]
+                assert names[0] != "silence" and names[-1] != "silence", (shape, seed)
+                assert names.count("silence") <= form["max_silences"], (shape, seed)
+                assert all(b == 1 for b, s, _ in secs if s == "silence")
+                assert all(not (a == b == "silence") for a, b in zip(names, names[1:]))
+
+    def test_no_section_repeats_itself_back_to_back(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            for seed in self.SEEDS:
+                secs = [(s, ts) for _, s, ts in self._sections(shape, seed)]
+                for a, b in zip(secs, secs[1:]):
+                    assert a != b or a[0] in ("fill", "silence"), (shape, seed, secs)
+
+    def test_odd_lengths_only_where_the_records_use_them(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            if shape in ("maze", "stop_go"):
+                continue
+            for seed in self.SEEDS:
+                odd = [(b, s) for b, s, _ in self._sections(shape, seed) if b % 2 and b != 1]
+                assert odd == [], (shape, seed, odd)
+
+    def test_meter_turns_honour_the_meter_promise(self):
+        import arrangement_gen as ag
+        for style in self.STYLES:
+            own = set(ag.style_meters(style))
+            for shape, form in ag.FORMS.items():
+                for seed in self.SEEDS:
+                    turned = [(s, ts) for _, s, ts in self._sections(shape, seed, style) if ts]
+                    assert len(turned) <= form["turns"], (shape, seed, turned)
+                    for sec, ts in turned:
+                        assert sec in ag.TURNABLE and ts in own and ts != (4, 4), (style, shape, seed)
+
+    def test_a_four_four_only_style_never_turns(self):
+        import arrangement_gen as ag
+        assert ag.style_meters("kidcrash") == [(4, 4)]
+        for seed in self.SEEDS:
+            assert "@" not in ag.generate_form("maze", seed, style="kidcrash")
+
+    def test_a_forced_meter_holds_the_whole_form(self):
+        import arrangement_gen as ag
+        for seed in self.SEEDS:
+            assert "@" not in ag.generate_form("maze", seed, style="fugazi", meter_auto=False)
+
+    def test_the_turns_happen_somewhere(self):
+        import arrangement_gen as ag
+        forms = [ag.generate_form(s, seed, style="fugazi") for s in ("arc", "maze") for seed in range(200)]
+        assert sum("@" in f for f in forms) > 100
+
+    def test_structure_does_not_depend_on_the_style(self):
+        """'ARC 42' is the same skeleton everywhere; only the turns differ."""
+        import arrangement_gen as ag
+        strip = lambda secs: [(b, s) for b, s, _ in secs]
+        for shape in ag.FORMS:
+            for seed in range(300):
+                shapes = {tuple(strip(self._sections(shape, seed, st))) for st in self.STYLES}
+                assert len(shapes) == 1, (shape, seed)
+
+    def test_same_seed_same_form_and_seeds_differ(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            forms = [ag.generate_form(shape, seed, style="fugazi") for seed in range(200)]
+            assert forms == [ag.generate_form(shape, seed, style="fugazi") for seed in range(200)]
+            assert len(set(forms)) >= 40, (shape, len(set(forms)))
+
+    def test_shapes_keep_their_character(self):
+        for seed in range(500):
+            names = lambda shape: [s for _, s, _ in self._sections(shape, seed)]
+            arc = names("arc")
+            assert "build" in arc and arc.index("build") < max(
+                i for i, s in enumerate(arc) if s in ("blast", "drive"))
+            assert "blast" not in names("slow_burn") and "chorus" not in names("slow_burn")
+            assert names("quiet_loud")[0] == "atmospheric" and "blast" in names("quiet_loud")
+            vc = names("verse_chorus")
+            assert vc.count("verse") == 2 and vc.count("chorus") >= 2
+            assert "breakdown" in names("stop_go")
+            assert len([s for s in names("maze") if s not in ("fill", "silence")]) >= 5
+
+    def test_unknown_shape_and_bad_seed_are_rejected(self):
+        import arrangement_gen as ag
+        with pytest.raises(ValueError, match="Unknown form"):
+            ag.generate_form("sonata", 1)
+        with pytest.raises(ValueError, match="Form seed"):
+            ag.generate_form("arc", -1)
+
+    def test_form_name_fits_a_songs_txt_name(self):
+        import arrangement_gen as ag
+        for shape in ag.FORMS:
+            assert len(ag.form_name(shape, ag.FORM_SEED_MAX)) <= 10
+            assert len(ag.FORMS[shape]["label"]) <= 10
+
+    def test_cli_plays_the_form_and_prints_it(self, tmp_path):
+        import subprocess, sys
+        import arrangement_gen as ag
+        out = tmp_path / "f.mid"
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "fugazi", "--form", "maze",
+             "--form-seed", "2", "--seed", "1", "-o", str(out)],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode == 0, run.stderr
+        form = ag.generate_form("maze", 2, style="fugazi")
+        assert f"MAZE 2 | {form}" in run.stdout
+        total = sum(int(t.split(":")[0]) for t in form.split())
+        assert f"Bars: {total}" in run.stdout
+        assert out.exists()
+
+    @pytest.mark.parametrize("args,needle", [
+        (["--form", "arc", "-a", "4:verse"], "--form and --arrangement"),
+        (["--form-seed", "3"], "--form-seed needs --form"),
+        (["--form", "arc", "--form-seed", "10000"], "--form-seed must be between"),
+        (["--form", "arc", "--toms", "blast_traditional"], "cannot be used with --arrangement or --form"),
+    ])
+    def test_cli_form_misuse(self, args, needle, tmp_path):
+        import subprocess, sys
+        run = subprocess.run(
+            [sys.executable, "drumgen.py", "--style", "fugazi", "-o", str(tmp_path / "x.mid"), *args],
+            capture_output=True, text=True, cwd=os.path.dirname(os.path.abspath(__file__)),
+        )
+        assert run.returncode != 0
+        assert needle in run.stderr, run.stderr

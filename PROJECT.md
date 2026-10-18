@@ -76,14 +76,30 @@ notes, forever. A groove you loved is recoverable by writing down a number.
 Taste is data. The cell library is a curated vocabulary rather than a dataset.
 The author's ear is the training signal, applied at authoring time.
 
-## 4. Where it stands (2026-08-01)
+## 4. Where it stands (2026-10-18)
 
-`main` is tagged v0.2.0 (2026-07-26): the hardening batch, the vocabulary
+The last tag is v0.2.0 (2026-07-26): the hardening batch, the vocabulary
 work, kidcrash/lord_snow, and the dice roll, merged after the author's
 listening pass (the final dice commit was waived onto the tag on his call,
 covered by the permutation + audibility tests). CI builds Linux / Windows /
-macOS artifacts and cuts the GitHub Release from the tag. Active work
-continues on `plugin-hardening`, merged to main only after ears.
+macOS artifacts and cuts the GitHub Release from a tag.
+
+`main` has since taken `plugin-hardening` (the 2026-08-01 session below), the
+2026-10-02 review pass, and the 2026-10-12 no-DAW session ([PR #1](https://github.com/dkoutavas/drumgen/pull/1), merged after
+green CI on all three platforms). Much of that is still unheard (§8); v0.3.0
+gets tagged after the listen.
+
+On 2026-10-18 the author's ears signed off the 2026-08-01 build's loop-wrap
+fix in Bitwig (drums held through a loop region wrapping a pad switch), and
+`plugin-hardening` took `main` back. Two things had been built twice while
+the branch sat: generated forms (main's FORM / FORM SEED kept, with its
+Python mirror and cross-engine fixture; the branch's plugin-only "Gen" song
+entry and `composer.rs` dropped) and the silence-behind-the-anchor bug
+(main's `window_start` kept, which wraps a negative position periodically;
+the branch's ear-verified `rewind_origin` dropped as redundant, so the loop
+wrap is back on the listen list). The branch's own contribution came across
+intact: the jam recorder (`jam.rs`, SAVE JAM with a cue sheet) and a guard
+that keeps drum-channel MIDI from triggering pads.
 
 The 2026-08-01 session shipped three things on `plugin-hardening`, all
 verified in Bitwig (the last one via the session log, not screenshots):
@@ -107,10 +123,48 @@ PDF drum chart — the notation chain is proven end-to-end. lord_snow reads as
 "pretty confined": three cells don't span Erik Anderson's range yet; widen
 it as more Lord Snow material gets mined.
 
-Scale: 117 cells (28 probability grids, 5 Euclidean, 26 fills) across 30
-plugin style pools (32 Python pools incl. CLI-only aliases), 10 built-in song
-forms plus unlimited user forms, ~6,300 lines of Rust plugin, ~5,200 lines of
-Python engine/tools, 290 Python + 101 Rust tests green.
+Scale: 121 cells (32 probability grids, 5 Euclidean, 26 fills) across 30
+plugin style pools (33 Python pools incl. 3 CLI-only aliases), 9 built-in song
+forms plus unlimited user forms plus 6 generated-form shapes, ~10,000 lines of
+Rust (plugin + engine), ~6,300 lines of Python engine/tools plus 4,200 of
+cells, 520 Python + 170 Rust tests green.
+
+The 2026-10-12 session had no DAW, so it turned "unverified" into "verified
+without ears" where a Linux box could, and built what needs no host:
+
+- Generated song forms, end to end: a shape and a form seed become an
+  arrangement string (`arrangement_gen.py`, CLI `--form/--form-seed`), the
+  Rust engine produces the identical form (216 cross-engine fixture cases),
+  and the plugin has FORM and FORM SEED controls, pads that keep a form, and
+  the form in the log and the file name. Design and decisions:
+  `docs/generated-arrangements.md`.
+- Ways to check work without Bitwig: `scripts/gui-smoke.py` (Streamlit GUI,
+  headless), `scripts/ab_render.py` (before/after audio of an engine change),
+  `scripts/audition_cells.py` and `scripts/audition_forms.py` (candidate cells
+  and forms as MP3 + chart), `scripts/editor-shots.sh` (the plugin editor,
+  screenshotted from a standalone build on a virtual display).
+- Engine hardening: a 7/8 Euclidean golden vector; a panicking live build now
+  ends `await_pending` at once (`Published::Failed`).
+- Corpus blockers: auto-tagging detects `quiet` and `build`, and every style
+  pool is reachable by an import tag.
+- Four intro/outro sketch cells, in no pool until heard.
+- Two editor glyphs no font had (the DICE die, the telegraph arrow) drew as
+  boxes; found by the screenshots, fixed, and guarded by a test.
+
+The 2026-10-02 review pass (a full code, plugin, parity and docs review, each
+finding checked against the source before fixing) found and fixed, on both
+engines unless noted: a lone `hihat_pedal` played twice; every intense section
+start in Song Mode stacked a second kick/crash a few ticks from the cell's own
+(a flam at nearly every section change); layer mode lost Euclidean phasing and
+trig conditions and doubled hits in odd meters (Python); and the meter adapter
+counted beats instead of time, so a /4 cell in a /8 bar played at double speed.
+In the plugin: an unbounded wait hung the audio thread when a build panicked,
+rewinding after a pad switch played silence, forced-meter pads never generated
+after a project load, an unanswered pad build was never retried, a hit on a
+buffer seam could fire twice or never, SONG in a pad was an index into an
+editable file, and the step grid clamped at 24 columns. The cause of the 2 FAIL
+and 32 WARN `validate_midi --full` had been reporting while pytest read green
+was the first two; it is clean now and CI runs it.
 
 ### Feature inventory
 
@@ -120,17 +174,19 @@ Python engine/tools, 290 Python + 101 Rust tests green.
 | Cell types | fixed hits, probability grids (per-seed realization), Euclidean limbs (polymeter) |
 | Trig conditions | `A:B` pass ratios, `1st`, `last`, `pre`, `!pre`: memory across the pattern |
 | Shaped randomness | syncopation guard (Witek inverted-U band), tension envelope per pattern |
-| Song Mode | 10 forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere) + `~/.config/drumgen/songs.txt` |
+| Song Mode | 9 forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere) + `~/.config/drumgen/songs.txt` |
+| Generated forms | 6 shapes (Verse/Chor, Arc, Stop/Go, Quiet/Loud, Maze, Slow Burn) × form seed 0–9999; same form in CLI and plugin; meter turns only on Auto, only into meters the style owns |
 | Section dynamics | per-section velocity base/slope + tension multiplier (builds rise and thicken) |
 | Fills | 26 cells, meter-matched, chosen by `into_<next_section>` intent, alternating per fill bar |
 | Humanization | velocity variance, timing tendencies, swing, wrist contour, section drift, kick-snare flam, ghost clustering |
 | Meter | a promise, never a filter: host time signature followed live in Auto; forced 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8; per-section `@N/M`; fallback cells adapt to the requested bar |
-| Pattern bank | 16 pads (MIDI notes 36–51 + GUI), stored param snapshots, bar-quantized switching, persists with the project, patterns regenerate from seeds |
-| Session log | `~/drumgen_output/drumgen.log`: one line per decision (triggers, swaps, bank exits, dirty causes, generations) |
-| GUI | 8-bit (Sweetie-16 + Press Start 2P), 720×440 resizable, horizon strip w/ sweeping playhead cursor, telegraph countdown, bank row, step grid, pageable bars |
-| Export | SAVE .MID (hand-rolled SMF) + `on_save` hook → auto MusicXML score |
+| Pattern bank | 16 pads (MIDI notes 36–51 + GUI), stored param snapshots (song and form included), bar-quantized switching, persists with the project, patterns regenerate from seeds |
+| Session log | `~/drumgen_output/drumgen.log`: one line per decision (triggers, swaps, bank exits, dirty causes, generations), every song or form as a `songs.txt` line |
+| GUI | 8-bit (Sweetie-16 + Press Start 2P), 720×440 resizable, FORM + FORM SEED, horizon strip w/ sweeping playhead cursor, telegraph countdown, bank row, step grid, pageable bars |
+| Export | SAVE .MID (hand-rolled SMF, file named after the song or form) + `on_save` hook → auto MusicXML score |
+| No-DAW checks | Streamlit smoke test, before/after audio renders, cell and form auditions, plugin editor screenshots (`scripts/`) |
 | Notation | `notation.py` → MusicXML → MuseScore 4 (installed via Flatpak) → PDF |
-| RT safety | generation on a worker thread; audio thread does one relaxed atomic store, no allocation, no locks that block |
+| RT safety | generation and the session log on a worker thread; audio thread uses relaxed atomics and `try_lock`/`try_send` only, no allocation, one bounded wait (`await_pending`) |
 
 ## 5. Architecture
 
@@ -141,6 +197,7 @@ Python engine/tools, 290 Python + 101 Rust tests green.
   │ assembler.py     (assembly)   │─────▶│ engine/assembler.rs            │
   │ humanizer.py     (feel)       │ port │ engine/humanizer.rs            │
   │ midi_engine.py   (ticks/SMF)  │      │ engine/midi_math.rs            │
+  │ arrangement_gen.py (forms)    │      │ engine/arrangement_gen.rs      │
   └───────────────────────────────┘      ├────────────────────────────────┤
         │              │                  │ worker.rs   (gen thread)      │
         │              └── export_cells.py│ generation.rs (params→pattern)│
@@ -159,6 +216,9 @@ are data, edit `cell_library.py`, run `python export_cells.py`, done.
 
 Cross-engine bit-parity is impossible (Mersenne Twister vs ChaCha8) and
 that's accepted; parity is asserted on structure and behavior rather than bytes.
+The one exception is song forms: they use their own integer dice (SplitMix64),
+so the CLI and the plugin produce the identical form, pinned exactly by the
+fixture.
 
 Plugin-boundary policy: seeds are salted with the style name in
 `generation.rs` (so two styles never share an RNG stream), and a "vary floor"
@@ -170,15 +230,20 @@ in the engine, so the engine stays a faithful port.
 ```bash
 # Python side
 source .venv/bin/activate
-python -m pytest test_drumgen.py -q          # 289 tests
+python -m pytest test_drumgen.py -q          # 520 tests
 python validate_midi.py                      # pipeline sanity
 python export_cells.py                       # after ANY cell_library.py edit
 
 # Rust side
-cd plugin && cargo test                      # 73 tests
+cd plugin && cargo test                      # 160 tests
 ./build-linux.sh                             # → ~/.vst3 + ~/.clap
 
 # Then: restart Bitwig (a loaded .so stays in memory), re-add the device.
+
+# No DAW to hand (all in scripts/, each documents its own setup)
+python scripts/ab_render.py --out /tmp/ab        # before/after audio of an engine change
+python scripts/audition_forms.py --out /tmp/f    # one generated form per shape
+scripts/editor-shots.sh /tmp/shots               # the plugin editor, screenshotted
 ```
 
 The loop that works: implement → both suites green → build/install → the
@@ -216,8 +281,9 @@ Use it for anything ambiguous or risky; it earns its cost.
 8. MuseScore 4 has no MIDI import panel. MusicXML is the only clean door.
 9. Guitar Pro 5 survives as a file format; the application is gone (Wine is a dead end;
    TuxGuitar converts MusicXML → .gp5 if a drummer insists).
-10. The audio thread gets exactly one relaxed atomic store for the GUI
-    playhead. Everything else derives GUI-side.
+10. The audio thread publishes to the GUI with relaxed atomics only (playhead
+    tick, bank state). Locks are `try_lock`, the log and all file IO live on the
+    worker. Everything else derives GUI-side.
 11. Features that exist only as files do not exist. songs.txt and the
     notation pipeline both had to be surfaced (starter file planted on first
     run; save hook; hover texts) before the author found them.
@@ -232,8 +298,99 @@ Use it for anything ambiguous or risky; it earns its cost.
     99 tests and still froze in the field, because no harness mislabels its
     process mode. The session log exists so the next field-only bug costs
     one text file, not three screenshots.
+15. Every wait on the audio thread needs a deadline. `await_pending` blocked on
+    an unbounded `recv()`; a generation that panicked published nothing while
+    the worker lived on, so the wait never ended. Under lesson 12's Offline lie
+    that was the live audio thread. It is bounded (`OFFLINE_WAIT`) now.
+16. "Before the pattern" is only silence where the pattern really starts. A
+    pad swapped in at bar 20 left `origin` there; rewinding or looping to
+    before it produced a negative window, which played nothing until the
+    transport climbed back. A negative start is legitimate only in the buffer
+    the swap lands in.
+17. A flag where a mask belongs loses events. `dirty_auto_only: bool` let one
+    host meter report overwrite the load-time dirty set of every forced-meter
+    pad, so they never generated. Overlapping causes need per-cause sets.
+18. Look at the editor, not just its tests. The DICE die and the telegraph
+    arrow are in no loaded font and drew as boxes for months; no test could
+    see it and no one mentioned it. `scripts/editor-shots.sh` renders the real
+    editor without a DAW, and a test now rejects any glyph no font has.
+19. When two engines must agree exactly, give them their own integer dice.
+    Engine RNGs cannot match across languages; a ten-line SplitMix64 can, and
+    a fixture then pins it byte for byte (generated forms).
 
 ## 8. Open threads
+
+Awaiting the author's ears. Tests are green and the data files are current,
+but none of this has been heard.
+
+From 2026-10-18 (the merge that brought the jam recorder across):
+
+- The jam recorder: build two or three pads, play, switch pads a few times,
+  stop, SAVE JAM. The `.mid` must be one clip with each pad tiled across its
+  span and every switch on a barline; the `.txt` next to it must list the
+  meter changes in order. A stop or a bank exit must close the run.
+- Loop wrap behind a pad switch, again: the 2026-08-01 fix the ears passed
+  was replaced by main's `window_start`. The same loop region must hold in
+  both directions, and stop → relocate before the switch point → play must
+  sound from bar 1 (the origin re-anchors to the timeline on start).
+- The drum-channel MIDI guard: notes on the drum channel must not fire pads.
+
+From 2026-10-12 (renders were sent with listening sheets; regenerate them
+with the scripts in §6):
+
+- Generated forms by ear (`scripts/audition_forms.py`): does each shape
+  read as its name? Taste calls: is a meter turn at the Arc's peak a lift or a
+  stumble, and is Slow Burn's missing payoff tension or anticlimax?
+- FORM in Bitwig: the stepper and the FORM SEED box (click rolls, drag
+  scrubs), a pad that stores a form surviving a project reload, a host meter
+  flip under Auto re-baking a form pad, and the `SONG` line in the log.
+- The four intro/outro sketch cells (`scripts/audition_cells.py`): keep,
+  rework or drop, and whether each joins its pools (see the matrix below).
+- DICE now reads `DICE` and the telegraph arrow is `▶`: check both at
+  Bitwig's scale.
+- SAVE .MID in song or form mode now puts the name in the file
+  (`fugazi_arc42_…`); check the hook and the score still run.
+- The help pass: hover texts at Bitwig's scale and tooltip delay, and the
+  `?` overlay. Does it explain the bank to someone who has not used it?
+
+From 2026-10-02:
+
+- Song Mode into a chorus / blast: one kick and one crash on the downbeat, not
+  a stacked pair. A zona groove: no doubled chick on beats 2 and 4.
+- A /4 style forced to 6/8 and 7/8: it now keeps its pulse and loses the end of
+  the figure, instead of playing at double speed. This one is a taste call.
+- Store two pads, one with a forced meter, save, reopen: both play. Jam, stop,
+  rewind, play: sound from bar 1. Loop a region across a pad switch.
+- STORE while a pad plays copies that pad. Drag a knob: one undo step.
+- Playback across a tempo ramp; a host in 9/8 or 12/8 under Auto; a 7/4 bar in
+  the step grid.
+- Open question, not a bug report: drumgen consumes the track's incoming notes
+  as pad triggers and forwards none. Check that finger-drumming through the
+  chain behaves the way you want.
+
+Verified without a DAW (2026-10-12):
+
+- The Streamlit GUI, headless via `scripts/gui-smoke.py`. Loop mode, a forced
+  7/8 (reports the 7/8 cell that played), Open folder on a box with no file
+  manager, a `2:blast 8:verse@7/8` arrangement and a Euclidean toms layer all
+  generate with no error. The run found and fixed a preview bug: /8 bars drew
+  four columns per eighth, and mixed-meter arrangements were bucketed by the
+  first section's meter.
+- The plugin editor, via `scripts/editor-shots.sh`: FORM to Maze, a form seed
+  roll, STORE on a pad and a trigger. The forms the plugin built matched the
+  CLI's exactly, the pad swapped on the barline (session log), and the header
+  read `PAD 1 · posthardcore · MAZE 7919`.
+- CI on [PR #1](https://github.com/dkoutavas/drumgen/pull/1): Python tests, Rust tests, and the Linux, Windows and macOS
+  bundles all green.
+
+Also open from the review, deliberately not touched: `vary_hits` still mutates
+fills at bar 2+ (changing it alters ear-verified fill variety); `CLAUDE.md` is
+long and carries narrative that belongs here; the Windows/WSL branches of the
+Python GUI remain, small and labelled legacy.
+
+Licence (decided 2026-10-02): GPL-3.0-or-later. nih-plug's VST3 bindings are
+GPLv3, so the shipped VST3 binaries must comply with it regardless of what the
+source says; one licence for the whole repo keeps the two consistent.
 
 The 2026-08-01 queue, in order:
 
@@ -241,19 +398,28 @@ The 2026-08-01 queue, in order:
    time-signature change. Drag a song-mode take into the arranger and look
    at the ruler. If Bitwig applies it, "slide the jam into the grid" is
    already solved with zero code.
-2. GUI help pass: hover texts that name each control's state and action,
-   plus one `?` overlay for the bank workflow and the pad color language.
-   The two-phase bank workflow (build, then jam) confused its first user.
-3. Generated arrangements — the reason the bank exists. A generated form is
-   an arrangement string plus meter turns; store it on a pad. Needs a plan
-   session before code.
-4. `await_pending` blocks the audio thread on every live param change,
-   because Bitwig mislabels its engine as offline (lesson 12). Inaudible
-   today (generation is milliseconds); still a real-time violation.
+2. ~~GUI help pass~~ built 2026-10-12: every control's hover names its state
+   and what a click does (greyed-out ones say why), pad hovers name what the
+   pad holds, and a `?` overlay explains build-then-jam with the pad colour
+   legend. Seen via `scripts/editor-shots.sh`; the test is whether the next
+   person to meet the bank gets it without being told.
+3. ~~Generated arrangements~~ built 2026-10-12 (CLI, engine port, plugin
+   controls, bank), see `docs/generated-arrangements.md`. What is left is the
+   listen above, then tuning the shapes by ear: they are data (`FORMS` in
+   `arrangement_gen.py`, exported to the plugin), so a shape that reads wrong
+   is an edit, an export and a fixture regeneration, not code.
+4. `await_pending` still blocks the audio thread on every live param change,
+   because Bitwig mislabels its engine as offline (lesson 12). It is bounded,
+   a live request no longer waits behind a whole 16-slot refresh, and a failed
+   build announces itself (`Published::Failed`, 2026-10-12) so the wait ends at
+   once instead of stalling 500 ms. It remains a real-time violation by
+   design; removing it needs a reliable live/offline signal Bitwig does not
+   give.
 5. Editing a stored pad means trigger → tweak (exits bank) → re-store. If
    that grates mid-jam, add a "recall pad to knobs" gesture.
-6. Merge `plugin-hardening` → `main` after the author's ears sign off the
-   bank sessions; tag v0.3.0.
+6. Tag v0.3.0 once the listen lists above are signed off (`plugin-hardening`
+   and the 2026-10-12 work are already on `main`): bump `plugin/Cargo.toml`
+   from `0.3.0-dev` and tag (CI refuses a tag that disagrees with it).
 
 ### The vocabulary matrix (measured 2026-07-25, the live problem)
 
@@ -264,16 +430,28 @@ does, `get_cell_for_section` picks at random from the pool. That is why an
 `unwound` BLAST section played `slint_explosion`, correct engine behaviour
 (it is the most intense cell Unwound owns), wrong-looking label.
 
-Coin-flip pairs: 128/288 (44%) → 96/288 (33%) after the breakdown work.
-Remaining, weighted by what the 9 shipped song forms actually demand:
+Coin-flip pairs: 128/288 (44%) → 96/288 (33%) after the breakdown work →
+80/270 (30%) re-measured 2026-10-12 over the 30 plugin pools (aliases are
+exported once, so 270 pairs). Weighted by what the 9 shipped song forms demand:
 
 | section | coin-flip pools | forms using it | priority |
 |---|---|---|---|
-| intro | 17 | 6 | 102 |
-| blast | 11 | 8 | 88 |
-| outro | 17 | 5 | 85 |
-| build | 18 | 3 | 54 |
-| atmospheric | 17 | 3 | 51 |
+| intro | 14 | 6 | 84 |
+| outro | 15 | 5 | 75 |
+| blast | 8 | 8 | 64 |
+| build | 15 | 3 | 45 |
+| atmospheric | 15 | 3 | 45 |
+
+The intro/outro gaps are four families: DC/post-hardcore (posthardcore,
+fugazi, q_and_not_u, drive_like_jehu, atdi), post-punk (post_punk,
+preoccupations, shame, wipers), raein and faraquet, and blast/dbeat/liturgy
+(+ lord_snow for outro). One sketch per family was authored 2026-10-12
+(`dc_pulse_intro_4_4`, `motorik_pulse_intro_4_4`, `euro_bell_intro_4_4`,
+`feedback_wash_outro_4_4`). They are in the library but in NO pool, awaiting
+the author's ears (`scripts/audition_cells.py` renders them; in a song each
+wins intro and outro and nothing else). Joining pools would close the intro
+and outro gaps for every pool listed, and also re-map which cell each seed
+picks in plugin loop mode for those styles.
 
 Blast is *partly correct by design* — a good share of its 11 are styles that
 shouldn't blast. Intro and outro are the honest next targets: sparse,
@@ -297,17 +475,22 @@ sonic_youth, slint. Whether those styles should break down at all is the same
 question as "unwound shouldn't blast", and it is the author's.
 
 Queued, gated on need:
-- Intro/outro cells for the pools that lack them (the 102/85 rows above),
-  gated on the breakdown cells passing the ear test first — no point
-  authoring more in a shape that gets rejected.
+- Intro/outro cells for the pools that lack them (the intro/outro rows
+  above): four sketches exist, one per family; their verdict decides whether
+  the rest get authored in that shape. Generated forms lean on intro, outro
+  and atmospheric sections, so these gaps now show in every form, not just
+  the nine shipped songs (a posthardcore Arc landed its atmospheric close on
+  `slint_explosion`).
 - Tagging the 19 mute cells. Cheap, but measured as low-yield on its own;
   worth doing alongside authoring rather than in place of it.
-- Corpus stage is blocked rather than simply unstarted (verified): `export_cells.py`
-  excludes imported cells from the plugin entirely, so Song Mode never sees
-  them; `midi_reader.auto_tag_cell` emits only density/blast/halftime tags and
-  cannot detect `build`/`quiet`/intro function; and `TAG_TO_POOLS` has no route
-  to zona/faraquet/shellac. Mass-importing today would add more unreachable
-  grooves to the pools that are already fine. Fix those three first.
+- Corpus stage: two of its three blockers are closed (2026-10-12).
+  `auto_tag_cell` now detects `quiet` and `build`/`crescendo` (thresholds pinned
+  to authored cells), so imported material can win intro, build, atmospheric
+  and outro sections in the CLI/GUI; and `TAG_TO_POOLS` reaches every pool
+  (style-name tags such as `zona`, `fugazi`, `raein`, applied by hand like the
+  mined cells' provenance tags). The third stays by design: `export_cells.py`
+  keeps imported cells out of the plugin, so Song Mode in the plugin only ever
+  plays authored cells. A figure that earns it gets re-authored.
 - Phrase-logic retrofit for older chatty grids (euro_screamo, posthardcore).
 - Corpus stage: mass-import the author's years of Ableton projects
   (`als_extractor.py` → `midi_reader.py`), then the missing piece — a
@@ -347,5 +530,5 @@ week and using the tool to write for a real band.
 
 *Documentation map: `README.md` (install + usage), `CLAUDE.md` (repo
 conventions, commands, architecture detail), `BITWIG.md` (wiring, recording,
-yabridge), `NOTATION.md` (drummer handoff), `styles/drumgen-style-dna.md`
+yabridge), `NOTATION.md` (drummer handoff), `docs/generated-arrangements.md` (song forms: design and decisions, built), `styles/drumgen-style-dna.md`
 (genre rhythmic vocabulary reference).*

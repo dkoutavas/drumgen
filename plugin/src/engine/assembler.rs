@@ -499,26 +499,14 @@ fn process_bar(
     // bar (what a drummer does when the riff is short of the bar), and clip
     // hits past the barline (a wider cell used to bleed into the next bar).
     // Deterministic, order-stable, consumes no RNG. Mirrors _process_bar.
-    let bar_beats = midi_math::get_time_sig_for_bar(bar_number, time_sig_list).0;
-    let cell_beats = cell.time_sig.0;
+    let bar_sig = midi_math::get_time_sig_for_bar(bar_number, time_sig_list);
     let adapted: Vec<Hit>;
-    let bar_hits: Vec<&Hit> = if cell_beats != bar_beats {
-        let mut hits: Vec<Hit> = bar_hits
-            .iter()
-            .filter(|h| h.beat <= bar_beats)
-            .map(|&h| h.clone())
-            .collect();
-        let mut shift = cell_beats;
-        while shift < bar_beats {
-            for h in bar_hits.iter().filter(|h| h.beat + shift <= bar_beats) {
-                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
-            }
-            shift += cell_beats;
+    let bar_hits: Vec<&Hit> = match adapt_to_bar(&bar_hits, cell.time_sig, bar_sig) {
+        Some(hits) => {
+            adapted = hits;
+            adapted.iter().collect()
         }
-        adapted = hits;
-        adapted.iter().collect()
-    } else {
-        bar_hits
+        None => bar_hits,
     };
 
     for hit in bar_hits {
@@ -550,6 +538,64 @@ fn process_bar(
 
     humanizer.humanize_amount = saved;
     events
+}
+
+/// Fit one bar of a cell's hits into a bar of a different meter. `None` means
+/// the bar already fits (same meter, or a degenerate signature).
+///
+/// Same denominator: vamp the head of the figure to fill a wider bar and clip
+/// hits past the barline of a narrower one, counting beats.
+///
+/// Different denominators (a /4 cell in a /8 bar, or the reverse): beats are
+/// not the same length, so counting them silently changed the pulse — a 4/4
+/// cell in a 6/8 bar played its quarter-note beats as EIGHTHS, at double speed.
+/// Convert by TIME instead (a quarter stays a quarter), then apply the same
+/// vamp/clip rule. Sub positions stay exact for the 16th-based vocabulary.
+///
+/// Deterministic, order-stable, consumes no RNG. Mirrors `_adapt_to_bar` in
+/// assembler.py; the equal-denominator path must stay identical to what it was
+/// (it decides RNG order for every adapted bar already heard).
+fn adapt_to_bar(bar_hits: &[&Hit], cell_sig: (i32, i32), bar_sig: (i32, i32)) -> Option<Vec<Hit>> {
+    let ((cn, cd), (bn, bd)) = (cell_sig, bar_sig);
+    if cd <= 0 || bd <= 0 || cn <= 0 {
+        return None;
+    }
+    if cd == bd {
+        if cn == bn {
+            return None;
+        }
+        let mut hits: Vec<Hit> = bar_hits
+            .iter()
+            .filter(|h| h.beat <= bn)
+            .map(|&h| h.clone())
+            .collect();
+        let mut shift = cn;
+        while shift < bn {
+            for h in bar_hits.iter().filter(|h| h.beat + shift <= bn) {
+                hits.push(Hit { beat: h.beat + shift, ..(*h).clone() });
+            }
+            shift += cn;
+        }
+        return Some(hits);
+    }
+
+    let scale = bd as f64 / cd as f64; // bar beats per cell beat
+    let span = cn as f64 * scale; // the cell's length, in bar beats
+    let bar_len = bn as f64;
+    let mut hits = Vec::new();
+    let mut shift = 0.0;
+    while shift < bar_len - 1e-9 {
+        for h in bar_hits {
+            let pos = (h.beat as f64 - 1.0 + h.sub) * scale + shift;
+            if pos < bar_len - 1e-9 {
+                let whole = (pos + 1e-9).floor();
+                let sub = ((pos - whole).max(0.0) * 1e6).round() / 1e6;
+                hits.push(Hit { beat: whole as i32 + 1, sub, ..(*h).clone() });
+            }
+        }
+        shift += span;
+    }
+    Some(hits)
 }
 
 /// Assemble a single-cell pattern.
@@ -902,18 +948,33 @@ pub fn assemble_arrangement(
         let cell_humanize = humanize.unwrap_or(cell.humanize);
         humanizer.humanize_amount = cell_humanize;
 
-        // Crash+kick on intense sections
+        // Crash+kick on beat 1 of intense sections, each only if the cell's own
+        // opening bar does not already play it (mirrors assembler.py).
+        // Unconditional injection stacked a second kick/crash 0-3 ticks from
+        // the cell's own at nearly every section change.
         let section_start_bar = bar_cursor + 1;
         if is_intense_section(&section.section_type) {
-            let crash_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
-            let crash_tick_h = humanizer.humanize_timing(crash_tick, Instrument::Crash1, tempo, ppq);
-            let crash_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Crash1);
-            events.push(Event { tick: crash_tick_h, instrument: Instrument::Crash1, velocity: crash_vel });
+            let opening = |pred: &dyn Fn(Instrument) -> bool| {
+                cell_hits
+                    .iter()
+                    .any(|h| h.bar == 1 && h.beat == 1 && h.sub == 0.0 && pred(h.instrument))
+            };
+            let has_crash = opening(&|i| {
+                matches!(i, Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke)
+            });
+            let has_kick = opening(&|i| i == Instrument::Kick);
+            let downbeat_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
 
-            let kick_tick = midi_math::position_to_ticks(section_start_bar, 1, 0.0, &time_signatures, ppq);
-            let kick_tick_h = humanizer.humanize_timing(kick_tick, Instrument::Kick, tempo, ppq);
-            let kick_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Kick);
-            events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
+            if !has_crash {
+                let crash_tick_h = humanizer.humanize_timing(downbeat_tick, Instrument::Crash1, tempo, ppq);
+                let crash_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Crash1);
+                events.push(Event { tick: crash_tick_h, instrument: Instrument::Crash1, velocity: crash_vel });
+            }
+            if !has_kick {
+                let kick_tick_h = humanizer.humanize_timing(downbeat_tick, Instrument::Kick, tempo, ppq);
+                let kick_vel = humanizer.humanize_velocity(VelocityLevel::Accent, Instrument::Kick);
+                events.push(Event { tick: kick_tick_h, instrument: Instrument::Kick, velocity: kick_vel });
+            }
         }
 
         let mut seen_cell_bars = std::collections::HashSet::new();
@@ -1021,7 +1082,12 @@ pub fn assemble_layered(
     // Load layer cells
     let mut layer_cells: Vec<(&str, &Cell)> = Vec::new();
     let mut humanize_values = Vec::new();
-    for (layer_name, cell_name) in layers {
+    // HashMap iteration order is not stable, and realization below consumes the
+    // shared RNG per layer. Sort by layer name so the same seed always gives
+    // the same notes (a HashMap in an RNG path breaks determinism).
+    let mut ordered: Vec<(&String, &String)> = layers.iter().collect();
+    ordered.sort();
+    for (layer_name, cell_name) in ordered {
         if let Some(cell) = library.get_cell(cell_name) {
             layer_cells.push((layer_name.as_str(), cell));
             humanize_values.push(cell.humanize);
@@ -1054,23 +1120,36 @@ pub fn assemble_layered(
         humanize_per_bar: None,
     };
 
+    // Realized cells (probability AND euclidean) are realized ONCE across the
+    // whole output and keyed by OUTPUT bar, as the arrangement path does
+    // (PROJECT.md lesson 5). Realizing one cell-bar and replaying it by modulo
+    // froze euclidean phasing and made trig conditions unreachable.
+    let realized_layers: Vec<Option<Vec<Hit>>> = layer_cells
+        .iter()
+        .map(|(_, cell)| {
+            if cell.is_probability() {
+                Some(realize_probability_grid(cell, bars, &mut rng, 1.0))
+            } else if cell.is_euclidean() {
+                Some(realize_euclidean(cell, bars, seed))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let mut events = Vec::new();
 
     for bar_idx in 0..bars {
         let bar_number = bar_idx + 1;
         let mut merged_hits = Vec::new();
 
-        for (layer_name, cell) in &layer_cells {
-            let cell_bar = (bar_idx % cell.num_bars) + 1;
-
-            let layer_hits: Vec<Hit> = if cell.is_probability() {
-                let realized = realize_probability_grid(cell, cell.num_bars, &mut rng, 1.0);
-                realized.into_iter().filter(|h| h.bar == cell_bar).collect()
-            } else if cell.is_euclidean() {
-                let realized = realize_euclidean(cell, cell.num_bars, seed);
-                realized.into_iter().filter(|h| h.bar == cell_bar).collect()
-            } else {
-                cell.hits.iter().filter(|h| h.bar == cell_bar).cloned().collect()
+        for ((layer_name, cell), realized) in layer_cells.iter().zip(&realized_layers) {
+            let layer_hits: Vec<Hit> = match realized {
+                Some(hits) => hits.iter().filter(|h| h.bar == bar_number).cloned().collect(),
+                None => {
+                    let cell_bar = (bar_idx % cell.num_bars) + 1;
+                    cell.hits.iter().filter(|h| h.bar == cell_bar).cloned().collect()
+                }
             };
 
             // Filter to layer instruments
@@ -1122,6 +1201,93 @@ pub fn assemble_layered(
 mod tests {
     use super::*;
 
+    fn dupes(events: &[Event]) -> Vec<(i64, Instrument)> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut out = Vec::new();
+        for e in events {
+            if !seen.insert((e.tick, e.instrument)) {
+                out.push((e.tick, e.instrument));
+            }
+        }
+        out
+    }
+
+    fn pedal_hit() -> Hit {
+        Hit { bar: 1, beat: 2, sub: 0.0, instrument: Instrument::HihatPedal, velocity_level: VelocityLevel::Soft }
+    }
+
+    /// hihat_pedal was in the cymbal set AND the foot set, so a pedal alone on
+    /// a slot came out twice (zona's comping cell, every pass).
+    #[test]
+    fn lone_hihat_pedal_survives_once() {
+        assert_eq!(validate_physical_constraints(&[pedal_hit()]).len(), 1);
+        assert_eq!(resolve_layer_conflicts(&[pedal_hit()]).len(), 1);
+    }
+
+    #[test]
+    fn pedal_coexists_with_hands_and_does_not_displace_the_hat() {
+        let hat = Hit { instrument: Instrument::HihatClosed, velocity_level: VelocityLevel::Normal, ..pedal_hit() };
+        let kick = Hit { instrument: Instrument::Kick, velocity_level: VelocityLevel::Normal, ..pedal_hit() };
+        let out = validate_physical_constraints(&[pedal_hit(), hat, kick]);
+        let mut got: Vec<&str> = out.iter().map(|h| h.instrument.as_str()).collect();
+        got.sort();
+        assert_eq!(got, vec!["hihat_closed", "hihat_pedal", "kick"]);
+    }
+
+    /// An intense section used to get an unconditional crash+kick on beat 1 on
+    /// top of whatever the cell played there: a stacked kick/crash at nearly
+    /// every section change.
+    #[test]
+    fn arrangement_section_start_is_not_stacked() {
+        let lib = CellLibrary::new();
+        for style in lib.style_names().to_vec() {
+            for section in ["chorus", "blast", "breakdown", "drive"] {
+                let arr = format!("2:verse 2:{section}");
+                let res = assemble_arrangement(&lib, &style, &arr, 150.0, (4, 4), Some(0.0), 0.0, 5, 0.0, true);
+                assert!(dupes(&res.events).is_empty(), "{style} {section}: {:?}", dupes(&res.events));
+            }
+        }
+    }
+
+    /// The guard must not turn the accent off.
+    #[test]
+    fn arrangement_still_opens_an_intense_section_with_crash_and_kick() {
+        let lib = CellLibrary::new();
+        for style in lib.style_names().to_vec() {
+            let res = assemble_arrangement(&lib, &style, "2:verse 2:blast", 150.0, (4, 4), Some(0.0), 0.0, 5, 0.0, true);
+            let tick = midi_math::calculate_bar_start_ticks(3, &res.time_signatures, PPQ);
+            let at: Vec<Instrument> = res.events.iter().filter(|e| e.tick == tick).map(|e| e.instrument).collect();
+            assert!(
+                at.iter().any(|i| matches!(i, Instrument::Crash1 | Instrument::Crash2 | Instrument::Crash1Choke | Instrument::Crash2Choke)),
+                "{style}: no crash on the blast downbeat"
+            );
+            assert!(at.contains(&Instrument::Kick), "{style}: no kick on the blast downbeat");
+        }
+    }
+
+    /// Layer mode keys realized cells by OUTPUT bar: a Euclidean limb must
+    /// phase across bars instead of replaying bar 1.
+    #[test]
+    fn layered_euclidean_phases_across_bars() {
+        let lib = CellLibrary::new();
+        let mut layers = std::collections::HashMap::new();
+        layers.insert("toms".to_string(), "euclid_noise_polymeter_4_4".to_string());
+        let res = assemble_layered(&lib, &layers, 4, 120.0, (4, 4), Some(0.0), 0.0, 1, 0.0);
+        let bar = 1920;
+        let per_bar: Vec<Vec<i64>> = (0..4)
+            .map(|b| {
+                let mut v: Vec<i64> = res.events.iter()
+                    .filter(|e| e.tick >= b * bar && e.tick < (b + 1) * bar)
+                    .map(|e| e.tick - b * bar)
+                    .collect();
+                v.sort();
+                v
+            })
+            .collect();
+        let distinct: std::collections::BTreeSet<_> = per_bar.iter().collect();
+        assert!(distinct.len() > 1, "every bar replayed bar 1: phasing lost");
+    }
+
     #[test]
     fn test_assemble_basic() {
         let lib = CellLibrary::new();
@@ -1129,6 +1295,96 @@ mod tests {
         assert!(!result.events.is_empty(), "Should produce events");
         assert_eq!(result.total_bars, 4);
         assert_eq!(result.seed, 42);
+    }
+
+    fn mk(beat: i32, sub: f64, instrument: Instrument) -> Hit {
+        Hit { bar: 1, beat, sub, instrument, velocity_level: VelocityLevel::Normal }
+    }
+
+    fn tick_in_bar(h: &Hit, den: i32) -> f64 {
+        (h.beat as f64 - 1.0 + h.sub) * (PPQ * 4 / den as i64) as f64
+    }
+
+    fn adapted(hits: &[Hit], cell: (i32, i32), bar: (i32, i32)) -> Vec<Hit> {
+        let refs: Vec<&Hit> = hits.iter().collect();
+        adapt_to_bar(&refs, cell, bar).unwrap_or_else(|| hits.to_vec())
+    }
+
+    /// The cross-denominator bug: a 4/4 cell in a 6/8 bar played its quarter
+    /// beats as eighths, at double speed. A quarter must stay a quarter.
+    #[test]
+    fn adapter_keeps_the_pulse_across_denominators() {
+        let cell = [mk(1, 0.0, Instrument::Kick), mk(2, 0.0, Instrument::Snare), mk(4, 0.0, Instrument::Snare)];
+        let out = adapted(&cell, (4, 4), (6, 8));
+        // Beat 2 of 4/4 is tick 480: beat 3 of 6/8.
+        let snare = out.iter().find(|h| h.instrument == Instrument::Snare).unwrap();
+        assert_eq!((snare.beat, snare.sub), (3, 0.0));
+        assert_eq!(tick_in_bar(snare, 8), 480.0);
+        // Beat 4 (tick 1440) is the end of the 6/8 bar and is clipped, not folded in.
+        assert!(out.iter().all(|h| tick_in_bar(h, 8) < 6.0 * 240.0));
+        assert_eq!(out.iter().filter(|h| h.instrument == Instrument::Snare).count(), 1);
+    }
+
+    #[test]
+    fn adapter_vamps_a_six_eight_cell_twice_into_six_four() {
+        let cell = [mk(1, 0.0, Instrument::Kick), mk(4, 0.0, Instrument::Snare)];
+        let out = adapted(&cell, (6, 8), (6, 4));
+        let ticks: Vec<f64> = out.iter().map(|h| tick_in_bar(h, 4)).collect();
+        assert_eq!(ticks, vec![0.0, 720.0, 1440.0, 2160.0]);
+    }
+
+    /// The equal-denominator path decides RNG order for every adapted bar
+    /// already heard: pin it against the reference counting-beats logic.
+    #[test]
+    fn adapter_same_denominator_is_the_old_vamp() {
+        let cell = [
+            mk(1, 0.0, Instrument::Kick), mk(2, 0.5, Instrument::HihatClosed),
+            mk(3, 0.25, Instrument::Kick), mk(4, 0.75, Instrument::SnareGhost),
+        ];
+        for den in [4, 8] {
+            for bn in [3, 5, 6, 7, 9] {
+                let refs: Vec<&Hit> = cell.iter().collect();
+                let got = adapt_to_bar(&refs, (4, den), (bn, den)).expect("differs, so adapted");
+                let mut want: Vec<Hit> = cell.iter().filter(|h| h.beat <= bn).cloned().collect();
+                let mut shift = 4;
+                while shift < bn {
+                    for h in cell.iter().filter(|h| h.beat + shift <= bn) {
+                        want.push(Hit { beat: h.beat + shift, ..h.clone() });
+                    }
+                    shift += 4;
+                }
+                let key = |v: &[Hit]| -> Vec<(i32, i64, &'static str)> {
+                    v.iter().map(|h| (h.beat, (h.sub * 1000.0) as i64, h.instrument.as_str())).collect()
+                };
+                assert_eq!(key(&got), key(&want), "den {den} bar {bn}");
+            }
+        }
+        // Same meter, or a degenerate signature: nothing to do.
+        let refs: Vec<&Hit> = cell.iter().collect();
+        assert!(adapt_to_bar(&refs, (4, 4), (4, 4)).is_none());
+        assert!(adapt_to_bar(&refs, (4, 0), (4, 4)).is_none());
+        assert!(adapt_to_bar(&refs, (0, 4), (4, 4)).is_none());
+    }
+
+    #[test]
+    fn adapter_never_leaves_a_hit_outside_the_bar_or_a_bar_empty() {
+        let cell = [
+            mk(1, 0.0, Instrument::Kick), mk(2, 0.5, Instrument::HihatClosed),
+            mk(3, 0.25, Instrument::Kick), mk(4, 0.0, Instrument::Snare),
+        ];
+        let meters = [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (9, 8), (12, 8), (2, 4), (15, 4)];
+        for cell_sig in meters {
+            let src: Vec<Hit> = cell.iter().filter(|h| h.beat <= cell_sig.0).cloned().collect();
+            for bar_sig in meters {
+                let out = adapted(&src, cell_sig, bar_sig);
+                assert!(!out.is_empty(), "{cell_sig:?} -> {bar_sig:?} went silent");
+                let bar_ticks = (bar_sig.0 as i64 * (PPQ * 4 / bar_sig.1 as i64)) as f64;
+                for h in &out {
+                    let t = tick_in_bar(h, bar_sig.1);
+                    assert!((0.0..bar_ticks).contains(&t), "{cell_sig:?} -> {bar_sig:?}: tick {t}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1506,6 +1762,10 @@ mod tests {
     #[test]
     fn golden_vector_matches_python_engine() {
         #[derive(serde::Deserialize)]
+        struct Fixture {
+            vectors: Vec<Golden>,
+        }
+        #[derive(serde::Deserialize)]
         struct Golden {
             params: GoldenParams,
             events: Vec<(i64, u8, i32, String)>,
@@ -1515,17 +1775,42 @@ mod tests {
             cell_name: String,
             bars: i32,
             tempo: f64,
+            time_sig: String,
             seed: u64,
         }
 
-        let golden: Golden =
+        let fixture: Fixture =
             serde_json::from_str(include_str!("../../fixtures/golden_vector.json"))
                 .expect("golden_vector.json parses");
+        assert!(fixture.vectors.len() >= 2, "expected the 4/4 fixed and the 7/8 Euclidean vectors");
 
         let lib = CellLibrary::new();
+        for golden in &fixture.vectors {
+            check_golden_vector(&lib, golden.params.cell_name.as_str(), golden.params.bars,
+                golden.params.tempo, &golden.params.time_sig, golden.params.seed, &golden.events);
+        }
+    }
+
+    fn check_golden_vector(
+        lib: &CellLibrary,
+        cell: &str,
+        bars: i32,
+        tempo: f64,
+        time_sig: &str,
+        seed: u64,
+        want_events: &[(i64, u8, i32, String)],
+    ) {
+        let (num, den) = time_sig
+            .split_once('/')
+            .and_then(|(n, d)| Some((n.parse::<i32>().ok()?, d.parse::<i32>().ok()?)))
+            .expect("time_sig is N/D");
         let res = assemble(
-            &lib, None, Some(&golden.params.cell_name), golden.params.bars,
-            golden.params.tempo, (4, 4), Some(0.0), 0.0, 0, golden.params.seed, 0.0, false,
+            lib, None, Some(cell), bars, tempo, (num, den), Some(0.0), 0.0, 0, seed, 0.0, false,
+        );
+        assert_eq!(
+            (res.time_signatures[0].numerator, res.time_signatures[0].denominator),
+            (num, den),
+            "{cell}: stamped meter differs from the vector's"
         );
 
         let ours: Vec<(i64, u8, i32, String)> = res
@@ -1536,19 +1821,19 @@ mod tests {
 
         assert_eq!(
             ours.len(),
-            golden.events.len(),
-            "event count diverged from the Python engine"
+            want_events.len(),
+            "{cell}: event count diverged from the Python engine"
         );
         // Rerun export_golden.py ONLY if the reference engine changed on purpose.
-        for (i, (got, want)) in ours.iter().zip(golden.events.iter()).enumerate() {
+        for (i, (got, want)) in ours.iter().zip(want_events.iter()).enumerate() {
             assert_eq!(
                 (got.0, got.1, &got.3),
                 (want.0, want.1, &want.3),
-                "event {i}: tick/note/instrument diverged from the Python engine"
+                "{cell} event {i}: tick/note/instrument diverged from the Python engine"
             );
             assert!(
                 (got.2 - want.2).abs() <= 6,
-                "event {i} ({}): velocity {} is outside the ±6 same-band window around Python's {}",
+                "{cell} event {i} ({}): velocity {} is outside the ±6 same-band window around Python's {}",
                 got.3, got.2, want.2
             );
         }
@@ -1559,7 +1844,7 @@ mod tests {
     /// cymbals, or a snare and a tom, on the same tick. Mirrors
     /// validate_midi.check_physical_constraints across every shipped style:
     /// conflict == two instruments of DIFFERENT priority in the same group,
-    /// hihat_pedal exempt (it is a foot), auto-crash tick excluded.
+    /// auto-crash tick excluded (hihat_pedal is a foot, not a cymbal).
     #[test]
     fn physical_constraints_hold_across_styles() {
         use std::collections::{BTreeMap, BTreeSet};
@@ -1586,7 +1871,7 @@ mod tests {
                     }
                     let cymbal_prios: BTreeSet<i32> = insts
                         .iter()
-                        .filter(|i| i.is_cymbal() && **i != Instrument::HihatPedal)
+                        .filter(|i| i.is_cymbal())
                         .map(|i| i.cymbal_priority())
                         .collect();
                     if cymbal_prios.len() > 1 {

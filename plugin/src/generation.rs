@@ -1,3 +1,4 @@
+use crate::engine::arrangement_gen;
 use crate::engine::assembler::{self, AssembleResult};
 use crate::engine::cell_library::CellLibrary;
 
@@ -64,12 +65,13 @@ impl GenerationManager {
         // a cell produced byte-identical MIDI at the same seed. Plugin-boundary
         // only — the engine stays a faithful port that takes a raw seed.
         //
-        // ADDITION, not XOR: the salted seed also drives `rotate_pick`, and
-        // DICE is seed+1. Under XOR, consecutive seeds do not give consecutive
-        // rotation indices — preoccupations landed on the same cell for seeds
-        // 1&2 and again for 3&4, so four dice presses changed nothing audible.
-        // Adding keeps +1 on the seed as +1 on the rotation while still giving
-        // every style its own offset into the stream.
+        // ADDITION, not XOR: the salted seed also drives `rotate_pick`, and the
+        // SEED scrub moves it by +1 (DICE is a prime-stride roll, see
+        // `params::dice_roll`). Under XOR, consecutive seeds do not give
+        // consecutive rotation indices — preoccupations landed on the same cell
+        // for seeds 1&2 and again for 3&4, so four presses changed nothing
+        // audible. Adding keeps +1 on the seed as +1 on the rotation while
+        // still giving every style its own offset into the stream.
         let salted = seed.wrapping_add(fnv1a(style_name.as_bytes()));
 
         // The looped pattern must CONTAIN the fill cycle. Fills fire at
@@ -150,12 +152,29 @@ impl GenerationManager {
         )
     }
 
-    /// Number of loaded cells.
-    pub fn num_cells(&self) -> usize {
-        self.library.num_cells()
+    /// A generated form for the style: (name, arrangement string), e.g.
+    /// ("ARC 42", "2:intro 8:build …"), or None for an unknown shape key.
+    /// `meter` is the home meter ((0,0) = none, read as 4/4, matching
+    /// `generate_arrangement`); `meter_auto` lets the form turn meters.
+    pub fn form_arrangement(
+        &self,
+        style_index: i32,
+        shape: &str,
+        form_seed: u64,
+        meter: (i32, i32),
+        meter_auto: bool,
+    ) -> Option<(String, String)> {
+        let style_name = self.library.style_by_index(style_index as usize).unwrap_or("screamo");
+        let template = self.library.forms().iter().find(|f| f.key == shape)?;
+        let home = if meter == (0, 0) { (4, 4) } else { meter };
+        let arr = arrangement_gen::generate_form(
+            &self.library, shape, form_seed, style_name, home, meter_auto,
+        )?;
+        Some((arrangement_gen::form_name(template, form_seed), arr))
     }
 
     /// Number of available styles.
+    #[cfg(test)]
     pub fn num_styles(&self) -> usize {
         self.library.num_styles()
     }
@@ -432,7 +451,12 @@ mod tests {
         // (Auto with no host info) may take the cell's native meter. Every
         // pattern must also be non-empty and fit its own grid.
         let gen = GenerationManager::new();
-        let meters = [(0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8)];
+        // The seven METERS entries, plus what a host can report under Auto once
+        // `params::normalize_host_meter` has let it through (9/8, 12/8, 2/4, 15/4).
+        let meters = [
+            (0, 0), (3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8),
+            (2, 4), (9, 8), (12, 8), (15, 4),
+        ];
 
         for i in 0..gen.num_styles() as i32 {
             for meter in meters {

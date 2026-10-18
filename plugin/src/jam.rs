@@ -20,7 +20,7 @@ use crate::engine::midi_math::{self, TimeSigEntry, NOTE_DURATION};
 #[cfg(test)]
 use crate::engine::midi_math::PPQ;
 use crate::params::{BANK_SLOTS, JAM_END_EXIT, JAM_END_STOP};
-use crate::pattern::{finalize_events, MidiEvent, Pattern};
+use crate::pattern::{content_key, finalize_events, MidiEvent, Pattern};
 
 /// One pad's stretch of the performance, for the cue sheet.
 pub struct JamSegment {
@@ -208,8 +208,10 @@ pub fn stitch(
     // Tempo and seed name the take after the FIRST pad that actually made it
     // into the file (an earlier one may have been cleared before the export).
     let first = slots[segments[0].slot].as_ref().expect("segment implies a pattern");
+    let events = finalize_events(raw);
     let pattern = Pattern {
-        events: finalize_events(raw),
+        content_key: content_key(&events, total_ticks, &bar_starts),
+        events,
         total_ticks,
         bar_starts,
         time_signatures: consolidate_time_signatures(&ts),
@@ -217,7 +219,8 @@ pub fn stitch(
         seed: first.seed,
         tempo: first.tempo,
         style_name: "jam".to_string(),
-        cell_name: format!("jam {} segments", segments.len()),
+        song_name: format!("jam {} segments", segments.len()),
+        arrangement: String::new(),
         sections: Vec::new(),
     };
     Some((pattern, segments))
@@ -302,6 +305,7 @@ mod tests {
             bar_starts.push((b + 1) * bar_ticks);
         }
         Arc::new(Pattern {
+            content_key: content_key(&events, bars as i64 * bar_ticks, &bar_starts),
             events,
             total_ticks: bars as i64 * bar_ticks,
             bar_starts,
@@ -315,7 +319,8 @@ mod tests {
             seed,
             tempo: 168.0,
             style_name: style.to_string(),
-            cell_name: String::new(),
+            song_name: String::new(),
+            arrangement: String::new(),
             sections: Vec::new(),
         })
     }

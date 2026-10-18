@@ -8,10 +8,10 @@ use super::cell::{Instrument, VelocityLevel};
 /// Section drift profiles — how timing shifts across bars within a section.
 fn drift_profile(section_type: &str) -> Option<&'static str> {
     match section_type {
-        "verse" | "atmospheric" | "intro" | "quiet" | "outro" => Some("gradual_drag"),
+        "verse" | "atmospheric" | "intro" | "outro" => Some("gradual_drag"),
         "chorus" | "blast" | "drive" => Some("constant_push"),
-        "build" | "buildup" | "crescendo" => Some("gradual_push"),
-        "breakdown" | "halftime" => Some("constant_drag"),
+        "build" => Some("gradual_push"),
+        "breakdown" => Some("constant_drag"),
         "fill" => Some("fill_rush"),
         _ => None,
     }
@@ -197,10 +197,11 @@ impl Humanizer {
         let variance = Self::instrument_variance(instrument);
         // Truncate toward zero (Rust `as i32`) to match Python's int() — not round().
         let scaled_variance = (variance as f64 * self.humanize_amount) as i32;
+        // ponytail: the floor of 3 means velocity still jitters +-3 and draws RNG at
+        // humanize=0 (the golden vector accounts for it). Dropping it would make
+        // humanize=0 truly flat, but shifts every seed's velocities in both
+        // engines and needs an ear pass; so it stays. Mirrors humanizer.py.
         let scaled_variance = scaled_variance.max(3);
-        if scaled_variance <= 0 {
-            return center.clamp(1, 127);
-        }
         let vel = self.randint(center - scaled_variance, center + scaled_variance);
         vel.clamp(1, 127)
     }

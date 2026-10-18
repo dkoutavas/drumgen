@@ -20,10 +20,6 @@ pub struct MidiEvent {
 }
 
 /// A baked, immutable pattern ready for playback.
-// dead_code: bar_starts/time_signatures/generation/seed/style_name/cell_name are
-// not read yet — they feed the planned GUI status line, step-grid preview, and
-// SAVE .MID export. Remove the allow when those land.
-#[allow(dead_code)]
 pub struct Pattern {
     /// All events, sorted by (tick, note-off before note-on).
     pub events: Vec<MidiEvent>,
@@ -33,8 +29,14 @@ pub struct Pattern {
     /// Length is `total_bars + 1`; always starts with 0.
     pub bar_starts: Vec<i64>,
     pub time_signatures: Vec<TimeSigEntry>,
-    /// Monotonic generation counter — GUI rebakes its display when this changes.
+    /// Monotonic generation counter. The offline wait reads it to tell the
+    /// pattern it asked for from an older one still in flight.
     pub generation: u64,
+    /// Hash of everything that sounds or lays out (events, length, bars). Two
+    /// patterns with the same key are note-identical, so swapping one for the
+    /// other needs no flush: a bank re-generation after an unrelated STORE or
+    /// tempo wobble must not cut the pad that is playing.
+    pub content_key: u64,
     // ── metadata (status line / export) ──
     /// The raw dice seed (the SEED param value), NOT the style-salted seed the
     /// engine consumed — this is what the GUI and .mid export display, and it
@@ -42,7 +44,14 @@ pub struct Pattern {
     pub seed: u64,
     pub tempo: f64,
     pub style_name: String,
-    pub cell_name: String,
+    /// The song's name in Song Mode ("Verse/Chor"), or the generated form's
+    /// ("ARC 42"); empty in loop mode. Shown on the PAD header and written
+    /// into SAVE .MID's file and track names.
+    pub song_name: String,
+    /// The arrangement string that built this pattern; empty in loop mode.
+    /// The session log records it, so a generated form can be read back and
+    /// pasted into songs.txt.
+    pub arrangement: String,
     /// Song-mode section map: (section_type, bars, cell_name) in order, empty
     /// in loop mode. The GUI walks this to label the viewed bar. `cell_name`
     /// is what actually PLAYS; `section_type` is only what the song form asked
@@ -100,6 +109,27 @@ pub(crate) fn finalize_events(mut raw: Vec<MidiEvent>) -> Vec<MidiEvent> {
     events
 }
 
+/// FNV-1a over the pattern's audible content. Deterministic, allocation-free.
+pub(crate) fn content_key(events: &[MidiEvent], total_ticks: i64, bar_starts: &[i64]) -> u64 {
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |v: u64| {
+        for b in v.to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(PRIME);
+        }
+    };
+    mix(total_ticks as u64);
+    for &b in bar_starts {
+        mix(b as u64);
+    }
+    for e in events {
+        mix(e.tick as u64);
+        mix(((e.note as u64) << 16) | ((e.velocity as u64) << 8) | e.is_note_on as u64);
+    }
+    h
+}
+
 impl Pattern {
     /// Bake an `AssembleResult` into a `Pattern`.
     pub fn from_assemble(
@@ -107,7 +137,7 @@ impl Pattern {
         generation: u64,
         display_seed: u64,
         style_name: String,
-        cell_name: String,
+        song_name: String,
         sections: Vec<(String, i32, String)>,
     ) -> Self {
         let total_bars = res
@@ -117,17 +147,26 @@ impl Pattern {
             .unwrap_or(res.total_bars.max(1));
         let total_ticks = midi_math::total_pattern_ticks(total_bars, &res.time_signatures, PPQ);
 
-        let mut raw: Vec<MidiEvent> = Vec::with_capacity(res.events.len() * 2);
+        // Two hits of the same pitch on the same tick are one hit to a sampler
+        // (stacked note-ons just double the voice). Keep the loudest. A BTreeMap
+        // keeps the order deterministic. Mirrors midi_engine.write_midi.
+        let mut loudest: std::collections::BTreeMap<(i64, u8), u8> = std::collections::BTreeMap::new();
         for ev in &res.events {
-            let note = ev.instrument.midi_note();
-            let velocity = ev.velocity.clamp(1, 127) as u8;
-            raw.push(MidiEvent { tick: ev.tick, note, velocity, is_note_on: true });
+            let key = (ev.tick, ev.instrument.midi_note());
+            let vel = ev.velocity.clamp(1, 127) as u8;
+            let slot = loudest.entry(key).or_insert(vel);
+            *slot = (*slot).max(vel);
+        }
+
+        let mut raw: Vec<MidiEvent> = Vec::with_capacity(loudest.len() * 2);
+        for ((tick, note), velocity) in loudest {
+            raw.push(MidiEvent { tick, note, velocity, is_note_on: true });
             // Note-off clamped to *inside* the loop (total_ticks - 1) so it is never
             // dropped by the half-open scan; drum one-shots make the exact off tick
             // cosmetic anyway, and loop-wrap flushes any straggler.
             // ponytail: total_ticks-1 clamp instead of exact-boundary wrap; upgrade to
             // wrap-to-tick-0 only if a sustaining instrument ever needs a true gate.
-            let off_tick = (ev.tick + NOTE_DURATION).min((total_ticks - 1).max(0));
+            let off_tick = (tick + NOTE_DURATION).min((total_ticks - 1).max(0));
             raw.push(MidiEvent { tick: off_tick, note, velocity: 0, is_note_on: false });
         }
         let events = finalize_events(raw);
@@ -138,16 +177,19 @@ impl Pattern {
             bar_starts.push(midi_math::calculate_bar_start_ticks(bar, &res.time_signatures, PPQ));
         }
 
+        let content_key = content_key(&events, total_ticks, &bar_starts);
         Pattern {
             events,
             total_ticks,
             bar_starts,
             time_signatures: res.time_signatures.clone(),
             generation,
+            content_key,
             seed: display_seed,
             tempo: res.tempo,
             style_name,
-            cell_name,
+            song_name,
+            arrangement: String::new(),
             sections,
         }
     }
@@ -181,6 +223,36 @@ mod tests {
 
     fn bake(res: &AssembleResult) -> Pattern {
         Pattern::from_assemble(res, 0, 0, "test".into(), String::new(), Vec::new())
+    }
+
+    /// Same-tick same-pitch hits collapse to one note-on (the loudest).
+    /// The key lets the audio thread swap in a regenerated-but-identical pad
+    /// without a flush, so it must be stable for equal notes and move for any
+    /// audible change.
+    #[test]
+    fn content_key_tracks_the_notes() {
+        let a = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let same = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let louder = result(vec![hit(0, Instrument::Kick, 101), hit(480, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let moved = result(vec![hit(0, Instrument::Kick, 100), hit(481, Instrument::Snare, 100)], vec![ts(1, 1, 4, 4)], 1);
+        let longer = result(vec![hit(0, Instrument::Kick, 100), hit(480, Instrument::Snare, 100)], vec![ts(1, 2, 4, 4)], 2);
+        assert_eq!(bake(&a).content_key, bake(&same).content_key);
+        for other in [&louder, &moved, &longer] {
+            assert_ne!(bake(&a).content_key, bake(other).content_key);
+        }
+    }
+
+    #[test]
+    fn same_tick_same_pitch_is_one_note_on() {
+        let res = result(
+            vec![hit(0, Instrument::Kick, 90), hit(0, Instrument::Kick, 120), hit(480, Instrument::Snare, 100)],
+            vec![ts(1, 1, 4, 4)],
+            1,
+        );
+        let pat = bake(&res);
+        let ons: Vec<_> = pat.events.iter().filter(|e| e.is_note_on).collect();
+        assert_eq!(ons.len(), 2);
+        assert_eq!(ons[0].velocity, 120);
     }
 
     #[test]

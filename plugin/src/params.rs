@@ -37,7 +37,27 @@ pub struct SlotSnapshot {
     /// keep following the host after a reload.
     pub meter: i32,
     pub fill: i32,
+    /// SONG param INDEX at store time. An index into a list that includes the
+    /// user's songs.txt, so it moves when they edit that file.
     pub song: i32,
+    /// The song's NAME ("" = Off): what the slot actually means. `sanitize_bank`
+    /// resolves it back to an index, so reordering or inserting a line in
+    /// songs.txt cannot silently turn a pad into a different form.
+    /// `serde(default)`: banks saved before this field existed still load (an
+    /// empty name keeps the stored index, the old behaviour).
+    #[serde(default)]
+    pub song_name: String,
+    /// FORM param INDEX at store time (0 = Off). Resolved from `form_name` on
+    /// restore, like `song`.
+    #[serde(default)]
+    pub form: i32,
+    /// The form shape's KEY ("" = Off): what the slot means. Shapes are built
+    /// in, but a key survives a reordered stepper where an index would not.
+    #[serde(default)]
+    pub form_name: String,
+    /// FORM SEED. With the shape, it regenerates the identical form.
+    #[serde(default)]
+    pub form_seed: i32,
 }
 
 impl SlotSnapshot {
@@ -52,6 +72,8 @@ impl SlotSnapshot {
             meter: self.meter,
             fill: self.fill,
             song: self.song,
+            form: self.form,
+            form_seed: self.form_seed,
         }
     }
 }
@@ -68,15 +90,16 @@ pub struct SlotGen {
     pub meter: i32,
     pub fill: i32,
     pub song: i32,
+    pub form: i32,
+    pub form_seed: i32,
 }
 
 impl SlotGen {
     /// Build a generation request for this slot. Mirrors
     /// `ParamSnapshot::to_request` in lib.rs.
     ///
-    /// ponytail: an Auto-meter slot bakes whatever host meter was in force when
-    /// it generated; a later host meter flip does not re-dirty slots. Upgrade
-    /// path: fold the host meter into the dirty check for Auto slots only.
+    /// An Auto-meter slot bakes the host meter in force when it generated; a
+    /// later host meter flip re-dirties Auto slots only (lib.rs `dirty_force`).
     pub fn to_request(&self, tempo: f32, host_meter: (i32, i32), generation: u64) -> GenRequest {
         GenRequest {
             style: self.style,
@@ -89,6 +112,9 @@ impl SlotGen {
             meter: effective_meter(self.meter, host_meter),
             fill_every: fill_of(self.fill),
             song: self.song,
+            form: self.form,
+            form_seed: self.form_seed as u64,
+            meter_auto: self.meter == 0,
             generation,
         }
     }
@@ -135,6 +161,7 @@ impl BankState {
 /// shrank) falls back to Off rather than silently playing a different form.
 pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
     let n_songs = n_songs() as i32;
+    let labels: Vec<String> = (0..n_songs).map(song_label).collect();
     let mut slots = vec![None; BANK_SLOTS];
 
     for (i, dst) in slots.iter_mut().enumerate() {
@@ -147,6 +174,8 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
                 .map(|n| (s.style_index, n.clone())),
         };
         let Some((style_index, style_name)) = resolved else { continue };
+        let song = resolve_song(&s.song_name, s.song, &labels);
+        let form = form_index(&s.form_name);
 
         *dst = Some(SlotSnapshot {
             style_name,
@@ -157,9 +186,11 @@ pub fn sanitize_bank(state: BankState, styles: &[String]) -> BankState {
             swing: s.swing.clamp(0.0, 1.0),
             meter: if (0..METERS.len() as i32).contains(&s.meter) { s.meter } else { 0 },
             fill: if (0..FILLS.len() as i32).contains(&s.fill) { s.fill } else { 0 },
-            // GEN_SONG survives untouched — a generated form is regenerated
-            // from the pad's seed, so it does not depend on the song table.
-            song: if s.song == GEN_SONG || (0..n_songs).contains(&s.song) { s.song } else { 0 },
+            song,
+            song_name: song_name_for(song),
+            form,
+            form_name: form_key(form).to_string(),
+            form_seed: s.form_seed.rem_euclid(10000),
         });
     }
 
@@ -364,7 +395,8 @@ pub struct DrumgenParams {
 
     /// Time signature. 0 = Auto (follows the HOST's time signature, falling
     /// back to the style's native meter when the host reports none); otherwise
-    /// forces a meter, falling back gracefully if the style has no cell in it.
+    /// forces a meter. The meter is a promise: a style with no cell in it gets
+    /// its closest cell adapted to the bar (see `assemble`), never silence.
     #[id = "meter"]
     pub meter: IntParam,
 
@@ -377,6 +409,18 @@ pub struct DrumgenParams {
     /// pattern is a whole arranged song skeleton (sections, dynamics, stops).
     #[id = "song"]
     pub song: IntParam,
+
+    /// Generated song form — index into FORM_SHAPES. 0 = Off; otherwise the
+    /// pattern is a form generated from the shape and FORM SEED, and it
+    /// overrides SONG. Appended after SONG so saved projects keep their state.
+    #[id = "form"]
+    pub form: IntParam,
+
+    /// The form's own dice: same shape + same form seed = the same form, in
+    /// the plugin and the CLI (`--form-seed`). The note SEED stays separate,
+    /// so a form you like survives any number of note rolls.
+    #[id = "form_seed"]
+    pub form_seed: IntParam,
 
     /// Editor window state (size / open) — persisted with the plugin state.
     /// Key is versioned: old projects saved 480x320 under "editor-state" and
@@ -411,11 +455,47 @@ pub fn effective_meter(index: i32, host_meter: (i32, i32)) -> (i32, i32) {
     if index == 0 { host_meter } else { meter_of(index) }
 }
 
-fn meter_label(index: i32) -> String {
+pub fn meter_label(index: i32) -> String {
     match meter_of(index) {
         (0, 0) => "Auto".to_string(),
         (n, d) => format!("{}/{}", n, d),
     }
+}
+
+/// Clamp the HOST's reported time signature to what the engine can play.
+///
+/// Under METER Auto the host's signature was stamped verbatim, so anything the
+/// DAW could say reached the engine: a denominator above 1920 gives a zero-tick
+/// beat, 1/1 or 3/16 or 31/4 are meters the cells and the grid were never
+/// authored for. What survives is the vocabulary the plugin has: /4 and /8 with
+/// 1..=15 beats (the same bounds `songs.txt` enforces). A /2 bar is the same
+/// length as a /4 bar of twice the beats, so 2/2 plays as 4/4 and 3/2 as 6/4.
+/// Anything else is "the host said something we cannot play": (0,0), which the
+/// engine reads as the style's native meter, same as a host that says nothing.
+pub fn normalize_host_meter(n: i32, d: i32) -> (i32, i32) {
+    let (n, d) = if d == 2 { (n.saturating_mul(2), 4) } else { (n, d) };
+    if (1..=15).contains(&n) && (d == 4 || d == 8) {
+        (n, d)
+    } else {
+        (0, 0)
+    }
+}
+
+/// What a STORE click captures: the pad that is PLAYING if one is, otherwise
+/// the knobs. In bank mode the bank is an overlay and the knobs are not what
+/// the user hears, so storing them would capture a sound that is not playing
+/// (and the pad's own header says "PAD n"). A knob tweak exits bank mode, which
+/// is how the user says "the knobs are the sound now".
+pub fn store_source(
+    active: i32,
+    slots: &[Option<SlotSnapshot>],
+    knobs: impl FnOnce() -> SlotSnapshot,
+) -> SlotSnapshot {
+    usize::try_from(active)
+        .ok()
+        .and_then(|i| slots.get(i))
+        .and_then(|s| s.clone())
+        .unwrap_or_else(knobs)
 }
 
 /// Fill param index → fill-every-N-bars (0 = off), ordered by intensity.
@@ -425,17 +505,54 @@ pub fn fill_of(index: i32) -> i32 {
     *FILLS.get(index as usize).unwrap_or(&0)
 }
 
-fn fill_label(index: i32) -> String {
+pub fn fill_label(index: i32) -> String {
     match fill_of(index) {
         0 => "Off".to_string(),
         n => format!("Every {}", n),
     }
 }
 
+/// Generated-form shapes: (stepper label, shape key in builtin.json `forms`,
+/// what it does, for the FORM hover text). Index 0 = Off. Pinned to the
+/// library's `forms` list (the Python `arrangement_gen.FORMS`) by a test, so
+/// the stepper and the templates can never disagree.
+pub const FORM_SHAPES: [(&str, &str, &str); 7] = [
+    ("Off", "", ""),
+    ("Verse/Chor", "verse_chorus", "intro, two verse/chorus rounds, sometimes a bridge and a last chorus, outro"),
+    ("Arc", "arc", "one long rise: an 8-bar build erupting into the peak, then the landing"),
+    ("Stop/Go", "stop_go", "short bursts punched apart by dead air, then the weight lands"),
+    ("Quiet/Loud", "quiet_loud", "fragile, erupts, holds its breath, fragile again, then the full wall"),
+    ("Maze", "maze", "a run of short, odd-length sections with fills between and meter turns"),
+    ("Slow Burn", "slow_burn", "a long rise to a peak that never comes: it holds its breath and fades"),
+];
+
+/// What a FORM index does, in words ("" for Off or out of range).
+pub fn form_about(index: i32) -> &'static str {
+    FORM_SHAPES.get(index as usize).map(|f| f.2).unwrap_or("")
+}
+
+/// Shape key for a FORM index ("" = Off or out of range).
+pub fn form_key(index: i32) -> &'static str {
+    FORM_SHAPES.get(index as usize).map(|f| f.1).unwrap_or("")
+}
+
+/// FORM index for a stored shape key; unknown or empty = Off.
+pub fn form_index(key: &str) -> i32 {
+    if key.is_empty() {
+        return 0;
+    }
+    FORM_SHAPES.iter().position(|f| f.1 == key).map(|i| i as i32).unwrap_or(0)
+}
+
+fn form_label(index: i32) -> String {
+    FORM_SHAPES.get(index as usize).map(|f| f.0).unwrap_or("Off").to_string()
+}
+
 /// Song structure presets: (stepper label, arrangement string). Index 0 = Off
 /// (loop mode). Strings use the engine's section vocabulary and were verified
 /// against SECTION_PREFERENCES + the style pools (see the Song Mode design).
-/// All 4/4 and fill-token-free until the fill-section engine change lands.
+/// Forms use `fill` sections and per-section meters (`@N/M`) where the record
+/// they come from does.
 pub const SONGS: [(&str, &str); 10] = [
     ("Off", ""),
     // 20 bars — the workhorse Fugazi/ATDI verse-chorus skeleton.
@@ -443,7 +560,7 @@ pub const SONGS: [(&str, &str); 10] = [
     // 16 bars — Daitro/City of Caterpillar: 8-bar crescendo (matches the
     // 8-bar build cells) erupting into blast, heavy landing.
     ("Skramz Arc", "2:intro 8:build 1:fill 4:blast 1:breakdown"),
-    // 17 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
+    // 16 bars — Orchid/pg.99 start-stop stabs; silences are real dead air.
     ("Stop/Go", "2:blast 1:silence 2:blast 1:silence 2:blast 1:silence 4:breakdown 3:chorus"),
     // 20 bars — Saetia quiet-loud-quiet: fragile passage, eruption, a held
     // silence (the gasp), fragile again, full blast, decay.
@@ -452,7 +569,7 @@ pub const SONGS: [(&str, &str); 10] = [
     // and blast bursts, a halftime weight in the middle.
     ("Eruption", "2:atmospheric 1:silence 3:blast 2:breakdown 4:blast 1:silence 3:blast"),
     // 32 bars — Envy post-rock scale-build: long build, 6/8 lift, blast wall,
-    // long comedown. Pair with styles that have 6/8 cells (shellac/fugazi).
+    // long comedown. Pair with styles that have 6/8 cells (fugazi, posthardcore).
     ("Post-Rock", "4:intro 8:build 4:drive@6/8 1:fill 7:blast 4:atmospheric 4:outro"),
     // 24 bars — black-metal blast-forward with a 7/8 tremolo passage.
     ("Blast Fwd", "2:intro 7:blast 1:fill 4:drive@7/8 8:blast 2:breakdown"),
@@ -489,18 +606,17 @@ pub fn valid_arrangement(arr: &str) -> bool {
         if !(1..=32).contains(&bars) {
             return false;
         }
-        let (section, meter) = match rest.split_once('@') {
+        let section = match rest.split_once('@') {
             Some((sec, ts)) => {
                 let Some((n, d)) = ts.split_once('/') else { return false };
                 let (Ok(n), Ok(d)) = (n.parse::<i32>(), d.parse::<i32>()) else { return false };
                 if !(1..=15).contains(&n) || !(d == 4 || d == 8) {
                     return false;
                 }
-                (sec, Some((n, d)))
+                sec
             }
-            None => (rest, None),
+            None => rest,
         };
-        let _ = meter;
         if !SECTIONS.contains(&section.to_lowercase().as_str()) {
             return false;
         }
@@ -575,29 +691,6 @@ pub fn n_songs() -> usize {
     SONGS.len() + user_songs().len()
 }
 
-/// Canonical id for the generated song, used in snapshots and requests.
-///
-/// Deliberately NOT the param value: the param value for Gen is one past the
-/// last user song, which moves whenever `songs.txt` is edited. A stored Gen
-/// pad keeps this stable id instead, so adding a song does not turn a pad into
-/// somebody else's form.
-pub const GEN_SONG: i32 = -1;
-
-/// The SONG param value that means Gen — one past the last real song.
-pub fn gen_param_index() -> i32 {
-    n_songs() as i32
-}
-
-/// SONG param value → canonical song id. The only conversion in this
-/// direction; the bank never writes params, so the mapping cannot drift.
-pub fn song_id(param_value: i32) -> i32 {
-    if param_value >= gen_param_index() {
-        GEN_SONG
-    } else {
-        param_value
-    }
-}
-
 pub fn song_str(index: i32) -> &'static str {
     let i = index as usize;
     if i < SONGS.len() {
@@ -629,16 +722,41 @@ pub fn dice_roll(seed: i32) -> i32 {
     (seed + 7919) % 10000
 }
 
+/// The name a snapshot stores for a SONG index ("" = Off).
+pub fn song_name_for(index: i32) -> String {
+    if index <= 0 {
+        String::new()
+    } else {
+        song_label(index)
+    }
+}
+
+/// Resolve a stored song back to an index. `labels[i]` is the label of song
+/// index `i` (`labels[0]` = Off).
+///   - a stored NAME wins: found → its index now; gone → Off (an Off pad beats
+///     a pad that silently plays a different form);
+///   - no name (Off, or a bank saved before names existed) → keep the stored
+///     index if it is still in range, else Off.
+fn resolve_song(name: &str, index: i32, labels: &[String]) -> i32 {
+    if !name.is_empty() {
+        return labels
+            .iter()
+            .skip(1)
+            .position(|l| l == name)
+            .map(|p| p as i32 + 1)
+            .unwrap_or(0);
+    }
+    if (0..labels.len() as i32).contains(&index) {
+        index
+    } else {
+        0
+    }
+}
+
 /// Display name for a song index — built-in preset or user songs.txt entry.
 /// The worker stamps this onto the Pattern for the GUI/telegraph, so it must
 /// cover the user table too (indexing SONGS alone left user songs unnamed).
 pub fn song_label(index: i32) -> String {
-    // Answers for BOTH representations on purpose: it is the param's
-    // value_to_string (so it sees the param value, `gen_param_index()`) and
-    // the worker's label source (so it sees the canonical `GEN_SONG`).
-    if index == GEN_SONG || index >= gen_param_index() {
-        return "Gen".to_string();
-    }
     let i = index as usize;
     if i < SONGS.len() {
         SONGS[i].0.to_string()
@@ -699,9 +817,13 @@ impl DrumgenParams {
             fill: IntParam::new("Fill", 2, IntRange::Linear { min: 0, max: (FILLS.len() - 1) as i32 })
                 .with_value_to_string(Arc::new(fill_label)),
 
-            // One past the last real song is "Gen": the seed composes the form.
             song: IntParam::new("Song", 0, IntRange::Linear { min: 0, max: n_songs() as i32 })
                 .with_value_to_string(Arc::new(song_label)),
+
+            form: IntParam::new("Form", 0, IntRange::Linear { min: 0, max: (FORM_SHAPES.len() - 1) as i32 })
+                .with_value_to_string(Arc::new(form_label)),
+
+            form_seed: IntParam::new("Form Seed", 0, IntRange::Linear { min: 0, max: 9999 }),
 
             editor_state: EguiState::from_size(EDITOR_WIDTH, EDITOR_HEIGHT),
 
@@ -741,6 +863,10 @@ mod tests {
             meter: 0,
             fill: 2,
             song: 0,
+            song_name: String::new(),
+            form: 0,
+            form_name: String::new(),
+            form_seed: 0,
         }
     }
 
@@ -885,39 +1011,6 @@ mod tests {
     }
 
     #[test]
-    fn gen_is_labelled_from_both_representations() {
-        // song_label wears two hats: it is the SONG param's value_to_string
-        // (so it sees the param value, one past the last song) and the
-        // worker's label source (so it sees the canonical GEN_SONG).
-        assert_eq!(song_label(GEN_SONG), "Gen");
-        assert_eq!(song_label(gen_param_index()), "Gen");
-        assert_eq!(song_label(0), "Off");
-        // song_id folds the param value into the canonical id, once.
-        assert_eq!(song_id(gen_param_index()), GEN_SONG);
-        assert_eq!(song_id(0), 0);
-        assert_eq!(song_id(1), 1);
-    }
-
-    #[test]
-    fn a_gen_pad_survives_a_songs_txt_edit() {
-        // THE reason Gen gets a negative sentinel instead of its param value:
-        // editing songs.txt moves the Gen param index, and a pad that stored
-        // that index would silently become somebody else's song form.
-        let gen_pad = SlotSnapshot { song: GEN_SONG, ..snap("kidcrash", 1) };
-        let out = sanitize_bank(bank_with(vec![(0, gen_pad)]), &styles());
-        assert_eq!(out.slot(0).expect("Gen pad survives").song, GEN_SONG);
-
-        // Serde keeps it too — a reopened project must still be Gen.
-        let json = serde_json::to_string(&out).expect("serializes");
-        let back: BankState = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back.slot(0).unwrap().song, GEN_SONG);
-
-        // A positive out-of-range song (songs.txt shrank) still falls to Off.
-        let stale = SlotSnapshot { song: 9999, ..snap("kidcrash", 1) };
-        assert_eq!(sanitize_bank(bank_with(vec![(1, stale)]), &styles()).slot(1).unwrap().song, 0);
-    }
-
-    #[test]
     fn restoring_the_bank_sanitizes_and_bumps_the_epoch() {
         // The epoch bump is what makes the audio thread regenerate restored
         // slots — without it a reopened project has snapshots but no patterns.
@@ -978,5 +1071,155 @@ mod tests {
         assert!(!valid_arrangement("blast")); // missing count
         assert!(!valid_arrangement("33:verse 32:blast")); // > 64 total
         assert!(!valid_arrangement("4:verse@x/y")); // garbage meter
+    }
+
+    fn labels(names: &[&str]) -> Vec<String> {
+        std::iter::once("Off").chain(names.iter().copied()).map(String::from).collect()
+    }
+
+    /// The reason the name exists: songs.txt is edited by hand, and an index
+    /// into it silently re-meant a pad when a line was inserted above it.
+    #[test]
+    fn a_reordered_songs_file_cannot_change_which_form_a_pad_plays() {
+        let before = labels(&["Verse/Chor", "Mine", "Other"]);
+        let after = labels(&["Verse/Chor", "Other", "Mine"]); // user swapped two lines
+        assert_eq!(resolve_song("Mine", 2, &before), 2);
+        assert_eq!(resolve_song("Mine", 2, &after), 3, "must follow the NAME, not the index");
+    }
+
+    #[test]
+    fn a_deleted_song_falls_back_to_off_not_to_another_form() {
+        let after = labels(&["Verse/Chor", "Other"]);
+        assert_eq!(resolve_song("Mine", 2, &after), 0);
+    }
+
+    #[test]
+    fn a_nameless_song_keeps_its_index_if_in_range() {
+        // Off (empty name, index 0) and banks saved before names existed.
+        let l = labels(&["Verse/Chor", "Mine"]);
+        assert_eq!(resolve_song("", 0, &l), 0);
+        assert_eq!(resolve_song("", 2, &l), 2);
+        assert_eq!(resolve_song("", 9, &l), 0, "out of range falls back to Off");
+        assert_eq!(resolve_song("", -1, &l), 0);
+    }
+
+    #[test]
+    fn a_bank_saved_before_song_names_still_loads() {
+        // Adding a required field would have made every existing `bank-v1`
+        // payload fail to deserialize, and nih-plug then keeps the default:
+        // all pads silently lost.
+        let old = r#"{"style_name":"a","style_index":0,"humanize":0.4,"bars":4,
+                      "seed":1,"swing":0.0,"meter":0,"fill":0,"song":1}"#;
+        let s: SlotSnapshot = serde_json::from_str(old).expect("old payload must load");
+        assert_eq!(s.song, 1);
+        assert_eq!(s.song_name, "");
+    }
+
+    #[test]
+    fn song_names_round_trip_and_off_is_empty() {
+        assert_eq!(song_name_for(0), "");
+        assert_eq!(song_name_for(1), song_label(1));
+        let mut s = snap("a", 0);
+        s.song = 1;
+        s.song_name = song_label(1);
+        let back: SlotSnapshot = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+    }
+
+    #[test]
+    fn host_meters_the_engine_can_play_pass_through() {
+        for (n, d) in [(3, 4), (4, 4), (5, 4), (6, 4), (6, 8), (7, 8), (2, 4), (9, 8), (12, 8), (15, 4)] {
+            assert_eq!(normalize_host_meter(n, d), (n, d));
+        }
+    }
+
+    #[test]
+    fn a_half_note_denominator_folds_to_quarters() {
+        // Same bar length: 2/2 = 4/4, 3/2 = 6/4.
+        assert_eq!(normalize_host_meter(2, 2), (4, 4));
+        assert_eq!(normalize_host_meter(3, 2), (6, 4));
+    }
+
+    #[test]
+    fn host_meters_the_engine_cannot_play_become_native() {
+        // 1/1, 3/16, 7/32, 16/4, 0/4 and a denominator that would give a
+        // zero-tick beat all mean "no usable host meter".
+        for (n, d) in [(1, 1), (3, 16), (7, 32), (16, 4), (0, 4), (4, 0), (4, 4096), (-3, 4), (8, 2)] {
+            assert_eq!(normalize_host_meter(n, d), (0, 0), "{n}/{d}");
+        }
+    }
+
+    fn pad(name: &str) -> SlotSnapshot {
+        SlotSnapshot { seed: 77, ..snap(name, 0) }
+    }
+
+    #[test]
+    fn store_copies_the_playing_pad_not_the_knobs() {
+        let mut slots = vec![None; BANK_SLOTS];
+        slots[3] = Some(pad("playing"));
+        let knobs = || snap("knobs", 1);
+        let got = store_source(3, &slots, knobs);
+        assert_eq!(got.style_name, "playing");
+        assert_eq!(got.seed, 77);
+    }
+
+    #[test]
+    fn store_takes_the_knobs_when_no_pad_is_playing() {
+        let slots = vec![None; BANK_SLOTS];
+        assert_eq!(store_source(-1, &slots, || snap("knobs", 1)).style_name, "knobs");
+        // A stale active index pointing at an empty or out-of-range slot must
+        // not lose the store either.
+        assert_eq!(store_source(5, &slots, || snap("knobs", 1)).style_name, "knobs");
+        assert_eq!(store_source(99, &slots, || snap("knobs", 1)).style_name, "knobs");
+    }
+
+    /// The FORM stepper and the templates in builtin.json are two lists that
+    /// must name the same shapes in the same order.
+    #[test]
+    fn form_shapes_match_the_library() {
+        let lib = crate::engine::cell_library::CellLibrary::new();
+        let shipped: Vec<(&str, &str, &str)> = lib
+            .forms()
+            .iter()
+            .map(|f| (f.label.as_str(), f.key.as_str(), f.about.as_str()))
+            .collect();
+        assert_eq!(&FORM_SHAPES[1..], shipped.as_slice());
+        assert_eq!((form_index("maze"), form_key(5)), (5, "maze"));
+        assert_eq!((form_index(""), form_index("sonata"), form_key(99)), (0, 0, ""));
+    }
+
+    #[test]
+    fn a_form_pad_restores_by_name_and_an_unknown_shape_is_off() {
+        let pad = SlotSnapshot {
+            form: 1, // a stale index: the name must win
+            form_name: "arc".into(),
+            form_seed: 10042,
+            ..snap("zona", 3)
+        };
+        let gone = SlotSnapshot { form: 3, form_name: "sonata".into(), ..snap("zona", 3) };
+        let out = sanitize_bank(bank_with(vec![(0, pad), (1, gone)]), &styles());
+        let a = out.slot(0).unwrap();
+        assert_eq!((a.form, a.form_name.as_str(), a.form_seed), (2, "arc", 42));
+        let b = out.slot(1).unwrap();
+        assert_eq!((b.form, b.form_name.as_str()), (0, ""));
+    }
+
+    /// Banks saved before forms existed have no form fields; they still load.
+    #[test]
+    fn a_bank_saved_before_forms_still_loads() {
+        let old = r#"{"slots":[{"style_name":"zona","style_index":3,"humanize":0.4,
+            "bars":4,"seed":7,"swing":0.0,"meter":0,"fill":0,"song":0}]}"#;
+        let bank: BankState = serde_json::from_str(old).expect("old bank parses");
+        let s = bank.slot(0).unwrap();
+        assert_eq!((s.form, s.form_name.as_str(), s.form_seed), (0, "", 0));
+    }
+
+    #[test]
+    fn a_slot_request_carries_the_form_and_whether_the_meter_is_auto() {
+        let auto = SlotSnapshot { form: 5, form_name: "maze".into(), form_seed: 2, ..snap("zona", 3) };
+        let r = auto.gen_part().to_request(140.0, (4, 4), 1);
+        assert_eq!((r.form, r.form_seed, r.meter_auto), (5, 2, true));
+        let forced = SlotSnapshot { meter: 6, ..auto };
+        assert!(!forced.gen_part().to_request(140.0, (4, 4), 1).meter_auto);
     }
 }

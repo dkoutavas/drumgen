@@ -73,13 +73,19 @@ def write_midi(events, tempo, time_signatures, kit_mapping_path, output_path, pp
         if alias.lower() not in inst_lookup and target.lower() in inst_lookup:
             inst_lookup[alias.lower()] = inst_lookup[target.lower()]
 
-    midi_events = []
+    # Two hits of the same pitch on the same tick are one hit to a sampler
+    # (stacked note_ons just double the voice). Keep the loudest.
+    loudest = {}
     for abs_tick, instrument, velocity in events:
         inst_lower = instrument.lower()
         if inst_lower not in inst_lookup:
             print(f"Warning: Unknown instrument '{instrument}', skipping", file=sys.stderr)
             continue
-        note = inst_lookup[inst_lower]
+        key = (abs_tick, inst_lookup[inst_lower])
+        loudest[key] = max(velocity, loudest.get(key, 0))
+
+    midi_events = []
+    for (abs_tick, note), velocity in loudest.items():
         midi_events.append(("note_on", abs_tick, note, velocity))
         midi_events.append(("note_off", abs_tick + NOTE_DURATION, note, 0))
 

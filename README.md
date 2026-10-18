@@ -30,21 +30,36 @@ cd plugin && ./build-linux.sh     # builds + installs to ~/.vst3 and ~/.clap
 
 Then in Bitwig: one instrument track, device chain = drumgen → your drum
 sampler, press play. (Restart Bitwig after reinstalling, the old `.so` stays
-in memory.)
+in memory.) If the plugin does not show up: Settings → Locations, make sure
+`~/.vst3` and `~/.clap` are scanned.
+
+Building needs a Rust toolchain plus the X11 and OpenGL development headers the
+GUI links. On Debian/Ubuntu (what CI installs):
+
+```bash
+sudo apt install pkg-config libx11-dev libxcb1-dev libx11-xcb-dev libxcursor-dev \
+  libxkbcommon-dev libgl1-mesa-dev libxcb-icccm4-dev libxcb-dri2-0-dev
+```
+
+On openSUSE install the `-devel` packages of the same libraries. Without them
+`cargo` stops early on a missing `gl.pc` or `x11-xcb.pc`.
 
 ### What the plugin gives you
 
 | Control | Does |
 |---|---|
 | STYLE | 30 genre pools: each produces a distinctly different beat |
-| SONG | 10 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
-| DICE / SEED | Re-roll the groove or the whole song. Same seed = same notes, forever |
-| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures the current sound (style, seed, meter, bars, fill, song). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up — Bitwig's computer-keyboard input works) trigger the same pads. Right-click clears. Pads persist with the project; patterns regenerate from their seeds |
+| SONG | 9 song forms (Verse/Chor, Skramz Arc, Stop/Go, Quiet/Loud, Eruption, Post-Rock, Blast Fwd, Labyrinth, Ampere): a whole 14–32 bar skeleton with section dynamics, stops and meter turns. Plus your own forms (below) |
+| FORM / FORM SEED | Generate a song form instead of picking one: a shape (Verse/Chor, Arc, Stop/Go, Quiet/Loud, Maze, Slow Burn) plus a form seed. Click FORM SEED to roll a new form, drag it to scrub. Same shape + same form seed = the same form, here and in the CLI (`--form arc --form-seed 42`). Overrides SONG |
+| DICE / SEED | Re-roll the notes (of the loop, the song or the form). Same seed = same notes, forever |
+| STORE + pads 1–16 | The pattern bank. Arm STORE, click a pad: it captures what is playing (style, seed, meter, bars, fill, song, form). Click a pad to switch to it on the next barline; MIDI notes 36–51 (C1 up in Bitwig's note names) trigger the same pads. Right-click clears. STORE copies what is playing: the pad that is playing, or the knobs when no pad is. Pads persist with the project; patterns regenerate from their seeds |
 | HUMANIZE / SWING | Velocity variance, timing tendencies, flam, ghost clustering / triplet lean (0.50 = full triplet) |
 | BARS / METER / FILL | Loop length; meter (Auto follows the host's time signature live, or force 3/4 · 4/4 · 5/4 · 6/4 · 6/8 · 7/8); fill every N bars |
-| Telegraph + horizon | A countdown line (`CHORUS ▸ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
+| Telegraph + horizon | A countdown line (`CHORUS ▶ BLAST IN 2`) and a strip showing the current bar plus the next three, with a sweeping playhead: so you can keep both hands on the guitar |
 | SAVE .MID | Writes the pattern to `~/drumgen_output/`: and renders a drum chart too, if you install the hook |
-| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`. Attach it to a bug report, or watch it live with `tail -f` |
+| SAVE JAM | Stop the transport, then write the pads you just played as one `.mid` on one bar grid, plus a `.txt` cue sheet of its time signatures (Bitwig drops meter changes on import, so you type them into the ruler) |
+| `?` and hover texts | Hover any control to see what it is set to and what a click does (a greyed-out one says why). `?` explains the bank and the pad colours |
+| Session log | The plugin writes one line per decision (triggers, switches, regenerations) to `~/drumgen_output/drumgen.log`, including every song or generated form as a ready `songs.txt` line. Attach it to a bug report, or watch it live with `tail -f` |
 
 ### Your own song forms
 
@@ -81,6 +96,11 @@ python drumgen.py --style kidcrash --tempo 165 --bars 8 -o verse.mid
 # A song form
 python drumgen.py --style euro_screamo -a "2:intro 8:build 1:fill 4:blast" --tempo 140
 
+# A generated song form: a shape and a form seed (0-9999). Same pair, same
+# form, every time; --seed still rolls the notes. Shapes: verse_chorus, arc,
+# stop_go, quiet_loud, maze, slow_burn. It prints a songs.txt line for the plugin.
+python drumgen.py --style fugazi --form maze --form-seed 2 --tempo 140
+
 # Mixed meters per section
 python drumgen.py --style faraquet -a "4:verse@7/8 1:fill 4:drive@6/8" --tempo 150
 
@@ -98,18 +118,25 @@ python drumgen.py --list-cells                           # all cells + style poo
 python drumgen.py --test-mapping ugritone                # one hit per instrument
 ```
 
-Key options: `--style` / `--cell`, `-a/--arrangement`, `--tempo`, `--bars`,
+Key options: `--style` / `--cell`, `-a/--arrangement`, `--form` /
+`--form-seed`, `--tempo`, `--bars`,
 `--time-sig`, `--humanize`, `--swing`, `--seed`, `--vary`, `--fill-every`,
 `--generative`, `--variations`, `--kit`, `--musicxml`, `-o`.
 
 A Streamlit GUI covers the same ground: `./run-drumgen` (or
-`streamlit run app.py`).
+`streamlit run app.py`). Its optional WAV preview needs FluidSynth
+(`sudo zypper install fluidsynth fluid-soundfont-gm` on openSUSE); it plays
+General MIDI sounds, so it will not match your real kit.
+
+Bad input is a message, not a traceback: tempo, bars, time signatures
+(`N/D`, D one of 2, 4, 8, 16), section names and the 0.0-1.0 options are
+checked up front.
 
 ---
 
 ## Library
 
-117 cells across 30 plugin style pools — 28 probability grids, 5 Euclidean
+121 cells across 30 plugin style pools — 32 probability grids, 5 Euclidean
 polymeter cells, 26 fills, the rest fixed patterns. `python drumgen.py
 --list-cells` prints the current inventory; `styles/drumgen-style-dna.md`
 documents the rhythmic vocabulary per genre.
@@ -146,17 +173,35 @@ Imported cells land in `user_cells/` as JSON and auto-join style pools by tag.
 
 `kit_mappings/*.json` map instrument names to MIDI notes: `ugritone.json`
 (default, 25 instruments), `addictive_drums.json` (note 48 = snare),
-`general_midi.json`. Kits support an `aliases` field. MIDI channel 10, PPQ 480.
+`general_midi.json`. Kits support an `aliases` field. MIDI channel 10 (0-based 9 in the code), PPQ 480.
 
 ## Development
 
 ```bash
-python -m pytest test_drumgen.py -q     # 289 tests
-python validate_midi.py                  # pipeline sanity across configs
+python -m pytest test_drumgen.py -q     # 520 tests, incl. the data-drift checks
+python validate_midi.py                  # pipeline sanity across configs (--full: exhaustive)
 python export_cells.py                   # after ANY cell_library.py edit
-cd plugin && cargo test                  # 75 tests
+python export_cells.py --check           # is plugin/cells/builtin.json current?
+python export_golden.py --check          # is the cross-engine golden vector current?
+cd plugin && cargo test                  # 170 tests
 cd plugin && ./build-linux.sh            # build + install
 ```
+
+No DAW to hand? These check work by eye and ear on any Linux box (each
+script's header lists what to apt-install):
+
+```bash
+python scripts/gui-smoke.py --url http://localhost:8765   # the Streamlit GUI, headless
+python scripts/ab_render.py --out /tmp/ab        # before/after MP3s of an engine change
+python scripts/audition_cells.py --out /tmp/c    # candidate cells, loop and in a song
+python scripts/audition_forms.py --out /tmp/f    # one generated form per shape
+scripts/editor-shots.sh /tmp/shots               # the plugin editor, screenshotted
+```
+
+CI (`.github/workflows/build-plugin.yml`) runs the Python suite and `cargo test`
+on pushes to `main` and on every pull request, builds Linux, Windows and macOS bundles, and
+cuts a release from a `v*` tag, which must equal the version in
+`plugin/Cargo.toml`.
 
 The engine is hand-duplicated: Python (`assembler.py`, `cell_library.py`,
 `humanizer.py`, `midi_engine.py`) and Rust (`plugin/src/engine/*.rs`). Changes
@@ -164,9 +209,14 @@ to engine logic must land in both. Cells are data, edit `cell_library.py`,
 run `export_cells.py`. See [CLAUDE.md](CLAUDE.md) for conventions and
 [PROJECT.md](PROJECT.md) for the reasoning behind all of it.
 
-CI builds Linux, Windows and macOS bundles on push; a `v*` tag cuts a release.
-
 ## License
 
-Open source and self-hosted: no cloud, no accounts, no telemetry.
-Everything runs on your own machine.
+drumgen is free software, released under the
+[GNU General Public License v3.0 or later](LICENSE). Self-hosted: no cloud, no
+accounts, no telemetry. Everything runs on your own machine.
+
+Why GPL rather than something more permissive: the plugin exports VST3 through
+nih-plug's VST3 bindings, which are GPLv3, so any VST3 build has to comply with
+the GPLv3 anyway. One licence for the whole repository keeps the source and the
+binaries saying the same thing. The bundled Press Start 2P font keeps its own
+licence (SIL OFL 1.1, in `plugin/assets/OFL.txt`).

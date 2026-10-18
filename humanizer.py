@@ -1,21 +1,20 @@
 import random
 
 
-# Section drift profiles: how timing shifts across bars within a section
+# Section drift profiles: how timing shifts across bars within a section. Keys are
+# the section types the arrangement parser accepts (SECTION_PREFERENCES) and the
+# ones infer_section_type can return; a key nothing can reach is dead (a test
+# checks).
 _SECTION_DRIFT = {
     "verse":       "gradual_drag",
     "atmospheric": "gradual_drag",
     "intro":       "gradual_drag",
-    "quiet":       "gradual_drag",
     "outro":       "gradual_drag",
     "chorus":      "constant_push",
     "blast":       "constant_push",
     "drive":       "constant_push",
     "build":       "gradual_push",
-    "buildup":     "gradual_push",
-    "crescendo":   "gradual_push",
     "breakdown":   "constant_drag",
-    "halftime":    "constant_drag",
     "fill":        "fill_rush",
 }
 
@@ -146,9 +145,11 @@ class Humanizer:
         low, high = self.VELOCITY_RANGES[level]
         center = (low + high) // 2
         variance = self.INSTRUMENT_VARIANCE.get(instrument, 12)
+        # ponytail: the floor of 3 means velocity still jitters +-3 and draws RNG at
+        # humanize=0 (the golden vector accounts for it). Dropping it would make
+        # humanize=0 truly flat, but shifts every seed's velocities in both engines
+        # and needs an ear pass; so it stays.
         scaled_variance = max(3, int(variance * self.humanize_amount))
-        if scaled_variance <= 0:
-            return max(1, min(127, center))
         vel = self.rng.randint(center - scaled_variance, center + scaled_variance)
         return max(1, min(127, vel))
 

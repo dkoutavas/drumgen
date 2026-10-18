@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Cross-compile the drumgen VST3 + CLAP for WINDOWS from Linux (mingw).
+# Manual fallback: CI builds a native MSVC bundle on every push, and that is
+# the artifact to install on Windows. Use this only without CI access.
 #
 # Produces a fully self-contained Windows DLL — it imports only stock system
 # DLLs (kernel32/user32/gdi32/ole32/opengl32), so there is no mingw runtime to
@@ -17,7 +19,7 @@
 # Install on Windows by copying:
 #   dist/windows/drumgen-vst.vst3  ->  C:\Program Files\Common Files\VST3\
 #   dist/windows/drumgen-vst.clap  ->  C:\Program Files\Common Files\CLAP\
-# Then rescan plugins in Ableton (Preferences -> Plug-ins -> Rescan).
+# Then rescan plugins in your DAW. (Ableton Live loads VST3 only, not CLAP.)
 
 set -euo pipefail
 

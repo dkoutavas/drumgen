@@ -2,8 +2,9 @@
 cd "$(dirname "$0")"
 source .venv/bin/activate
 
-# On WSL, use Windows browser so Streamlit auto-opens correctly
-if [ -d /mnt/c ] && [ -z "$BROWSER" ]; then
+# Under WSL only (not merely when /mnt/c exists), use the Windows browser so
+# Streamlit auto-opens correctly.
+if grep -qi microsoft /proc/version 2>/dev/null && [ -z "$BROWSER" ]; then
     export BROWSER="explorer.exe"
 fi
 

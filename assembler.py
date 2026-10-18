@@ -2,7 +2,8 @@ import random
 
 import sys
 
-from cell_library import get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS, CELLS
+from cell_library import (get_cell, get_fill_cells, get_pool, get_cell_for_section, STYLE_MAP, STYLE_POOLS,
+                          SECTION_PREFERENCES)
 from humanizer import Humanizer, get_cluster_amount, infer_section_type
 from midi_engine import position_to_ticks, get_time_sig_for_bar, DEFAULT_PPQ
 
@@ -25,7 +26,10 @@ _CYMBAL_PRIORITY = {"crash_1": 3, "crash_2": 3, "crash_1_choke": 3, "crash_2_cho
                     "china": 3, "china_2": 3, "splash": 2,
                     "ride": 1, "ride_bell": 1, "ride_crash": 2,
                     "fx_cymbal_1": 2, "fx_cymbal_2": 2,
-                    "hihat_closed": 0, "hihat_open": 0, "hihat_wide_open": 0, "hihat_pedal": 0}
+                    "hihat_closed": 0, "hihat_open": 0, "hihat_wide_open": 0}
+# hihat_pedal is deliberately absent: it is a FOOT (see the `feet` lists in the
+# two constraint resolvers below). Listing it here as well emitted it twice
+# whenever it was alone on a slot, and let it displace a hand-played hat.
 _STICK_PRIORITY = {"snare": 2, "snare_rim": 2, "snare_ghost": 1,
                    "tom_high": 0, "tom_mid_high": 0, "tom_mid": 0, "tom_low": 0, "tom_floor": 0}
 _VEL_RANK = {"accent": 3, "normal": 2, "soft": 1, "ghost": 0}
@@ -410,6 +414,50 @@ def _resolve_layer_conflicts(merged_hits):
     return filtered
 
 
+def _adapt_to_bar(bar_hits, cell_sig, bar_sig):
+    """Fit one bar of a cell's hits (5-tuples) into a bar of a different meter.
+
+    Same denominator: vamp the head of the figure to fill a wider bar and clip
+    hits past the barline of a narrower one (counting beats).
+
+    Different denominators (a /4 cell in a /8 bar, or the reverse): beats are
+    not the same length, so counting them would silently change the pulse. A
+    4/4 cell in a 6/8 bar used to play its quarter-note beats as EIGHTHS, at
+    double speed. Convert by TIME instead: a quarter stays a quarter, then the
+    same vamp/clip rule applies. Sub-grid positions stay exact for the 16th-based
+    vocabulary (/4 -> /8 doubles them, /8 -> /4 halves them).
+
+    Deterministic, order-stable, consumes no RNG. Mirrored by `adapt_to_bar` in
+    assembler.rs.
+    """
+    (cn, cd), (bn, bd) = cell_sig, bar_sig
+    if cd <= 0 or bd <= 0 or cn <= 0:
+        return bar_hits
+    if cd == bd:
+        if cn == bn:
+            return bar_hits
+        adapted = [h for h in bar_hits if h[1] <= bn]
+        shift = cn
+        while shift < bn:
+            adapted += [(b, beat + shift, s, i, v)
+                        for b, beat, s, i, v in bar_hits if beat + shift <= bn]
+            shift += cn
+        return adapted
+
+    scale = bd / cd            # bar beats per cell beat
+    span = cn * scale          # the cell's length, in bar beats
+    adapted = []
+    shift = 0.0
+    while shift < bn - 1e-9:
+        for b, beat, sub, inst, vel in bar_hits:
+            pos = (beat - 1 + sub) * scale + shift
+            if pos < bn - 1e-9:
+                whole = int(pos + 1e-9)
+                adapted.append((b, whole + 1, round(max(pos - whole, 0.0), 6), inst, vel))
+        shift += span
+    return adapted
+
+
 def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
                  tempo, time_sig_list, ppq, beat_ticks, swing, humanize_override,
                  velocity_offset=0, section_drift_ms=0.0):
@@ -434,16 +482,8 @@ def _process_bar(bar_number, cell_bar, active_hits, active_cell, humanizer,
     # bar (what a drummer does when the riff is short of the bar), and clip
     # hits past the barline (a wider cell used to bleed into the next bar).
     # Deterministic, order-stable, consumes no RNG.
-    bar_beats = get_time_sig_for_bar(bar_number, time_sig_list)[0]
-    cell_beats = active_cell.get("time_sig", (4, 4))[0]
-    if cell_beats != bar_beats:
-        adapted = [h for h in bar_hits if h[1] <= bar_beats]
-        shift = cell_beats
-        while shift < bar_beats:
-            adapted += [(b, beat + shift, s, i, v)
-                        for b, beat, s, i, v in bar_hits if beat + shift <= bar_beats]
-            shift += cell_beats
-        bar_hits = adapted
+    bar_hits = _adapt_to_bar(bar_hits, tuple(active_cell.get("time_sig", (4, 4))),
+                             get_time_sig_for_bar(bar_number, time_sig_list))
 
     for hit_bar, beat, sub, instrument, vel_level in bar_hits:
         abs_tick = position_to_ticks(bar_number, beat, sub, time_sig_list, ppq)
@@ -475,7 +515,8 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
-    num, den = [int(x) for x in time_sig.split("/")]
+    num, den = parse_time_sig(time_sig)
+    _check_run(tempo, bars)
     requested_ts = (num, den)
 
     # Resolve cell
@@ -588,6 +629,9 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
             last_fill = fill_cell
             active_hits = _normalize_hits(fill_cell)
             active_cell = fill_cell
+            # ponytail: assumes a fill is ONE bar (all 26 are; a test enforces it).
+            # A multi-bar fill would play bar (bar_idx % n)+1 of itself, the wrong
+            # phase. Upgrade path: count bars since the fill started.
             cell_bar = (bar_idx % active_cell["num_bars"]) + 1
         elif is_prob or is_euclid:
             # Realized hits already carry correct output bar numbers
@@ -634,7 +678,39 @@ def assemble(style=None, cell_name=None, bars=4, tempo=120, time_sig="4/4",
         "tempo": tempo,
         "time_signatures": time_signatures,
         "seed": seed,
+        # The cell that actually played (meter and generative filters pick it),
+        # for the GUI: it used to show the style's FIRST pool cell instead.
+        "cell_name": cell["name"],
     }
+
+
+VALID_DENOMINATORS = (2, 4, 8, 16)
+MAX_NUMERATOR = 32
+
+
+def parse_time_sig(text):
+    """'7/8' -> (7, 8). Raises ValueError, with a message a user can act on, for
+    anything the engine cannot play. A zero denominator used to surface as a
+    ZeroDivisionError deep inside the tick math, and 0/4 as a silent 3-tick file."""
+    try:
+        num, den = (int(x) for x in str(text).split("/"))
+    except ValueError:
+        raise ValueError(f"Invalid time signature '{text}' - expected N/D, e.g. 7/8") from None
+    if den not in VALID_DENOMINATORS or not 1 <= num <= MAX_NUMERATOR:
+        raise ValueError(
+            f"Unsupported time signature '{text}' - beats 1-{MAX_NUMERATOR}, "
+            f"denominator one of {', '.join(map(str, VALID_DENOMINATORS))}"
+        )
+    return num, den
+
+
+def _check_run(tempo, bars):
+    """Reject a run the tick math cannot do (tempo 0 divided by zero in the
+    humanizer; bars <= 0 wrote an empty file with a negative end bar)."""
+    if tempo <= 0:
+        raise ValueError(f"Tempo must be above 0, got {tempo}")
+    if bars < 1:
+        raise ValueError(f"Bars must be at least 1, got {bars}")
 
 
 def parse_arrangement(arrangement_str, default_time_sig="4/4"):
@@ -642,7 +718,7 @@ def parse_arrangement(arrangement_str, default_time_sig="4/4"):
 
     Supports @N/M suffix for per-section time signatures.
     """
-    default_num, default_den = [int(x) for x in default_time_sig.split("/")]
+    default_num, default_den = parse_time_sig(default_time_sig)
     sections = []
     for token in arrangement_str.strip().split():
         if ":" not in token:
@@ -659,15 +735,28 @@ def parse_arrangement(arrangement_str, default_time_sig="4/4"):
         if "@" in rest:
             section_type, ts_str = rest.split("@", 1)
             try:
-                ts_num, ts_den = [int(x) for x in ts_str.split("/")]
-            except ValueError:
-                raise ValueError(f"Invalid time signature '@{ts_str}' in token '{token}'")
-            sections.append((count, section_type.lower(), (ts_num, ts_den)))
+                ts_num, ts_den = parse_time_sig(ts_str)
+            except ValueError as e:
+                raise ValueError(f"{e} (in token '{token}')") from None
+            section_type = section_type.lower()
+            _check_section(section_type, token)
+            sections.append((count, section_type, (ts_num, ts_den)))
         else:
+            _check_section(rest.lower(), token)
             sections.append((count, rest.lower(), (default_num, default_den)))
     if not sections:
         raise ValueError("Arrangement string is empty")
     return sections
+
+
+def _check_section(section_type, token):
+    """An unknown section used to fall through to the pool's first cell with no
+    warning, so a typo played the wrong music silently."""
+    if section_type not in SECTION_PREFERENCES:
+        raise ValueError(
+            f"Unknown section type '{section_type}' in token '{token}'. "
+            f"Valid: {', '.join(sorted(SECTION_PREFERENCES))}"
+        )
 
 
 def _consolidate_time_signatures(time_signatures):
@@ -697,7 +786,9 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
     sections = parse_arrangement(arrangement_str, default_time_sig=time_sig)
     pool = get_pool(style)
 
-    default_num, default_den = [int(x) for x in time_sig.split("/")]
+    default_num, default_den = parse_time_sig(time_sig)
+    if tempo <= 0:
+        raise ValueError(f"Tempo must be above 0, got {tempo}")
     total_bars = sum(count for count, _, _ in sections)
 
     # Build per-section time signatures
@@ -767,19 +858,22 @@ def assemble_arrangement(style, arrangement_str, tempo=120, time_sig="4/4",
         cell_humanize = humanize if humanize is not None else cell["humanize"]
         humanizer.humanize_amount = cell_humanize
 
-        # Crash+kick on beat 1 of intense sections
+        # Crash+kick on beat 1 of intense sections, each only if the cell's own
+        # opening bar does not already play it. Unconditional injection stacked
+        # a second kick/crash 0-3 ticks from the cell's (humanize jitter made
+        # it a flam) at nearly every section change.
         section_start_bar = bar_cursor + 1
         if section_type in _INTENSE_SECTIONS:
-            crash_tick = position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq)
-            crash_tick_h = humanizer.humanize_timing(crash_tick, "crash_1", tempo, ppq)
-            crash_vel = humanizer.humanize_velocity("accent", "crash_1")
-            events.append((crash_tick_h, "crash_1", crash_vel))
-            kick_tick = humanizer.humanize_timing(
-                position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq),
-                "kick", tempo, ppq
-            )
-            kick_vel = humanizer.humanize_velocity("accent", "kick")
-            events.append((kick_tick, "kick", kick_vel))
+            opening = [h for h in cell_hits if h[0] == 1 and h[1] == 1 and h[2] == 0.0]
+            downbeat_tick = position_to_ticks(section_start_bar, 1, 0.0, time_signatures, ppq)
+            if not any(h[3].startswith("crash") for h in opening):
+                crash_tick_h = humanizer.humanize_timing(downbeat_tick, "crash_1", tempo, ppq)
+                crash_vel = humanizer.humanize_velocity("accent", "crash_1")
+                events.append((crash_tick_h, "crash_1", crash_vel))
+            if not any(h[3] == "kick" for h in opening):
+                kick_tick = humanizer.humanize_timing(downbeat_tick, "kick", tempo, ppq)
+                kick_vel = humanizer.humanize_velocity("accent", "kick")
+                events.append((kick_tick, "kick", kick_vel))
 
         seen_cell_bars = set()
 
@@ -874,7 +968,8 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
     if seed is None:
         seed = random.randint(0, 2**31 - 1)
 
-    num, den = [int(x) for x in time_sig.split("/")]
+    num, den = parse_time_sig(time_sig)
+    _check_run(tempo, bars)
     time_signatures = [{"bar_start": 1, "bar_end": bars, "numerator": num, "denominator": den}]
 
     ppq = DEFAULT_PPQ
@@ -898,8 +993,24 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
 
     humanizer = Humanizer(humanize_amount, seed=seed)
 
-    # Build a dummy cell for _process_bar (it only reads humanize and humanize_per_bar)
-    dummy_cell = {"humanize": humanize_amount, "humanize_per_bar": None, "num_bars": 1}
+    # Build a dummy cell for _process_bar (it reads humanize, humanize_per_bar
+    # and time_sig). time_sig MUST be the output meter: left out, the meter
+    # adapter assumed 4/4 and vamped/clipped every layered bar in 3/4, 5/4,
+    # 6/4, 6/8 and 7/8, doubling hits.
+    dummy_cell = {"humanize": humanize_amount, "humanize_per_bar": None, "num_bars": 1,
+                  "time_sig": (num, den)}
+
+    # Realized cells (probability AND euclidean) are realized once across the
+    # whole output and keyed by OUTPUT bar, exactly as arrangement mode does
+    # (PROJECT.md lesson 5). Realizing one cell-bar and replaying it by modulo
+    # froze euclidean phasing and made trig conditions (`2:2` answers,
+    # `1st`/`last`) unreachable.
+    realized_layers = {}
+    for layer_name, cell in layer_cells.items():
+        if cell.get("type") == "probability":
+            realized_layers[layer_name] = realize_probability_grid(cell, bars, rng)
+        elif cell.get("type") == "euclidean":
+            realized_layers[layer_name] = realize_euclidean(cell, bars, seed)
 
     events = []
     section_type = "verse"
@@ -909,18 +1020,10 @@ def assemble_layered(layers, bars=4, tempo=120, time_sig="4/4",
         merged_hits = []
 
         for layer_name, cell in layer_cells.items():
-            is_prob = cell.get("type") == "probability"
-            is_euclid = cell.get("type") == "euclidean"
-            cell_bar = (bar_idx % cell["num_bars"]) + 1
-
-            if is_prob:
-                # Realize just this one bar
-                realized = realize_probability_grid(cell, cell["num_bars"], rng)
-                layer_hits = [h for h in realized if h[0] == cell_bar]
-            elif is_euclid:
-                realized = realize_euclidean(cell, cell["num_bars"], seed)
-                layer_hits = [h for h in realized if h[0] == cell_bar]
+            if layer_name in realized_layers:
+                layer_hits = [h for h in realized_layers[layer_name] if h[0] == bar_number]
             else:
+                cell_bar = (bar_idx % cell["num_bars"]) + 1
                 layer_hits = [h for h in _normalize_hits(cell) if h[0] == cell_bar]
 
             # Extract only this layer's instruments

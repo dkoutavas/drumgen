@@ -143,13 +143,15 @@ impl Instrument {
     }
 
     /// Check if this instrument is in the cymbal group (for physical constraints).
+    /// `HihatPedal` is deliberately NOT here: it is a foot (`is_foot`). Counting
+    /// it as both emitted it twice when alone on a slot, and let it displace a
+    /// hand-played hat.
     pub fn is_cymbal(&self) -> bool {
         matches!(
             self,
             Self::HihatClosed
                 | Self::HihatOpen
                 | Self::HihatWideOpen
-                | Self::HihatPedal
                 | Self::Ride
                 | Self::RideBell
                 | Self::RideCrash
@@ -187,7 +189,7 @@ impl Instrument {
             | Self::China | Self::China2 => 3,
             Self::Splash | Self::RideCrash | Self::FxCymbal1 | Self::FxCymbal2 => 2,
             Self::Ride | Self::RideBell => 1,
-            Self::HihatClosed | Self::HihatOpen | Self::HihatWideOpen | Self::HihatPedal => 0,
+            Self::HihatClosed | Self::HihatOpen | Self::HihatWideOpen => 0,
             _ => -1,
         }
     }

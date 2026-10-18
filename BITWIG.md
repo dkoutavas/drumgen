@@ -67,12 +67,73 @@ drumgen track directly bounces to silence.
 
 1. One track: drumgen → Ugritone. Play.
 2. Flip STYLE / hit DICE until something grabs you. HUMANIZE ~40% is the sweet
-   spot; BARS 4; METER Auto uses the style's native meter.
-3. SAVE .MID (or record to Track B) each keeper.
+   spot; BARS 4; METER Auto follows the project's time signature (below).
+3. SAVE .MID (or record to Track B) each keeper. After a pad run, stop and
+   SAVE JAM: the whole pass lands as one .mid plus a cue sheet of its meter
+   changes to type into the ruler.
 4. Drag keepers into your song, delete/bypass drumgen when arranging.
 
-Same SEED + same settings = the exact same pattern again, forever. DICE is just
-SEED+1, write down a seed if you love it.
+Same SEED + same settings = the exact same pattern again, forever. DICE jumps
+the seed by a prime stride so every press lands on a different groove; dragging
+the SEED readout scrubs it one at a time. Write down a seed if you love it.
+
+**METER Auto** follows Bitwig's time signature live. It plays what the plugin
+has cells for: /4 or /8 with up to 15 beats (2/2 plays as 4/4). Anything else
+the host reports plays the style's native meter. If the style has no cell in
+the meter you asked for, its closest cell is adapted to the bar: the pulse is
+kept (a quarter stays a quarter) and the figure is repeated to fill, or cut at
+the barline.
+
+**FILL and loop length.** FILL "Every N" puts a fill on every Nth bar, so the
+loop is stretched to hold the whole cycle: the least common multiple of BARS
+and N. BARS 4 with Every 8 loops 8 bars (the figure twice, a fill closing bar
+8); BARS 15 with Every 8 is 120 bars. The Python CLI keeps BARS as the exact
+file length instead.
+
+**SONG** (anything but Off) plays a whole arrangement and ignores BARS and
+FILL; METER becomes the song's home meter. Your own forms live in
+`~/.config/drumgen/songs.txt` (see the README); restart the DAW after editing
+it.
+
+**FORM** (anything but Off) generates the arrangement instead, from a shape
+and the FORM SEED box next to it: click the box to roll a new form, drag it to
+scrub. It overrides SONG (which greys out). With METER on Auto, Arc and Maze
+may turn a verse or a drive into another meter the style has cells for; a
+forced METER holds the whole form. DICE still rolls only the notes, so a form
+you like survives any number of rolls. The form is named by shape and seed
+(`MAZE 7919` on a playing pad's header), and the session log writes each one
+as a `songs.txt` line, ready to paste and edit.
+
+## 3b. The pattern bank: switching grooves while it plays
+
+Sixteen pads sit in the bank row under the knobs. The `?` button next to the
+logo opens a short version of this section, with the pad colours; hovering a
+pad says what it holds and what a click will do. A pad is a snapshot of the
+sound: style, humanize, bars, seed, swing, meter, fill, song and form. Tempo is not
+stored, a pad regenerates at whatever the transport says.
+
+- **Store:** click STORE (it lights up), then click a pad. STORE copies what is
+  playing: the pad that is playing if one is, otherwise the knobs. So you can
+  also copy a pad to another slot while jamming.
+- **Play:** click a pad, or send the track MIDI note 36 to 51 (C1 to D#2 in
+  Bitwig's note names, where middle C is C3). The switch lands on the next
+  barline of what is playing: the pad blinks while it waits, and the telegraph
+  line reads `▶ SLOT n NEXT BAR`. A pad that is still generating waits, the press
+  is not lost.
+- **Clear:** right-click a pad.
+- **Leaving the bank:** touching a knob or a stepper hands playback back to the
+  params. A tempo change or a time-signature flip from the host does not: the
+  playing pad stays. Pads re-bake to the new tempo, and pads set to METER Auto
+  also re-bake to the new meter (a pad with a forced meter keeps it).
+- **Saving:** pads are stored with the project and regenerate from their
+  settings. A pad that stored a song remembers it by NAME, so reordering lines in
+  `songs.txt` cannot turn it into a different form.
+- **Pad colours:** dark is empty, faint is stored and still generating, solid is
+  ready, lime with a border is playing, blinking is queued.
+
+drumgen consumes the notes arriving on its track as pad triggers and does not
+pass them on to the drum instrument after it. To play the kit by hand, do it on
+a separate track.
 
 ## 4. Ugritone via yabridge (already set up on this machine)
 
@@ -93,6 +154,11 @@ load slowly the first time under Wine, raise the audio buffer if you get xruns
 while it loads.
 
 ## 5. Troubleshooting
+
+- Something odd mid-jam? The plugin writes one line per decision (transport,
+  host meter flips, pad presses and why one was ignored, switches, bank exits,
+  every generation, a failed build) to `~/drumgen_output/drumgen.log`. Read it
+  with `tail -f` during a session, and attach it to a bug report.
 
 - Reinstalled drumgen but nothing changed? Bitwig keeps the old `.so` in
   memory. Remove the drumgen device and re-add it (or restart Bitwig).

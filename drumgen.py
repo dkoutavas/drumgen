@@ -2,39 +2,52 @@
 import argparse
 import os
 import random
-import subprocess
 import sys
-from pathlib import Path
 
+import arrangement_gen
 from assembler import assemble, assemble_arrangement, assemble_layered
-from cell_library import list_cells, STYLE_POOLS, CELLS, SECTION_PREFERENCES
+from cell_library import list_cells, STYLE_POOLS, SECTION_PREFERENCES
 from midi_engine import write_midi, generate_test_mapping, unique_filepath
+from platform_paths import default_output_dir
+
+OUTPUT_DIR = default_output_dir()
 
 
-def _default_output_dir():
-    """Return the default output directory, using Windows Documents on WSL."""
-    if sys.platform == "win32":
-        return str(Path.home() / "Documents" / "drumgen_output")
-    if Path("/mnt/c").is_dir():
-        try:
-            result = subprocess.run(
-                ["cmd.exe", "/C", "echo %USERNAME%"],
-                capture_output=True, text=True, timeout=5,
-            )
-            win_user = result.stdout.strip()
-            if win_user:
-                return f"/mnt/c/Users/{win_user}/Documents/drumgen_output"
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-    return str(Path(__file__).parent / "output")
+def _validate_args(args):
+    """First problem with the numeric options, as a message, else None.
 
-
-OUTPUT_DIR = _default_output_dir()
+    The engine rejects what it cannot play (tempo, bars, time signature,
+    section names); these are the ranges the --help text promises. Out-of-range
+    values used to be accepted silently: --humanize 5, --swing 2, --vary 3,
+    --variations 0 and --fill-every -1 all ran.
+    """
+    for name, value, lo, hi in (
+        ("--humanize", args.humanize, 0.0, 1.0),
+        ("--swing", args.swing, 0.0, 1.0),
+        ("--vary", args.vary, 0.0, 1.0),
+    ):
+        if value is not None and not lo <= value <= hi:
+            return f"{name} must be between {lo} and {hi}, got {value}"
+    if args.variations < 1:
+        return f"--variations must be at least 1, got {args.variations}"
+    if args.fill_every < 0:
+        return f"--fill-every must be 0 (off) or more, got {args.fill_every}"
+    if args.form_seed is not None and not 0 <= args.form_seed <= arrangement_gen.FORM_SEED_MAX:
+        return f"--form-seed must be between 0 and {arrangement_gen.FORM_SEED_MAX}, got {args.form_seed}"
+    return None
 
 
 def _ts_suffix(time_sig):
     """Return '_3_4' for non-4/4 time sigs, empty string for 4/4."""
     return f"_{time_sig.replace('/', '_')}" if time_sig != "4/4" else ""
+
+
+def _write_musicxml(args, output_path):
+    import notation
+    xml_path = os.path.splitext(output_path)[0] + ".musicxml"
+    notation.mid_to_musicxml(output_path, xml_path,
+                             kit_name=os.path.splitext(os.path.basename(args.kit))[0])
+    print(f"MusicXML saved: {xml_path}")
 
 
 def _print_cells(cells, style_filter):
@@ -101,14 +114,15 @@ def _print_cells(cells, style_filter):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="drumgen v3 — algorithmic drum pattern generator",
+        description="drumgen — algorithmic drum pattern generator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 examples:
   %(prog)s --style screamo --tempo 180 --bars 4
-  %(prog)s --style shellac --tempo 130 --bars 8 --humanize 0.8
+  %(prog)s --style fugazi --tempo 130 --bars 8 --humanize 0.8
   %(prog)s --style euro_screamo -a "8:build 8:drive 4:blast" --tempo 140
-  %(prog)s --style shellac -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+  %(prog)s --style fugazi -a "4:verse@7/8 2:verse@4/4 4:verse@7/8" --tempo 130
+  %(prog)s --style fugazi --form arc --form-seed 42 --tempo 140
   %(prog)s --kick blast_traditional --cymbal shellac_floor_tom_drive --bars 4 --tempo 160
   %(prog)s --style faraquet --generative --variations 3 --tempo 140 --bars 8
   %(prog)s --list-cells
@@ -116,11 +130,12 @@ examples:
   %(prog)s --test-mapping ugritone
 """,
     )
-    parser.add_argument("--style", "-s", type=str, help="Style tag (blast, dbeat, shellac, fugazi, screamo, emoviolence, euro_screamo, black_metal, etc.)")
+    parser.add_argument("--style", "-s", type=str, help="Style (see --list-cells for every style pool: screamo, fugazi, zona, euro_screamo, kidcrash, ...)")
     parser.add_argument("--cell", type=str, help="Exact cell name (overrides --style)")
     parser.add_argument("--tempo", "-t", type=int, default=120, help="BPM (default: 120)")
     parser.add_argument("--bars", "-b", type=int, default=4, help="Number of bars (default: 4)")
-    parser.add_argument("--time-sig", "-ts", type=str, default="4/4", help="Time signature as N/D (default: 4/4)")
+    parser.add_argument("--time-sig", "-ts", type=str, default=None,
+                        help="Time signature as N/D (default: 4/4; with --form, leaving it out lets the form turn meters)")
     parser.add_argument("--humanize", type=float, default=None, help="Humanization 0.0-1.0 (default: per-cell)")
     parser.add_argument("--swing", type=float, default=0.0, help="Swing amount 0.0-1.0 (default: 0.0)")
     parser.add_argument("--fill-every", type=int, default=0, help="Insert fill every N bars (0=none)")
@@ -131,6 +146,11 @@ examples:
     parser.add_argument("--output", "-o", type=str, default=None, help="Output .mid path")
     parser.add_argument("--arrangement", "-a", type=str, default=None,
                         help='Arrangement: "4:build 8:drive@7/8 2:blast". Use @N/M for per-section time sig.')
+    parser.add_argument("--form", type=str, default=None, choices=list(arrangement_gen.FORMS),
+                        help="Generate a song form of this shape (prints the arrangement it played)")
+    parser.add_argument("--form-seed", type=int, default=None,
+                        help=f"Seed for the form's structure, 0-{arrangement_gen.FORM_SEED_MAX} "
+                             "(default: random; --seed still rolls the notes)")
     parser.add_argument("--generative", "-g", action="store_true",
                         help="Use probability grids for generative patterns")
     parser.add_argument("--variations", "-n", type=int, default=1,
@@ -145,6 +165,12 @@ examples:
     parser.add_argument("--test-mapping", type=str, metavar="MAPPING", help="Generate test MIDI for a kit mapping")
 
     args = parser.parse_args()
+    problem = _validate_args(args)
+    if problem:
+        parser.error(problem)
+    # A form may turn meters only while the meter is left on "auto".
+    meter_forced = args.time_sig is not None
+    args.time_sig = args.time_sig or "4/4"
 
     # --list-cells mode
     if args.list_cells:
@@ -163,8 +189,8 @@ examples:
     layer_args = {k: v for k, v in [("kick", args.kick), ("snare", args.snare),
                                      ("cymbal", args.cymbal), ("toms", args.toms)] if v}
     if layer_args:
-        if args.arrangement:
-            parser.error("--kick/--snare/--cymbal/--toms cannot be used with --arrangement")
+        if args.arrangement or args.form:
+            parser.error("--kick/--snare/--cymbal/--toms cannot be used with --arrangement or --form")
         if args.style or args.cell:
             print("Warning: --style/--cell ignored in layer mode", file=sys.stderr)
 
@@ -199,6 +225,22 @@ examples:
         print(f"Events: {len(result['events'])}")
         return
 
+    # Generated form: becomes an arrangement string, then plays like one.
+    form_label = None
+    if args.form:
+        if args.arrangement:
+            parser.error("--form and --arrangement are two ways to say the same thing; use one")
+        if not args.style:
+            parser.error("--form requires --style")
+        if args.form_seed is None:
+            args.form_seed = random.randint(0, arrangement_gen.FORM_SEED_MAX)
+        args.arrangement = arrangement_gen.generate_form(
+            args.form, args.form_seed, style=args.style,
+            home=tuple(int(x) for x in args.time_sig.split("/")), meter_auto=not meter_forced)
+        form_label = arrangement_gen.form_name(args.form, args.form_seed)
+    elif args.form_seed is not None:
+        parser.error("--form-seed needs --form")
+
     # Arrangement mode
     if args.arrangement:
         if not args.style:
@@ -219,7 +261,8 @@ examples:
         if args.output:
             output_path = args.output
         else:
-            output_path = f"{OUTPUT_DIR}/{args.style}_arrangement_{args.tempo}bpm{_ts_suffix(args.time_sig)}.mid"
+            what = f"{args.form}{args.form_seed}" if form_label else "arrangement"
+            output_path = f"{OUTPUT_DIR}/{args.style}_{what}_{args.tempo}bpm{_ts_suffix(args.time_sig)}.mid"
         output_path = unique_filepath(output_path)
 
         write_midi(
@@ -230,6 +273,11 @@ examples:
             output_path=output_path,
         )
 
+        if args.musicxml:
+            _write_musicxml(args, output_path)
+        if form_label:
+            print(f"Form: {form_label} (use --form {args.form} --form-seed {args.form_seed} to reproduce)")
+            print(f"  songs.txt line:  {form_label} | {args.arrangement}")
         print(f"Seed: {result['seed']} (use --seed {result['seed']} to reproduce)")
         print(f"Bars: {result['total_bars']}")
         print(f"Sections: {result['section_summary']}")
@@ -309,11 +357,7 @@ examples:
     )
 
     if args.musicxml:
-        import notation
-        xml_path = os.path.splitext(output_path)[0] + ".musicxml"
-        notation.mid_to_musicxml(output_path, xml_path,
-                                 kit_name=os.path.splitext(os.path.basename(args.kit))[0])
-        print(f"MusicXML saved: {xml_path}")
+        _write_musicxml(args, output_path)
 
     print(f"Seed: {result['seed']} (use --seed {result['seed']} to reproduce)")
     print(f"Events: {len(result['events'])}")
@@ -322,6 +366,8 @@ examples:
 if __name__ == "__main__":
     try:
         main()
-    except (ValueError, KeyError) as e:
-        print(f"Error: {e}", file=sys.stderr)
+    except (ValueError, KeyError, FileNotFoundError) as e:
+        # str(KeyError) is the repr of its message: quotes and a literal \n.
+        msg = e.args[0] if isinstance(e, KeyError) and e.args else e
+        print(f"Error: {msg}", file=sys.stderr)
         sys.exit(1)

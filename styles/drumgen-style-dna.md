@@ -1,5 +1,11 @@
 # DRUMGEN Style DNA Reference Library
 
+> **Status (2026-10-02).** This is genre reference, not an inventory of what the
+> plugin ships. The Shellac sections stay because five `shellac_*` cells still
+> exist, but the `shellac` style pool was removed; Polvo never had a pool; and
+> newer styles (zona, kidcrash, lord_snow, slint, unwound, atdi, preoccupations,
+> …) are not covered here. `python drumgen.py --list-cells` is the truth.
+
 ## How To Use This File
 
 Place this file in your `drumgen/styles/` directory. When asking Claude Code to generate a pattern, reference it:
@@ -73,7 +79,7 @@ Kick:         X     X     X     X     (every sixteenth)
 Snare:        .x    .x    .x    .x    (every sixteenth, flammed ~1 sixteenth AFTER kick)
 ```
 
-Wait, more precisely, the burst beat places kick and snare nearly simultaneously on subdivisions, but with micro-offset:
+More precisely, the burst beat places kick and snare nearly simultaneously on subdivisions, but with micro-offset:
 
 Actual burst beat cell (showing timing in sub-sixteenth resolution):
 ```
