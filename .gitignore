@@ -10,3 +10,6 @@ extracted/
 plugin/target/
 plugin/dist/
 target/
+
+# graphify knowledge-graph output (local tool artifact)
+graphify-out/
