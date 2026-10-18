@@ -219,7 +219,8 @@ pub fn stitch(
         seed: first.seed,
         tempo: first.tempo,
         style_name: "jam".to_string(),
-        song_name: format!("jam {} segments", segments.len()),
+        // The stem is `style_song`, so "jam" must not appear twice.
+        song_name: format!("{} segments", segments.len()),
         arrangement: String::new(),
         sections: Vec::new(),
     };

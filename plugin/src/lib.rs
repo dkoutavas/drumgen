@@ -486,18 +486,15 @@ impl Drumgen {
     /// without a musical anchor of their own, and a run left open would let
     /// the exporter stretch the last pad over material it never played.
     fn end_jam_run(&self, marker: u8) {
-        // Logged either way: a field export once fell back to a whole pattern
-        // pass because the closing marker was missing, and "did it push?" was
-        // not answerable from the log.
-        let pushed = self.active_slot >= 0;
-        if pushed {
-            self.params.bank.jam.push(self.last_abs_tick as i64, marker);
+        // No pad playing means no run to close. Logged only when a marker is
+        // pushed: a SWAP followed by a BANK EXIT or a stop with no JAM END
+        // line is how the log says a run was left open. Logging the skip too
+        // put one line on every param tweak outside the bank.
+        if self.active_slot < 0 {
+            return;
         }
-        self.log(worker::LogEvent::JamEnd {
-            marker,
-            tick: self.last_abs_tick as i64,
-            pushed,
-        });
+        self.params.bank.jam.push(self.last_abs_tick as i64, marker);
+        self.log(worker::LogEvent::JamEnd { marker, tick: self.last_abs_tick as i64 });
     }
 
     /// Sync the GUI's pattern mirror to `slot_patterns`.

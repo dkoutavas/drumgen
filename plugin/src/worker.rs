@@ -41,10 +41,10 @@ pub enum LogEvent {
     /// 1=tempo move, 2=host meter flip (Auto pads only), 3=plugin init,
     /// 4=a slot request got no answer (build panicked or delivery dropped).
     Dirty { mask: u16, cause: u8 },
-    /// A jam run was closed (or the close was skipped because no pad was
-    /// playing). Without this an export that silently fell back to a full
-    /// pattern pass could not be told apart from one that ran correctly.
-    JamEnd { marker: u8, tick: i64, pushed: bool },
+    /// A jam run was closed with an end marker. Without this an export that
+    /// silently fell back to a full pattern pass could not be told apart from
+    /// one that ran correctly. Not logged when no pad was playing (no run).
+    JamEnd { marker: u8, tick: i64 },
 }
 
 /// Append-only session log at `~/drumgen_output/drumgen.log`. Worker-thread
@@ -107,10 +107,9 @@ impl LogSink {
                 "BANK EXIT ({} tweak — params drive playback again)",
                 if knob { "knob" } else { "discrete" }
             ),
-            LogEvent::JamEnd { marker, tick, pushed } => format!(
-                "JAM END ({}) at tick {tick} — {}",
+            LogEvent::JamEnd { marker, tick } => format!(
+                "JAM END ({}) at tick {tick} — recorded",
                 if marker == crate::params::JAM_END_STOP { "stop" } else { "bank exit" },
-                if pushed { "recorded" } else { "SKIPPED: no pad was playing" }
             ),
             LogEvent::Dirty { mask, cause } => format!(
                 "DIRTY {:04X} ({})",
